@@ -68,7 +68,8 @@ created_at timestamptz
 id uuid PK
 user_id uuid FK users
 place_id uuid FK places
-rating int2 CHECK (rating BETWEEN 1 AND 10)
+rating     int2 CHECK (rating BETWEEN 1 AND 10)  -- materialized, recomputed from rank_order
+rank_order float8                                 -- source of truth for comparison ordering (0.0–1.0)
 with_person text (private, never public)
 date_time timestamptz
 duration_minutes int4 (nullable)
@@ -76,6 +77,8 @@ notes text CHECK (char_length(notes) <= 1500) (nullable)
 photos text[] -- storage paths NOT signed URLs
 created_at timestamptz
 ```
+> **Migration needed:** `ALTER TABLE visits ADD COLUMN rank_order float8;`
+> Also add RPC: `log_visit_with_rank(visit_data, rank_order) → inserts visit + recomputes all user ratings`
 
 ### pins (wishlist / saved)
 ```sql
@@ -151,7 +154,7 @@ Tasks:
 Step 1 — Location:
 - "Use my current location" (expo-location, request permission lazily)
 - "Drop a pin" — modal map, long-press places draggable pin, Confirm → lat/lng
-- "Search place" — Mapbox Search Autocomplete → place name + lat/lng
+- "Search place" — free-text search via Nominatim (OpenStreetMap geocoder, no key required) or Apple MapKit JS → place name + lat/lng
 
 Step 2 — Spot details:
 - Title: free text
@@ -169,16 +172,74 @@ Step 3 — Journal:
   - Upload to Supabase Storage `private/{user_id}/{uuid}.jpg`, store path in `visits.photos`
 
 Step 4 — Rating:
-- 1–10 slider
-- Anchor table shown below slider (see design doc for full table)
-- 5 marked as baseline: "Solid — would go back ✓"
+
+**Goal:** Capture how good this spot was relative to all other spots this user has been on dates at, then store it as a 1–10 rating used for pin colors, filters, and sharing.
+
+**Data model:**
+- `visits.rank_order float8` — source of truth for ordering (0.0–1.0, fractional indexing)
+- `visits.rating smallint` — materialized 1–10, recomputed from rank positions after every insert
+- Recomputation is done in a single Postgres RPC call (`log_visit_with_rank`) that inserts the visit and updates all N ratings atomically in one roundtrip
+
+```
+rank_order: 0.0  0.2  0.35  0.5  0.8  1.0
+rating:       1    3    5     6    8   10
+```
+
+**First spot (no existing visits):**
+- Show 1–10 slider with anchor labels:
+  - 1: "Never again"
+  - 5: "Solid — would go back"
+  - 10: "All-time favorite"
+- Show note below: "Rough placement — your rating will update as you log more spots"
+- Store `rank_order = slider_value / 10`, `rating = slider_value`
+
+**Subsequent spots (existing visits present):**
+- Intro: "How good was this spot compared to other places you've been on dates?"
+- Show pairwise comparisons — "Which date spot was better?":
+  - `[📍 Current spot — <title>]`
+  - `[≈ About the same]`
+  - `[📍 <Existing spot title>]`
+- App chooses pivot via binary search (start at middle of sorted `rank_order` list, move bounds up/down based on answer):
+  - New spot wins → `hi = mid`, recurse upper half
+  - About the same → place at `existing.rank_order + ε`, end immediately
+  - Existing spot wins → `lo = mid`, recurse lower half
+- Stop after 7 comparisons or when `hi - lo <= 1` (insertion point is clear)
+- Insert new `rank_order = (visits[lo].rank_order + visits[hi].rank_order) / 2`
+
+**Rating interpolation (runs after every insert, covers all user's visits):**
+```
+rating = round(1 + (rank_index / (total - 1)) * 9)
+guard: if total == 1, rating = 5
+```
+- All N visits' ratings updated in the atomic RPC call (live ratings — pin colors reflect current relative ranking)
+- Pin colors update on map after next query
+
+**On edit (re-rate):**
+- Manual slider override (1–10), stored directly as rating; rank_order set to `(rating - 1) / 9`
+- OR "Re-compare" — lightweight re-insertion: same binary search flow, re-runs full re-rating
+
+**State machine for comparison flow (lives in `useComparisonRating` hook):**
+```
+idle → loadingVisits → comparing[lo, hi, mid, count] → complete → done
+                                                      ↘ abandoned (user quits → no write)
+```
+
+**Error handling (critical — do not skip):**
+- Draft the visit in AsyncStorage before the RPC call
+- On RPC network failure: show retry toast, visit stays in draft state
+- `interpolateRating(n, 1)` must guard against division by zero (total=1 → return 5)
+
+**Known limit (V2 TODO):**
+- After ~52 bisections between the same two adjacent rank_order values, float64 precision is exhausted. Fix: `rebalance(userId)` Postgres function that evenly redistributes rank_order values across [0,1]. Not needed for typical usage.
 
 Submit:
-1. Write `places` row (if new location)
-2. Write `visits` row
-3. Navigate back to Map tab, map re-queries, new pin animates in
+1. Write draft to AsyncStorage
+2. Write `places` row (if new location)
+3. Call `log_visit_with_rank` RPC — inserts visit + recomputes all ratings atomically
+4. Clear draft from AsyncStorage
+5. Navigate back to Map tab, map re-queries, new pin animates in with updated colors
 
-**Exit criteria:** Full 4-step flow completes; visit appears on map; photo upload works; notes char count enforces 1,500 limit; offline submit queues to AsyncStorage with banner.
+**Exit criteria:** Full 4-step flow completes; comparison converges in ≤7 steps; "about the same" ends immediately; visit appears on map with correct color; all N existing pins re-color correctly; network failure shows retry toast; `interpolateRating(n,1)` returns 5.
 
 ---
 
@@ -352,3 +413,19 @@ Tasks:
 - After 5 spots, the map feels satisfying to look at
 - At least one person shares their map without being prompted
 - The share sheet gets used at least once per active user per month
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | Cut Phase 4, add nudge feature, distribution gap flagged |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 6 issues resolved, 2 critical gaps documented |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | Save flow, Step 3 weight, error/empty states, a11y |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **UNRESOLVED:** 0
+- **CRITICAL GAPS (documented, handled):** 2 — RPC network failure needs draft buffer; `interpolateRating(n,1)` needs zero-division guard
+- **VERDICT:** ENG CLEARED — ready to implement Phase 2 Step 4 with comparison rating
