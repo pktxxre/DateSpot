@@ -5,15 +5,11 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { initMapbox } from '@/lib/mapbox';
 import { supabase } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
 // Keep the splash screen visible until we've checked auth state.
 SplashScreen.preventAutoHideAsync();
-
-// Initialize Mapbox once at app start.
-initMapbox();
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -21,8 +21,6 @@ cp .env.example .env
 Fill in:
 - `EXPO_PUBLIC_SUPABASE_URL` — your Supabase project URL
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY` — your Supabase anon/public key
-- `EXPO_PUBLIC_MAPBOX_TOKEN` — Mapbox public access token
-- `MAPBOX_DOWNLOADS_TOKEN` — Mapbox secret token (SDK install only, never commit)
 
 ### 3. Set up Supabase
 
@@ -31,15 +29,7 @@ Fill in:
    `supabase/migrations/20260422000001_initial_schema.sql`
 3. Enable Apple and Google providers in Authentication → Providers
 
-### 4. Set up Mapbox
-
-1. Create an account at [mapbox.com](https://mapbox.com)
-2. Create a **public access token** → `EXPO_PUBLIC_MAPBOX_TOKEN`
-3. Create a **secret token** with `DOWNLOADS:READ` scope → `MAPBOX_DOWNLOADS_TOKEN`
-4. Add the secret token to `~/.gradle/gradle.properties` for Android builds:
-   `MAPBOX_DOWNLOADS_TOKEN=sk.YOUR_TOKEN`
-
-### 5. Install EAS CLI and configure
+### 4. Install EAS CLI and configure
 
 ```bash
 npm install -g eas-cli
@@ -49,7 +39,7 @@ eas init
 
 Replace `YOUR_EAS_PROJECT_ID` in `app.json` with the ID from `eas init`.
 
-### 6. Run with development client (Mapbox requires this — won't work in Expo Go)
+### 5. Run the app
 
 ```bash
 # Build the dev client once

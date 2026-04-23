@@ -23,8 +23,8 @@ Map-first date journal for the actively-dating single person. Open to a map of e
 |-------|--------|-----|
 | Framework | Expo (React Native + TypeScript) | iOS + Android from one codebase |
 | Navigation | expo-router (file-based tabs) | Idiomatic Expo pattern |
-| Maps | @rnmapbox/maps | Mapbox tiles + clustering API |
-| Search | Mapbox Search API | No billing setup, 50k req/mo free |
+| Maps | react-native-maps | Apple Maps on iOS — zero tokens, built into OS |
+| Search | Supabase + geocoding | Place name + lat/lng from reverse geocode |
 | Auth | Supabase Auth | Apple Sign-In, Google, email/password |
 | Database | Supabase Postgres | RLS-first, per-user data model |
 | Storage | Supabase Storage (private bucket) | Photos stored as paths, signed at display time |

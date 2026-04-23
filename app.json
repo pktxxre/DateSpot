@@ -44,12 +44,7 @@
       "expo-location",
       "expo-image-picker",
       "expo-apple-authentication",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": "MAPBOX_DOWNLOADS_TOKEN"
-        }
-      ]
+      "react-native-maps"
     ],
     "experiments": {
       "typedRoutes": true
