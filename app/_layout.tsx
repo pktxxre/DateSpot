@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseConfigError } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
 // Keep the splash screen visible until we've checked auth state.
@@ -25,6 +26,10 @@ export default function RootLayout() {
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
+    if (supabaseConfigError) {
+      SplashScreen.hideAsync();
+      return;
+    }
     // Check existing session on mount.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -41,6 +46,19 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  if (supabaseConfigError) {
+    return (
+      <View style={{ flex: 1, padding: 24, justifyContent: 'center', backgroundColor: '#fff' }}>
+        <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 12, color: '#b00020' }}>
+          Configuration error
+        </Text>
+        <Text style={{ fontSize: 14, lineHeight: 20, color: '#222' }}>
+          {supabaseConfigError}
+        </Text>
+      </View>
+    );
+  }
 
   if (!authChecked) {
     // Still checking auth — keep splash visible.

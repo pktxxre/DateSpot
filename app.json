@@ -10,13 +10,14 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.datespot.app",
+      "bundleIdentifier": "com.pktxxresorganization.datespot",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "DateSpot uses your location to log spots where you go on dates.",
         "NSLocationAlwaysUsageDescription": "DateSpot uses your location to log spots where you go on dates.",
         "NSPhotoLibraryUsageDescription": "DateSpot accesses your photos to attach them to your date journal entries.",
-        "NSCameraUsageDescription": "DateSpot uses your camera to take photos for your date journal entries."
+        "NSCameraUsageDescription": "DateSpot uses your camera to take photos for your date journal entries.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -54,8 +55,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "82dcfa4c-2ba7-4c03-80df-9eabf5fb20ca"
       }
-    }
+    },
+    "owner": "pktxxres-organization"
   }
 }
