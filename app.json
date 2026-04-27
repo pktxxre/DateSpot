@@ -44,8 +44,7 @@
       "expo-font",
       "expo-location",
       "expo-image-picker",
-      "expo-apple-authentication",
-      "react-native-maps"
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true
