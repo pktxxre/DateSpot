@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "DateSpot",
+    "slug": "datespot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "datespot",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.pktxxresorganization.datespot",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DateSpot uses your location to log spots where you go on dates.",
+        "NSLocationAlwaysUsageDescription": "DateSpot uses your location to log spots where you go on dates.",
+        "NSPhotoLibraryUsageDescription": "DateSpot accesses your photos to attach them to your date journal entries.",
+        "NSCameraUsageDescription": "DateSpot uses your camera to take photos for your date journal entries.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.datespot.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "CAMERA"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-location",
+      "expo-image-picker",
+      "expo-apple-authentication",
+      "react-native-maps"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "82dcfa4c-2ba7-4c03-80df-9eabf5fb20ca"
+      }
+    },
+    "owner": "pktxxres-organization"
+  }
+}
