@@ -1,6 +1,27 @@
 import { getDb } from './db';
 
-export type Rating = 1 | 2 | 3; // 1=bad, 2=ok, 3=great
+export type Rating = 1 | 2 | 3;
+export type Price = 1 | 2 | 3; // $ $$ $$$
+export type ActivityType =
+  | 'food'
+  | 'drinks'
+  | 'outdoors'
+  | 'view'
+  | 'culture'
+  | 'entertainment'
+  | 'other';
+
+export const ACTIVITY_TYPES: { value: ActivityType; label: string; emoji: string }[] = [
+  { value: 'food', label: 'Food', emoji: '🍽' },
+  { value: 'drinks', label: 'Drinks', emoji: '🍸' },
+  { value: 'outdoors', label: 'Outdoors', emoji: '🌿' },
+  { value: 'view', label: 'Pretty view', emoji: '🌅' },
+  { value: 'culture', label: 'Culture', emoji: '🎭' },
+  { value: 'entertainment', label: 'Entertainment', emoji: '🎬' },
+  { value: 'other', label: 'Other', emoji: '✨' },
+];
+
+export const PRICE_LABELS: Record<Price, string> = { 1: '$', 2: '$$', 3: '$$$' };
 
 export interface Visit {
   id: string;
@@ -11,6 +32,8 @@ export interface Visit {
   rating: Rating;
   rank_order: number;
   notes: string | null;
+  activity_type: ActivityType;
+  price: Price;
   created_at: string;
 }
 
@@ -22,6 +45,8 @@ export interface NewVisit {
   visited_at: string;
   rank_order: number;
   notes?: string;
+  activity_type: ActivityType;
+  price: Price;
 }
 
 export function getAllVisits(): Visit[] {
@@ -31,20 +56,45 @@ export function getAllVisits(): Visit[] {
   );
 }
 
+export function getVisitsFiltered(opts: {
+  query?: string;
+  activityType?: ActivityType | null;
+  price?: Price | null;
+}): Visit[] {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (opts.query) {
+    conditions.push(`(venue_name LIKE ? OR notes LIKE ?)`);
+    params.push(`%${opts.query}%`, `%${opts.query}%`);
+  }
+  if (opts.activityType) {
+    conditions.push(`activity_type = ?`);
+    params.push(opts.activityType);
+  }
+  if (opts.price) {
+    conditions.push(`price = ?`);
+    params.push(opts.price);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return db.getAllSync<Visit>(
+    `SELECT * FROM visits ${where} ORDER BY rank_order DESC`,
+    params
+  );
+}
+
 export function insertVisit(v: NewVisit): void {
   const db = getDb();
-  // Insert with placeholder rating; recomputeRatings sets the real value
   db.runSync(
-    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null]
+    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price]
   );
   recomputeRatings();
 }
 
-// Recompute 1/2/3 ratings for every visit based on rank_order percentile.
-// Bottom third → 1, middle → 2, top third → 3.
-// Called after every insert so pin colors stay accurate as the list grows.
 export function recomputeRatings(): void {
   const db = getDb();
   const visits = db.getAllSync<{ id: string; rank_order: number }>(
