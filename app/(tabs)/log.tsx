@@ -7,6 +7,7 @@ import {
   TextInput,
   Alert,
   ScrollView,
+  Platform,
 } from 'react-native';
 import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
@@ -14,7 +15,14 @@ import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
-import { getAllVisits, insertVisit, ratingColor, Rating, Visit } from '@/lib/visits';
+import { getAllVisits, insertVisit, ratingColor, Visit } from '@/lib/visits';
+import {
+  startComparison,
+  advance,
+  resolveRankOrder,
+  currentComparison,
+  ComparisonState,
+} from '@/lib/ranking';
 
 const SF_REGION: Region = {
   latitude: 37.7749,
@@ -23,7 +31,7 @@ const SF_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-type Step = 'location' | 'details' | 'rating' | 'done';
+type Step = 'location' | 'details' | 'compare' | 'done';
 
 interface DraftVisit {
   lat: number;
@@ -31,7 +39,6 @@ interface DraftVisit {
   venue_name: string;
   visited_at: string;
   notes: string;
-  rating: Rating;
 }
 
 export default function LogScreen() {
@@ -39,6 +46,7 @@ export default function LogScreen() {
   const [step, setStep] = useState<Step>('location');
   const [draft, setDraft] = useState<Partial<DraftVisit>>({});
   const [droppingPin, setDroppingPin] = useState(false);
+  const [cmpState, setCmpState] = useState<ComparisonState | null>(null);
   const sheetRef = useRef<BottomSheet>(null);
 
   useFocusEffect(
@@ -52,6 +60,7 @@ export default function LogScreen() {
     setStep('location');
     setDraft({});
     setDroppingPin(false);
+    setCmpState(null);
     sheetRef.current?.snapToIndex(0);
   }
 
@@ -90,16 +99,39 @@ export default function LogScreen() {
       Alert.alert('Name required', 'What was this place called?');
       return;
     }
-    setDraft((d) => ({ ...d, visited_at: d.visited_at || new Date().toISOString() }));
-    setStep('rating');
+    const existing = getAllVisits();
+    const initial = startComparison(existing);
+    setCmpState(initial);
+
+    if (initial === null) {
+      // First visit ever — no comparisons needed, save immediately
+      saveVisit(1000);
+      return;
+    }
+
+    setStep('compare');
     sheetRef.current?.snapToIndex(1);
   }
 
-  function handleRatingSelect(rating: Rating) {
+  function handleCompare(result: 'better' | 'worse') {
+    const next = cmpState ? advance(cmpState, result) : null;
+
+    if (next === null) {
+      // Converged or hit max comparisons
+      const existing = getAllVisits();
+      const rank_order = resolveRankOrder(cmpState, existing);
+      saveVisit(rank_order);
+    } else {
+      setCmpState(next);
+    }
+  }
+
+  function saveVisit(rank_order: number) {
     if (!draft.lat || !draft.lng || !draft.venue_name) return;
 
-    const existingVisits = getAllVisits();
-    const rank_order = computeRankOrder(rating, existingVisits);
+    // Derive a simple 1-3 rating from rank_order position among all visits
+    const existing = getAllVisits();
+    const rating = deriveRating(rank_order, existing);
 
     insertVisit({
       id: Crypto.randomUUID(),
@@ -117,17 +149,19 @@ export default function LogScreen() {
     sheetRef.current?.snapToIndex(1);
   }
 
-  // Placeholder rank_order — full pairwise comparison ships in Phase 2
-  function computeRankOrder(rating: Rating, existing: Visit[]): number {
-    const same = existing.filter((v) => v.rating === rating);
-    if (same.length === 0) {
-      return rating === 3 ? 1000 : rating === 2 ? 500 : 100;
-    }
-    const ranks = same.map((v) => v.rank_order);
-    return Math.max(...ranks) + 1;
+  // Assign a 1/2/3 rating based on where the visit lands in the overall ranking.
+  // Bottom third = 1 (bad), middle = 2 (ok), top third = 3 (great).
+  // With 0 existing visits this is called with rank_order=1000 → rating 3.
+  function deriveRating(rank_order: number, existing: Visit[]): 1 | 2 | 3 {
+    const all = [...existing.map((v) => v.rank_order), rank_order].sort((a, b) => a - b);
+    const pos = all.indexOf(rank_order);
+    const pct = all.length === 1 ? 1 : pos / (all.length - 1);
+    if (pct >= 0.67) return 3;
+    if (pct >= 0.34) return 2;
+    return 1;
   }
 
-  const snapPoints = ['30%', '60%'];
+  const snapPoints = ['30%', '65%'];
 
   return (
     <View style={styles.container}>
@@ -177,10 +211,13 @@ export default function LogScreen() {
               onBack={resetFlow}
             />
           )}
-          {step === 'rating' && (
-            <RatingStep
-              venueName={draft.venue_name || ''}
-              onSelect={handleRatingSelect}
+          {step === 'compare' && cmpState && (
+            <CompareStep
+              newVenueName={draft.venue_name || ''}
+              opponent={currentComparison(cmpState)}
+              comparisonNumber={cmpState.count + 1}
+              onBetter={() => handleCompare('better')}
+              onWorse={() => handleCompare('worse')}
               onBack={() => { setStep('details'); sheetRef.current?.snapToIndex(1); }}
             />
           )}
@@ -195,6 +232,8 @@ export default function LogScreen() {
     </View>
   );
 }
+
+// ---- Step sub-components ----
 
 function LocationStep({ onUseLocation, onDropPin, onSearch }: {
   onUseLocation: () => void;
@@ -215,11 +254,7 @@ function LocationStep({ onUseLocation, onDropPin, onSearch }: {
 }
 
 function CircleButton({ icon, label, sublabel, onPress, tint }: {
-  icon: string;
-  label: string;
-  sublabel: string;
-  onPress: () => void;
-  tint: string;
+  icon: string; label: string; sublabel: string; onPress: () => void; tint: string;
 }) {
   return (
     <Pressable style={styles.circleBtn} onPress={onPress}>
@@ -252,8 +287,16 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
         returnKeyType="next"
       />
       <TextInput
+        style={styles.input}
+        placeholder="Date (e.g. Apr 28)"
+        placeholderTextColor="#c7c7cc"
+        value={draft.visited_at || ''}
+        onChangeText={(v) => onChange('visited_at', v)}
+        returnKeyType="next"
+      />
+      <TextInput
         style={[styles.input, styles.inputMultiline]}
-        placeholder="Notes (optional) — what made it good or bad?"
+        placeholder="Notes (optional) — what made it memorable?"
         placeholderTextColor="#c7c7cc"
         value={draft.notes || ''}
         onChangeText={(v) => onChange('notes', v)}
@@ -272,28 +315,39 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   );
 }
 
-function RatingStep({ venueName, onSelect, onBack }: {
-  venueName: string;
-  onSelect: (r: Rating) => void;
+function CompareStep({ newVenueName, opponent, comparisonNumber, onBetter, onWorse, onBack }: {
+  newVenueName: string;
+  opponent: Visit;
+  comparisonNumber: number;
+  onBetter: () => void;
+  onWorse: () => void;
   onBack: () => void;
 }) {
   return (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>How was it?</Text>
-      <Text style={styles.stepSubtitle}>{venueName} · Step 3 of 4</Text>
-      <View style={styles.ratingRow}>
-        <Pressable style={[styles.ratingBtn, { backgroundColor: '#ff3b30' }]} onPress={() => onSelect(1)}>
-          <Text style={styles.ratingBtnText}>😬{'\n'}Bad</Text>
+      <Text style={styles.stepTitle}>Which was better?</Text>
+      <Text style={styles.stepSubtitle}>Ranking · {comparisonNumber} of up to 7</Text>
+
+      <View style={styles.compareRow}>
+        <Pressable style={[styles.compareCard, styles.compareCardNew]} onPress={onBetter}>
+          <Text style={styles.compareCardEmoji}>✨</Text>
+          <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
+          <Text style={styles.compareCardLabel}>This one</Text>
         </Pressable>
-        <Pressable style={[styles.ratingBtn, { backgroundColor: '#ff9500' }]} onPress={() => onSelect(2)}>
-          <Text style={styles.ratingBtnText}>😐{'\n'}OK</Text>
-        </Pressable>
-        <Pressable style={[styles.ratingBtn, { backgroundColor: '#34c759' }]} onPress={() => onSelect(3)}>
-          <Text style={styles.ratingBtnText}>😍{'\n'}Great</Text>
+
+        <View style={styles.compareVs}>
+          <Text style={styles.compareVsText}>vs</Text>
+        </View>
+
+        <Pressable style={[styles.compareCard, styles.compareCardOld]} onPress={onWorse}>
+          <View style={[styles.compareCardBadge, { backgroundColor: ratingColor(opponent.rating) }]} />
+          <Text style={styles.compareCardName} numberOfLines={2}>{opponent.venue_name}</Text>
+          <Text style={styles.compareCardLabel}>That one</Text>
         </Pressable>
       </View>
+
       <Pressable style={styles.btnSecondaryCenter} onPress={onBack}>
-        <Text style={styles.btnSecondaryText}>Back</Text>
+        <Text style={styles.btnSecondaryText}>Start over</Text>
       </Pressable>
     </View>
   );
@@ -393,14 +447,60 @@ const styles = StyleSheet.create({
   },
   btnSecondaryText: { color: '#1c1c1e', fontSize: 16, fontWeight: '600' },
 
-  ratingRow: { flexDirection: 'row', gap: 12, marginBottom: 8 },
-  ratingBtn: {
+  compareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  compareCard: {
     flex: 1,
     borderRadius: 16,
-    paddingVertical: 20,
+    padding: 16,
     alignItems: 'center',
+    gap: 8,
+    minHeight: 120,
+    justifyContent: 'center',
   },
-  ratingBtnText: { color: '#fff', fontSize: 14, fontWeight: '700', textAlign: 'center', lineHeight: 22 },
+  compareCardNew: {
+    backgroundColor: '#fff5f7',
+    borderWidth: 2,
+    borderColor: '#ff3b5c',
+  },
+  compareCardOld: {
+    backgroundColor: '#f2f2f7',
+    borderWidth: 2,
+    borderColor: '#e5e5ea',
+  },
+  compareCardEmoji: { fontSize: 24 },
+  compareCardBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  compareCardName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1c1c1e',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  compareCardLabel: {
+    fontSize: 11,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  compareVs: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f2f2f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compareVsText: { fontSize: 12, fontWeight: '700', color: '#8e8e93' },
 
   doneContainer: { alignItems: 'center', paddingTop: 16 },
   doneEmoji: { fontSize: 48, marginBottom: 12 },
