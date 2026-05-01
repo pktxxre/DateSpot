@@ -1,6 +1,6 @@
 import { getDb } from './db';
 
-export type Rating = 1 | 2 | 3;
+export type Rating = number;
 export type Price = 1 | 2 | 3; // $ $$ $$$
 export type ActivityType =
   | 'food'
@@ -105,7 +105,7 @@ export function recomputeRatings(): void {
   const n = visits.length;
   visits.forEach((v, i) => {
     const pct = n === 1 ? 1 : i / (n - 1);
-    const rating: Rating = pct >= 0.67 ? 3 : pct >= 0.34 ? 2 : 1;
+    const rating = Math.round(pct * 9) + 1; // 1–10 scale
     db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rating, v.id]);
   });
 }
@@ -115,10 +115,8 @@ export function updateRankOrder(id: string, rank_order: number): void {
   db.runSync('UPDATE visits SET rank_order = ? WHERE id = ?', [rank_order, id]);
 }
 
-export function ratingColor(rating: Rating): string {
-  switch (rating) {
-    case 3: return '#34c759';
-    case 2: return '#ff9500';
-    case 1: return '#ff3b30';
-  }
+export function ratingColor(rating: number): string {
+  if (rating >= 7) return '#34c759';
+  if (rating >= 4) return '#ff9500';
+  return '#ff3b30';
 }

@@ -11,8 +11,8 @@ export default function HomeScreen() {
     useCallback(() => { setVisits(getAllVisits()); }, [])
   );
 
-  const topPicks = visits.filter((v) => v.rating === 3).slice(0, 10);
-  const tryAgain = visits.filter((v) => v.rating === 2).slice(0, 10);
+  const topPicks = visits.filter((v) => v.rating >= 7).slice(0, 10);
+  const tryAgain = visits.filter((v) => v.rating >= 4 && v.rating < 7).slice(0, 10);
   const ranked = [...visits].sort((a, b) => b.rank_order - a.rank_order);
 
   if (visits.length === 0) {
@@ -92,7 +92,9 @@ function SpotCard({ visit }: { visit: Visit }) {
   const info = ACTIVITY_TYPES.find((a) => a.value === visit.activity_type);
   return (
     <View style={styles.card}>
-      <View style={[styles.cardDot, { backgroundColor: ratingColor(visit.rating) }]} />
+      <View style={[styles.cardScore, { backgroundColor: ratingColor(visit.rating) }]}>
+        <Text style={styles.cardScoreText}>{visit.rating}</Text>
+      </View>
       <Text style={styles.cardName} numberOfLines={2}>{visit.venue_name}</Text>
       <View style={styles.cardMeta}>
         <Text style={styles.cardMetaText}>{info?.emoji} {info?.label}</Text>
@@ -108,7 +110,6 @@ function RankedRow({ visit, rank }: { visit: Visit; rank: number }) {
   return (
     <View style={styles.rankedRow}>
       <Text style={styles.rankNumber}>{rank}</Text>
-      <View style={[styles.rankDot, { backgroundColor: ratingColor(visit.rating) }]} />
       <View style={{ flex: 1 }}>
         <Text style={styles.rankName} numberOfLines={1}>{visit.venue_name}</Text>
         <Text style={styles.rankMeta}>
@@ -117,7 +118,7 @@ function RankedRow({ visit, rank }: { visit: Visit; rank: number }) {
       </View>
       <View style={[styles.rankBadge, { backgroundColor: ratingColor(visit.rating) + '22' }]}>
         <Text style={[styles.rankBadgeText, { color: ratingColor(visit.rating) }]}>
-          {visit.rating === 3 ? 'Great' : visit.rating === 2 ? 'OK' : 'Bad'}
+          {visit.rating}
         </Text>
       </View>
     </View>
@@ -134,7 +135,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1c1c1e', marginBottom: 2 },
   sectionSub: { fontSize: 13, color: '#8e8e93', marginBottom: 14 },
   card: { width: 160, backgroundColor: '#f9f9f9', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#f0f0f0' },
-  cardDot: { width: 12, height: 12, borderRadius: 6, marginBottom: 10, borderWidth: 2, borderColor: '#fff' },
+  cardScore: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  cardScoreText: { fontSize: 14, fontWeight: '800', color: '#fff' },
   cardName: { fontSize: 14, fontWeight: '700', color: '#1c1c1e', marginBottom: 8, lineHeight: 18 },
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cardMetaText: { fontSize: 12, color: '#8e8e93' },
@@ -144,7 +146,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
   },
   rankNumber: { fontSize: 16, fontWeight: '700', color: '#c7c7cc', width: 24, textAlign: 'center' },
-  rankDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#fff', flexShrink: 0 },
   rankName: { fontSize: 15, fontWeight: '600', color: '#1c1c1e' },
   rankMeta: { fontSize: 12, color: '#8e8e93', marginTop: 2 },
   rankBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },

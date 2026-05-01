@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { initDb } from '@/lib/db';
+import { recomputeRatings } from '@/lib/visits';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -12,7 +13,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDb()
-      .then(() => setDbReady(true))
+      .then(() => { recomputeRatings(); setDbReady(true); })
       .catch(console.error);
   }, []);
 
