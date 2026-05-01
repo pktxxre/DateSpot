@@ -105,7 +105,7 @@ export function recomputeRatings(): void {
   const n = visits.length;
   visits.forEach((v, i) => {
     const pct = n === 1 ? 1 : i / (n - 1);
-    const rating = Math.round(pct * 100) / 10; // 0.0–10.0, one decimal
+    const rating = Math.round((0.1 + pct * 9.9) * 10) / 10; // 0.1–10.0, one decimal
     db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rating, v.id]);
   });
 }
