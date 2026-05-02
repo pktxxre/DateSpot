@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image,
+  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView,
 } from 'react-native';
 import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
@@ -8,8 +8,6 @@ import * as Location from 'expo-location';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import {
   getAllVisits, insertVisit, ratingColor, formatRating, Visit,
   ActivityType, Price, ACTIVITY_TYPES, PRICE_LABELS,
@@ -37,7 +35,6 @@ interface DraftVisit {
   notes: string;
   activity_type: ActivityType;
   price: Price;
-  photos: string[];
 }
 
 export default function MapScreen() {
@@ -195,7 +192,6 @@ export default function MapScreen() {
       notes: draft.notes || undefined,
       activity_type: draft.activity_type || 'other',
       price: draft.price || 2,
-      photos: draft.photos || [],
     });
     setVisits(getAllVisits());
     setStep('done');
@@ -372,21 +368,6 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   onNext: () => void;
   onBack: () => void;
 }) {
-  async function pickPhotos() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Alert.alert('Permission needed', 'Enable photo access in Settings.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.85,
-    });
-    if (result.canceled) return;
-    const current = draft.photos || [];
-    onChange('photos', [...current, ...result.assets.map((a) => a.uri)]);
-  }
-
-  const photos = draft.photos || [];
-
   return (
     <ScrollView style={styles.stepContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.stepTitle}>Tell me about it</Text>
@@ -455,26 +436,6 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
         multiline
         numberOfLines={3}
       />
-
-      <Text style={styles.sectionLabel}>Photos</Text>
-      <View style={styles.photoPickerRow}>
-        {photos.map((uri, idx) => (
-          <View key={idx} style={styles.draftPhotoWrap}>
-            <Image source={{ uri }} style={styles.draftPhoto} resizeMode="cover" />
-            <Pressable
-              style={styles.draftPhotoRemove}
-              onPress={() => onChange('photos', photos.filter((_, i) => i !== idx))}
-              hitSlop={4}
-            >
-              <Ionicons name="close-circle" size={18} color="#ff3b30" />
-            </Pressable>
-          </View>
-        ))}
-        <Pressable style={styles.photoAddBtn} onPress={pickPhotos}>
-          <Ionicons name="camera-outline" size={22} color="#8e8e93" />
-          <Text style={styles.photoAddBtnText}>Add</Text>
-        </Pressable>
-      </View>
 
       <View style={styles.btnRow}>
         <Pressable style={styles.btnSecondary} onPress={onBack}>
@@ -663,17 +624,6 @@ const styles = StyleSheet.create({
     fontSize: 15, color: '#1c1c1e', marginBottom: 12,
   },
   inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
-
-  photoPickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  draftPhotoWrap: { position: 'relative' },
-  draftPhoto: { width: 64, height: 64, borderRadius: 10, backgroundColor: '#f2f2f7' },
-  draftPhotoRemove: { position: 'absolute', top: -6, right: -6 },
-  photoAddBtn: {
-    width: 64, height: 64, borderRadius: 10,
-    backgroundColor: '#f2f2f7', borderWidth: 1.5, borderColor: '#e5e5ea',
-    alignItems: 'center', justifyContent: 'center', gap: 2,
-  },
-  photoAddBtnText: { fontSize: 11, color: '#8e8e93', fontWeight: '500' },
 
   triageRow: { flexDirection: 'row', gap: 12 },
   triageBtn: {
