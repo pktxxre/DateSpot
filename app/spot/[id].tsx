@@ -16,7 +16,7 @@ import {
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = 20;
 const PHOTO_COLS = 3;
-const PHOTO_GAP = 2;
+const PHOTO_GAP = 4;
 const PHOTO_SIZE = (SCREEN_W - H_PAD * 2 - PHOTO_GAP * (PHOTO_COLS - 1)) / PHOTO_COLS;
 
 export default function SpotDetailScreen() {
@@ -52,18 +52,20 @@ export default function SpotDetailScreen() {
   }
 
   const info = ACTIVITY_TYPES.find((a) => a.value === visit.activity_type);
+  const color = ratingColor(visit.rating);
 
   return (
     <View style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safeHeader} edges={['top']}>
+
+      <SafeAreaView style={styles.headerSafe} edges={['top']}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="chevron-back" size={28} color="#1c1c1e" />
+            <Ionicons name="chevron-back" size={26} color="#78350f" />
           </Pressable>
-          <Text style={styles.headerTitle} numberOfLines={1}>{visit.venue_name}</Text>
+          <View style={{ flex: 1 }} />
           <Pressable onPress={handleMenu} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="ellipsis-horizontal" size={22} color="#1c1c1e" />
+            <Ionicons name="ellipsis-horizontal" size={22} color="#78350f" />
           </Pressable>
         </View>
       </SafeAreaView>
@@ -73,45 +75,44 @@ export default function SpotDetailScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Rating + meta */}
-        <View style={styles.metaRow}>
-          <View style={[styles.scorePill, { backgroundColor: ratingColor(visit.rating) }]}>
-            <Text style={styles.scoreText}>{formatRating(visit.rating)}</Text>
+        {/* Hero */}
+        <View style={styles.hero}>
+          <View style={[styles.ratingBadge, { backgroundColor: color }]}>
+            <Text style={styles.ratingScore}>{formatRating(visit.rating)}</Text>
+            <Text style={styles.ratingLabel}>/ 10</Text>
           </View>
-          <Text style={styles.metaText}>{info?.emoji} {info?.label}</Text>
-          <Text style={styles.metaDot}>·</Text>
-          <Text style={styles.metaText}>{PRICE_LABELS[visit.price as Price]}</Text>
-          {visit.visited_at ? (
-            <>
-              <Text style={styles.metaDot}>·</Text>
-              <Text style={styles.metaText}>{visit.visited_at}</Text>
-            </>
-          ) : null}
+          <Text style={styles.venueName}>{visit.venue_name}</Text>
+          <View style={styles.badges}>
+            {info && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{info.emoji}  {info.label}</Text>
+              </View>
+            )}
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{PRICE_LABELS[visit.price as Price]}</Text>
+            </View>
+            {visit.visited_at ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{visit.visited_at}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        {/* Photos grid */}
-        {visit.photos.length > 0 && (
-          <View style={styles.photosSection}>
-            <View style={styles.photosSectionHeader}>
-              <Text style={styles.sectionLabel}>Photos</Text>
-            </View>
-            <View style={styles.photosGrid}>
-              {visit.photos.map((uri, idx) => (
-                <Image
-                  key={idx}
-                  source={{ uri }}
-                  style={styles.photoThumb}
-                  resizeMode="cover"
-                />
-              ))}
+        {/* Notes */}
+        {visit.notes ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Notes</Text>
+            <View style={styles.notesCard}>
+              <Text style={styles.notesText}>{visit.notes}</Text>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {/* Map + Notes squares */}
-        <View style={styles.squaresRow}>
-          {/* Mini map */}
-          <Pressable style={styles.squareWrap} onPress={() => setMapExpanded(true)}>
+        {/* Map card */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Location</Text>
+          <Pressable style={styles.mapCard} onPress={() => setMapExpanded(true)}>
             <MapView
               style={StyleSheet.absoluteFill}
               region={{
@@ -132,62 +133,79 @@ export default function SpotDetailScreen() {
               pointerEvents="none"
             >
               <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
-                <View style={[styles.pinBadge, { backgroundColor: ratingColor(visit.rating) }]}>
+                <View style={[styles.pinBadge, { backgroundColor: color }]}>
                   <Text style={styles.pinScore}>{formatRating(visit.rating)}</Text>
                 </View>
               </Marker>
             </MapView>
-            <View style={styles.expandBadge}>
+            <View style={styles.mapExpandHint}>
               <Ionicons name="expand-outline" size={13} color="#fff" />
+              <Text style={styles.mapExpandText}>Tap to explore</Text>
             </View>
           </Pressable>
-
-          {/* Notes */}
-          <View style={[styles.squareWrap, styles.notesWrap]}>
-            {visit.notes ? (
-              <Text style={styles.notesText} numberOfLines={8}>{visit.notes}</Text>
-            ) : (
-              <Text style={styles.notesEmpty}>No notes</Text>
-            )}
-          </View>
         </View>
 
+        {/* Photos grid */}
+        {visit.photos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Photos</Text>
+            <View style={styles.photosGrid}>
+              {visit.photos.map((uri, idx) => (
+                <Image
+                  key={idx}
+                  source={{ uri }}
+                  style={styles.photoThumb}
+                  resizeMode="cover"
+                />
+              ))}
+            </View>
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Full-screen map modal */}
+      {/* Full-screen map modal — MapView fills entirely, header overlays on top */}
       <Modal visible={mapExpanded} animationType="slide">
         <View style={styles.fullMapRoot}>
-          <SafeAreaView style={styles.modalSafe} edges={['top']}>
-            <View style={styles.modalHeader}>
-              <Pressable onPress={() => setMapExpanded(false)} hitSlop={12} style={styles.headerBtn}>
-                <Ionicons name="chevron-back" size={28} color="#1c1c1e" />
-              </Pressable>
-              <Text style={styles.modalTitle} numberOfLines={1}>{visit.venue_name}</Text>
-              <View style={{ width: 40 }} />
-            </View>
-          </SafeAreaView>
           <MapView
-            style={{ flex: 1 }}
+            style={StyleSheet.absoluteFill}
             initialRegion={{
               latitude: visit.lat,
               longitude: visit.lng,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
+              latitudeDelta: 0.012,
+              longitudeDelta: 0.012,
             }}
             showsUserLocation={false}
             showsPointsOfInterest={false}
             mapType="standard"
           >
             <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
-              <View style={[styles.pinBadge, { backgroundColor: ratingColor(visit.rating) }]}>
+              <View style={[styles.pinBadge, { backgroundColor: color }]}>
                 <Text style={styles.pinScore}>{formatRating(visit.rating)}</Text>
               </View>
             </Marker>
           </MapView>
+
+          {/* Overlay header — rendered after MapView so it's on top in z-order */}
+          <SafeAreaView style={styles.modalOverlay} edges={['top']} pointerEvents="box-none">
+            <View style={styles.modalHeader} pointerEvents="auto">
+              <Pressable
+                onPress={() => setMapExpanded(false)}
+                hitSlop={16}
+                style={styles.modalBackBtn}
+              >
+                <Ionicons name="chevron-back" size={22} color="#1c1c1e" />
+              </Pressable>
+              <View style={styles.modalTitlePill}>
+                <Text style={styles.modalTitleText} numberOfLines={1}>{visit.venue_name}</Text>
+              </View>
+              <View style={{ width: 44 }} />
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
 
-      {/* Edit modal */}
       {editing && (
         <EditModal
           visit={visit}
@@ -309,59 +327,102 @@ function EditModal({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
-  safeHeader: { backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e5ea' },
+  root: { flex: 1, backgroundColor: '#fff8ee' },
+
+  headerSafe: { backgroundColor: '#fff8ee' },
   header: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 8, paddingVertical: 6,
+    paddingHorizontal: 8, paddingVertical: 4,
   },
-  headerBtn: { width: 40, alignItems: 'center' },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: '600', color: '#1c1c1e', textAlign: 'center' },
+  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 48 },
+  scrollContent: { paddingBottom: 20 },
 
-  metaRow: {
-    flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap',
-    gap: 8, paddingHorizontal: H_PAD, paddingTop: 20, paddingBottom: 4,
+  hero: {
+    paddingHorizontal: H_PAD,
+    paddingTop: 8,
+    paddingBottom: 28,
+    borderBottomWidth: 1,
+    borderBottomColor: '#fde8c8',
+    marginBottom: 4,
   },
-  scorePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
-  scoreText: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  metaText: { fontSize: 14, color: '#3a3a3c' },
-  metaDot: { fontSize: 14, color: '#c7c7cc' },
+  ratingBadge: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    marginBottom: 14,
+    gap: 3,
+  },
+  ratingScore: { fontSize: 26, fontWeight: '800', color: '#fff' },
+  ratingLabel: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.75)' },
 
-  photosSection: { paddingHorizontal: H_PAD, marginTop: 24 },
-  photosSectionHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  venueName: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#431407',
+    lineHeight: 32,
+    letterSpacing: -0.5,
+    marginBottom: 14,
+  },
+
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  badge: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#fde8c8',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  badgeText: { fontSize: 13, fontWeight: '500', color: '#92400e' },
+
+  section: { paddingHorizontal: H_PAD, marginTop: 24 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#b45309',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
     marginBottom: 10,
   },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#8e8e93', textTransform: 'uppercase', letterSpacing: 0.5 },
-  photosGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: PHOTO_GAP,
-  },
-  photoThumb: {
-    width: PHOTO_SIZE,
-    height: PHOTO_SIZE,
-    borderRadius: 6,
-    backgroundColor: '#f2f2f7',
-  },
 
-  squaresRow: {
-    flexDirection: 'row', gap: 12,
-    paddingHorizontal: H_PAD, marginTop: 24,
+  notesCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#fde8c8',
+    shadowColor: '#d97706',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
   },
-  squareWrap: {
-    flex: 1, aspectRatio: 1,
-    borderRadius: 16, overflow: 'hidden',
-    backgroundColor: '#f2f2f7',
+  notesText: { fontSize: 15, color: '#431407', lineHeight: 22 },
+
+  mapCard: {
+    height: 220,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#e8e8ed',
   },
-  expandBadge: {
-    position: 'absolute', bottom: 8, right: 8,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 6, padding: 4,
+  mapExpandHint: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
+  mapExpandText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+
   pinBadge: {
     minWidth: 38, height: 24, borderRadius: 12,
     paddingHorizontal: 7,
@@ -372,17 +433,60 @@ const styles = StyleSheet.create({
   },
   pinScore: { fontSize: 11, fontWeight: '800', color: '#fff' },
 
-  notesWrap: { padding: 16 },
-  notesText: { fontSize: 14, color: '#3a3a3c', lineHeight: 20 },
-  notesEmpty: { fontSize: 14, color: '#c7c7cc', fontStyle: 'italic' },
-
-  fullMapRoot: { flex: 1, backgroundColor: '#fff' },
-  modalSafe: { backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e5e5ea' },
-  modalHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 8, paddingVertical: 6,
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: PHOTO_GAP,
   },
-  modalTitle: { flex: 1, fontSize: 17, fontWeight: '600', color: '#1c1c1e', textAlign: 'center' },
+  photoThumb: {
+    width: PHOTO_SIZE,
+    height: PHOTO_SIZE,
+    borderRadius: 10,
+    backgroundColor: '#f2f2f7',
+  },
+
+  // Full-screen map modal
+  fullMapRoot: { flex: 1 },
+
+  // Overlay sits on top of the MapView — must come after MapView in JSX
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  modalBackBtn: {
+    width: 44, height: 44,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+  },
+  modalTitlePill: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  modalTitleText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1c1c1e',
+    textAlign: 'center',
+  },
 });
 
 const editStyles = StyleSheet.create({
@@ -396,7 +500,10 @@ const editStyles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '600', color: '#1c1c1e' },
   save: { fontSize: 16, fontWeight: '600', color: '#ff3b5c' },
   form: { paddingHorizontal: 20, paddingTop: 16 },
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#8e8e93', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionLabel: {
+    fontSize: 13, fontWeight: '600', color: '#8e8e93',
+    marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5,
+  },
   input: {
     backgroundColor: '#f2f2f7', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14,
