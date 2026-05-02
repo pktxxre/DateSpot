@@ -37,6 +37,12 @@
         {
           "locationWhenInUsePermission": "DateSpot uses your location to help log where your dates happened."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DateSpot needs photo access to add photos to your date spots."
+        }
       ]
     ],
     "experiments": {

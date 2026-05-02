@@ -91,7 +91,7 @@ export default function HomeScreen() {
 function SpotCard({ visit }: { visit: Visit }) {
   const info = ACTIVITY_TYPES.find((a) => a.value === visit.activity_type);
   return (
-    <View style={styles.card}>
+    <Pressable style={({ pressed }) => [styles.card, pressed && { opacity: 0.75 }]} onPress={() => router.push(`/spot/${visit.id}`)}>
       <View style={[styles.cardScore, { backgroundColor: ratingColor(visit.rating) }]}>
         <Text style={styles.cardScoreText}>{formatRating(visit.rating)}</Text>
       </View>
@@ -101,14 +101,17 @@ function SpotCard({ visit }: { visit: Visit }) {
         <Text style={styles.cardMetaDot}>·</Text>
         <Text style={styles.cardMetaText}>{PRICE_LABELS[visit.price as Price]}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 function RankedRow({ visit, rank }: { visit: Visit; rank: number }) {
   const info = ACTIVITY_TYPES.find((a) => a.value === visit.activity_type);
   return (
-    <View style={styles.rankedRow}>
+    <Pressable
+      style={({ pressed }) => [styles.rankedRow, pressed && { opacity: 0.65 }]}
+      onPress={() => router.push(`/spot/${visit.id}`)}
+    >
       <Text style={styles.rankNumber}>{rank}</Text>
       <View style={{ flex: 1 }}>
         <Text style={styles.rankName} numberOfLines={1}>{visit.venue_name}</Text>
@@ -121,7 +124,7 @@ function RankedRow({ visit, rank }: { visit: Visit; rank: number }) {
           {formatRating(visit.rating)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

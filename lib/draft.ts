@@ -8,6 +8,7 @@ export interface LogDraft {
   venue_name?: string;
   visited_at?: string;
   notes?: string;
+  photos?: string[];
   step: 'location' | 'details' | 'triage' | 'compare' | 'done';
   savedAt: string;
 }

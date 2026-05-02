@@ -44,4 +44,7 @@ export async function initDb(): Promise<void> {
   if (!cols.includes('price')) {
     db.runSync(`ALTER TABLE visits ADD COLUMN price INTEGER NOT NULL DEFAULT 2`);
   }
+  if (!cols.includes('photos')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN photos TEXT`);
+  }
 }

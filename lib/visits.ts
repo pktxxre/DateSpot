@@ -35,6 +35,7 @@ export interface Visit {
   activity_type: ActivityType;
   price: Price;
   created_at: string;
+  photos: string[];
 }
 
 export interface NewVisit {
@@ -47,13 +48,20 @@ export interface NewVisit {
   notes?: string;
   activity_type: ActivityType;
   price: Price;
+  photos?: string[];
+}
+
+function parseRow(row: any): Visit {
+  return {
+    ...row,
+    photos: row.photos ? JSON.parse(row.photos) : [],
+  };
 }
 
 export function getAllVisits(): Visit[] {
   const db = getDb();
-  return db.getAllSync<Visit>(
-    'SELECT * FROM visits ORDER BY rank_order DESC'
-  );
+  const rows = db.getAllSync<any>('SELECT * FROM visits ORDER BY rank_order DESC');
+  return rows.map(parseRow);
 }
 
 export function getVisitsFiltered(opts: {
@@ -79,20 +87,53 @@ export function getVisitsFiltered(opts: {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  return db.getAllSync<Visit>(
+  const rows = db.getAllSync<any>(
     `SELECT * FROM visits ${where} ORDER BY rank_order DESC`,
     params
   );
+  return rows.map(parseRow);
+}
+
+export function getVisitById(id: string): Visit | null {
+  const db = getDb();
+  const row = db.getFirstSync<any>('SELECT * FROM visits WHERE id = ?', [id]);
+  return row ? parseRow(row) : null;
 }
 
 export function insertVisit(v: NewVisit): void {
   const db = getDb();
   db.runSync(
-    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price]
+    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price, photos)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price, JSON.stringify(v.photos ?? [])]
   );
   recomputeRatings();
+}
+
+export function deleteVisit(id: string): void {
+  const db = getDb();
+  db.runSync('DELETE FROM visits WHERE id = ?', [id]);
+  recomputeRatings();
+}
+
+export function updateVisit(
+  id: string,
+  updates: Partial<Pick<Visit, 'venue_name' | 'notes' | 'visited_at' | 'activity_type' | 'price' | 'photos'>>
+): void {
+  const db = getDb();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  if (updates.venue_name !== undefined) { fields.push('venue_name = ?'); values.push(updates.venue_name); }
+  if (updates.notes !== undefined) { fields.push('notes = ?'); values.push(updates.notes ?? null); }
+  if (updates.visited_at !== undefined) { fields.push('visited_at = ?'); values.push(updates.visited_at); }
+  if (updates.activity_type !== undefined) { fields.push('activity_type = ?'); values.push(updates.activity_type); }
+  if (updates.price !== undefined) { fields.push('price = ?'); values.push(updates.price); }
+  if (updates.photos !== undefined) { fields.push('photos = ?'); values.push(JSON.stringify(updates.photos)); }
+
+  if (fields.length === 0) return;
+  values.push(id);
+  db.runSync(`UPDATE visits SET ${fields.join(', ')} WHERE id = ?`, values);
 }
 
 export function recomputeRatings(): void {
