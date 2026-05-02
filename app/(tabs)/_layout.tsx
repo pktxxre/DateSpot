@@ -32,7 +32,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="log" options={{ href: null }} />
     </Tabs>
   );
 }
