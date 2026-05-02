@@ -4,7 +4,7 @@ import {
   ActionSheetIOS, Alert, ScrollView, Dimensions, TextInput,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -75,6 +75,7 @@ export default function SpotDetailScreen() {
 
   return (
     <View style={styles.root}>
+      <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safeHeader} edges={['top']}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBtn}>
