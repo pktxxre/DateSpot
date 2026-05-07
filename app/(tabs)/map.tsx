@@ -394,6 +394,10 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   const photos: string[] = draft.photos || [];
 
   async function pickPhoto() {
+    if (!ImagePicker.requestMediaLibraryPermissionsAsync) {
+      Alert.alert('Photo picking unavailable', 'Run `npx expo run:ios` once to compile the native photo module.');
+      return;
+    }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow photo access in Settings.');

@@ -27,6 +27,10 @@ export default function EditProfileScreen() {
   }, []);
 
   const pickPhoto = async () => {
+    if (!ImagePicker.requestMediaLibraryPermissionsAsync) {
+      Alert.alert('Photo picking unavailable', 'Run `npx expo run:ios` once to compile the native photo module.');
+      return;
+    }
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow access to your photos to set a profile picture.');
