@@ -128,7 +128,7 @@ export default function MapScreen() {
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     setDraft((d) => ({ ...d, lat: loc.coords.latitude, lng: loc.coords.longitude }));
     setStep('details');
-    sheetRef.current?.snapToIndex(1);
+    sheetRef.current?.snapToIndex(2);
   }
 
   function handleDropPin() {
@@ -145,7 +145,7 @@ export default function MapScreen() {
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
     setDroppingPin(false);
     setStep('details');
-    sheetRef.current?.snapToIndex(1);
+    sheetRef.current?.snapToIndex(2);
   }
 
   function handleSearchPlaceholder() {
@@ -224,7 +224,7 @@ export default function MapScreen() {
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
-  const snapPoints = ['30%', '68%'];
+  const snapPoints = ['30%', '68%', '95%'];
 
   return (
     <View style={styles.container}>
@@ -447,7 +447,12 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
       />
 
       <Text style={styles.sectionLabel}>Photos</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.photoScroll}
+        contentContainerStyle={styles.photoScrollContent}
+      >
         {photos.map((uri, i) => (
           <Pressable key={i} style={styles.photoThumb} onLongPress={() => removePhoto(i)}>
             <Image source={{ uri }} style={styles.photoThumbImg} />
@@ -460,7 +465,7 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
       </ScrollView>
 
       <Text style={styles.sectionLabel}>What kind of spot?</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={{ paddingHorizontal: 24 }}>
         {ACTIVITY_TYPES.map((a) => {
           const selected = draft.activity_type === a.value;
           return (
@@ -664,17 +669,18 @@ const styles = StyleSheet.create({
 
   sectionLabel: { fontSize: 13, fontWeight: '600', color: T.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   photoScroll: { marginBottom: 16, marginHorizontal: -24 },
+  photoScrollContent: { paddingHorizontal: 24, alignItems: 'center' },
   photoThumb: {
     width: 80, height: 80, borderRadius: 10, overflow: 'hidden',
-    marginRight: 8, marginLeft: 8,
+    marginRight: 8,
   },
   photoThumbImg: { width: '100%', height: '100%' },
   photoAdd: {
     width: 80, height: 80, borderRadius: 10,
-    borderWidth: 1.5, borderColor: T.border, borderStyle: 'dashed',
+    borderWidth: 1.5, borderColor: T.border,
     backgroundColor: T.card,
     alignItems: 'center', justifyContent: 'center', gap: 4,
-    marginRight: 8, marginLeft: 8,
+    marginRight: 8,
   },
   photoAddLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
 
