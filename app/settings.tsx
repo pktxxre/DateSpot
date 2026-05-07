@@ -59,9 +59,12 @@ export default function SettingsScreen() {
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
+          hitSlop={12}
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
         >
-          <Ionicons name="chevron-back" size={20} color={T.primary} />
+          <View style={styles.backBtnCircle}>
+            <Ionicons name="chevron-back" size={20} color={T.primary} />
+          </View>
         </Pressable>
         <Text style={styles.headerTitle}>Settings</Text>
       </View>
@@ -129,7 +132,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 6, paddingBottom: 14,
   },
-  backBtn: {
+  backBtn: {},
+  backBtnCircle: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: T.inputBg,
     alignItems: 'center', justifyContent: 'center',
