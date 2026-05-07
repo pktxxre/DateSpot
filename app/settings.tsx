@@ -67,6 +67,7 @@ export default function SettingsScreen() {
           </View>
         </Pressable>
         <Text style={styles.headerTitle}>Settings</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -139,10 +140,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: {
-    position: 'absolute', left: 0, right: 0, textAlign: 'center',
+    flex: 1, textAlign: 'center',
     fontSize: 20, fontWeight: '700', color: T.primary,
     fontFamily: 'Georgia', letterSpacing: -0.2,
   },
+  headerSpacer: { width: 36 },
 
   sectionHeader: {
     fontSize: 12, fontWeight: '600', color: T.muted,
