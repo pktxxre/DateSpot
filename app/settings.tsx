@@ -18,7 +18,7 @@ function SettingRow({ icon, label, onPress, danger }: SettingRowProps) {
       onPress={onPress}
     >
       <View style={[styles.rowIconWrap, danger && styles.rowIconDanger]}>
-        <Ionicons name={icon} size={18} color={danger ? C.danger : T.primary} />
+        <Ionicons name={icon} size={18} color={danger ? T.danger : T.primary} />
       </View>
       <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
       {!danger && <Ionicons name="chevron-forward" size={16} color={T.muted} />}
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   },
   rowIconDanger: { backgroundColor: T.dangerBg },
   rowLabel: { flex: 1, fontSize: 15, fontWeight: '500', color: T.primary },
-  rowLabelDanger: { color: C.danger },
+  rowLabelDanger: { color: T.danger },
 
   divider: { height: 1, backgroundColor: T.border, marginLeft: 60 },
 });
