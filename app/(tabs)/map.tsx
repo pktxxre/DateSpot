@@ -16,7 +16,6 @@ import {
   startComparison, advance, resolveRankOrder, resolveAtMid,
   currentComparison, ComparisonState, Triage,
 } from '@/lib/ranking';
-import * as ImagePicker from 'expo-image-picker';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { uploadPhoto } from '@/lib/storage';
 import { T } from '@/lib/theme';
@@ -394,7 +393,9 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   const photos: string[] = draft.photos || [];
 
   async function pickPhoto() {
-    if (!ImagePicker.requestMediaLibraryPermissionsAsync) {
+    let ImagePicker: any;
+    try { ImagePicker = require('expo-image-picker'); } catch {}
+    if (!ImagePicker?.requestMediaLibraryPermissionsAsync) {
       Alert.alert('Photo picking unavailable', 'Run `npx expo run:ios` once to compile the native photo module.');
       return;
     }

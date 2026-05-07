@@ -4,7 +4,6 @@ import {
   Image, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getProfile, saveProfile } from '@/lib/profile';
@@ -27,7 +26,9 @@ export default function EditProfileScreen() {
   }, []);
 
   const pickPhoto = async () => {
-    if (!ImagePicker.requestMediaLibraryPermissionsAsync) {
+    let ImagePicker: any;
+    try { ImagePicker = require('expo-image-picker'); } catch {}
+    if (!ImagePicker?.requestMediaLibraryPermissionsAsync) {
       Alert.alert('Photo picking unavailable', 'Run `npx expo run:ios` once to compile the native photo module.');
       return;
     }
