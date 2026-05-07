@@ -4,6 +4,7 @@ import {
   Image, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getProfile, saveProfile } from '@/lib/profile';
@@ -26,7 +27,6 @@ export default function EditProfileScreen() {
   }, []);
 
   const pickPhoto = async () => {
-    const ImagePicker = await import('expo-image-picker');
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow access to your photos to set a profile picture.');

@@ -16,6 +16,7 @@ import {
   startComparison, advance, resolveRankOrder, resolveAtMid,
   currentComparison, ComparisonState, Triage,
 } from '@/lib/ranking';
+import * as ImagePicker from 'expo-image-picker';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { uploadPhoto } from '@/lib/storage';
 import { T } from '@/lib/theme';
@@ -393,7 +394,6 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   const photos: string[] = draft.photos || [];
 
   async function pickPhoto() {
-    const ImagePicker = await import('expo-image-picker');
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow photo access in Settings.');
