@@ -1,16 +1,17 @@
 import { useCallback, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor } from '@/lib/visits';
+import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
+import { T } from '@/lib/theme';
 
-const C = {
-  bg: '#FCF9F2',
-  primary: '#4B3621',
-  muted: '#8B7762',
-  card: '#FFFFFF',
-  border: '#EDE8E0',
-  segBg: '#E8E0D6',
+const CATEGORY_BANNERS: Partial<Record<string, any>> = {
+  food:          require('../../assets/images/category-food.jpg'),
+  drinks:        require('../../assets/images/category-drinks.jpg'),
+  outdoors:      require('../../assets/images/category-outdoors.avif'),
+  view:          require('../../assets/images/category-view.jpg'),
+  entertainment: require('../../assets/images/category-entertainment.jpg'),
+  other:         require('../../assets/images/category-other.jpg'),
 };
 
 type Tab = 'picks' | 'all';
@@ -23,25 +24,16 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 ];
 
 
-function friendlyDate(raw: string): string {
-  if (!raw) return '';
-  // Already a human string like "Apr 28" — return as-is
-  if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw;
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return raw;
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 function sortVisits(visits: Visit[], sort: SortOption): Visit[] {
   const copy = [...visits];
   if (sort === 'date') return copy.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   if (sort === 'best') return copy.sort((a, b) => b.rank_order - a.rank_order);
   return copy.sort((a, b) => a.rank_order - b.rank_order);
+}
+
+function openLogFlow() {
+  router.push({ pathname: '/(tabs)/map', params: { openLog: '1' } });
 }
 
 export default function HomeScreen() {
@@ -55,13 +47,13 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const topPicks = [...visits].sort((a, b) => b.rank_order - a.rank_order).filter(v => v.rating >= 7);
   const allSorted = sortVisits(visits, sort);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>DateSpot</Text>
+        <Text style={styles.headerSub}>Your favourite places</Text>
       </View>
 
       {/* Segmented control */}
@@ -85,39 +77,68 @@ export default function HomeScreen() {
       </View>
 
       {tab === 'picks' ? (
-        <PicksTab visits={topPicks} hasAny={visits.length > 0} />
+        <PicksTab visits={visits} />
       ) : (
         <AllTab visits={allSorted} sort={sort} onSort={setSort} />
       )}
+
+      {/* Fixed bottom button */}
+      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+        <Pressable
+          style={({ pressed }) => [styles.logCta, pressed && { opacity: 0.85 }]}
+          onPress={openLogFlow}
+        >
+          <Text style={styles.logCtaText}>+ Log a new spot</Text>
+        </Pressable>
+      </SafeAreaView>
     </SafeAreaView>
   );
 }
 
-function PicksTab({ visits, hasAny }: { visits: Visit[]; hasAny: boolean }) {
-  if (!hasAny) {
+function PicksTab({ visits }: { visits: Visit[] }) {
+  if (visits.length === 0) {
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyEmoji}>🗺</Text>
         <Text style={styles.emptyTitle}>No spots yet</Text>
-        <Text style={styles.emptyBody}>Log your first date spot and it'll show up here.</Text>
-        <Pressable style={styles.logCta} onPress={() => router.push('/(tabs)/map')}>
-          <Text style={styles.logCtaText}>Log a spot</Text>
-        </Pressable>
+        <Text style={styles.emptyBody}>Log your first date spot and your favorites will appear here by category.</Text>
       </View>
     );
   }
-  if (visits.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyEmoji}>⭐️</Text>
-        <Text style={styles.emptyTitle}>No favorites yet</Text>
-        <Text style={styles.emptyBody}>Spots you rate highly will appear here.</Text>
-      </View>
-    );
-  }
+
+  const categories = ACTIVITY_TYPES
+    .map(type => ({
+      ...type,
+      spots: visits
+        .filter(v => v.activity_type === type.value)
+        .sort((a, b) => b.rank_order - a.rank_order)
+        .slice(0, 3),
+    }))
+    .filter(c => c.spots.length > 0);
+
   return (
     <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-      {visits.map(v => <SpotRow key={v.id} visit={v} />)}
+      {categories.map(cat => {
+        const banner = CATEGORY_BANNERS[cat.value];
+        return (
+          <View key={cat.value} style={styles.categorySection}>
+            {banner ? (
+              <ImageBackground source={banner} style={styles.categoryBanner} imageStyle={styles.categoryBannerImg}>
+                <View style={styles.categoryBannerOverlay}>
+                  <Text style={styles.categoryBannerTitle}>{cat.label}</Text>
+                  <Text style={styles.categoryBannerCount}>Top {cat.spots.length}</Text>
+                </View>
+              </ImageBackground>
+            ) : (
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+                <Text style={styles.categoryTitle}>{cat.label}</Text>
+              </View>
+            )}
+            {cat.spots.map(v => <SpotRow key={v.id} visit={v} />)}
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -156,6 +177,7 @@ function AllTab({ visits, sort, onSort }: { visits: Visit[]; sort: SortOption; o
   );
 }
 
+
 function SpotRow({ visit }: { visit: Visit }) {
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
   const color = ratingColor(visit.rating);
@@ -190,63 +212,98 @@ function SpotRow({ visit }: { visit: Visit }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
+  safe: { flex: 1, backgroundColor: T.bg },
   scroll: { flex: 1 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  listContent: { paddingBottom: 40 },
 
   header: {
-    paddingHorizontal: 20, paddingTop: 6, paddingBottom: 10,
-    alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14,
+    alignItems: 'center', gap: 2,
   },
   headerTitle: {
-    fontSize: 20, fontWeight: '700', color: C.primary,
-    fontFamily: 'Georgia', letterSpacing: -0.2,
+    fontSize: 32, fontWeight: '700', color: T.primary,
+    fontFamily: 'Georgia', letterSpacing: -0.5,
+  },
+  headerSub: {
+    fontSize: 13, color: T.muted, fontWeight: '500', letterSpacing: 0.2,
   },
 
   segControl: {
     flexDirection: 'row', marginHorizontal: 16, marginBottom: 14,
-    backgroundColor: C.segBg, borderRadius: 10, padding: 3,
+    backgroundColor: T.segBg, borderRadius: 10, padding: 3,
   },
   segBtn: {
     flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center',
   },
   segBtnActive: {
-    backgroundColor: C.card,
+    backgroundColor: T.card,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1, shadowRadius: 3, elevation: 2,
   },
-  segBtnText: { fontSize: 13, fontWeight: '500', color: C.muted },
-  segBtnTextActive: { color: C.primary, fontWeight: '600' },
+  segBtnText: { fontSize: 13, fontWeight: '500', color: T.muted },
+  segBtnTextActive: { color: T.primary, fontWeight: '600' },
 
   sortRow: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12, flexWrap: 'wrap',
   },
   sortChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
-    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    backgroundColor: T.bg, borderWidth: 1, borderColor: T.border,
   },
-  sortChipActive: { backgroundColor: C.primary, borderColor: C.primary },
-  sortChipText: { fontSize: 12, fontWeight: '600', color: C.muted },
+  sortChipActive: { backgroundColor: T.primary, borderColor: T.primary },
+  sortChipText: { fontSize: 12, fontWeight: '600', color: T.muted },
   sortChipTextActive: { color: '#fff' },
 
   row: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
+    paddingVertical: 12, paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border,
   },
   rowEmoji: {
     width: 40, height: 40, borderRadius: 12,
-    backgroundColor: C.card, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: C.border, marginTop: 1,
+    backgroundColor: T.card, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: T.border, marginTop: 1,
   },
   rowEmojiText: { fontSize: 19 },
   rowBody: { flex: 1 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
-  rowName: { fontSize: 15, fontWeight: '600', color: C.primary, flex: 1, marginRight: 8 },
-  rowMeta: { fontSize: 12, color: C.muted, marginBottom: 4 },
+  rowName: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1, marginRight: 8 },
+  rowMeta: { fontSize: 12, color: T.muted, marginBottom: 4 },
   rowPreview: { fontSize: 12, color: '#A0927E', fontStyle: 'italic', lineHeight: 16 },
 
   ratingPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   ratingPillText: { fontSize: 12, fontWeight: '800' },
+
+  categorySection: { marginBottom: 28 },
+
+  categoryBanner: { height: 90, marginBottom: 12 },
+  categoryBannerImg: {},
+  categoryBannerOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, gap: 1,
+  },
+  categoryBannerTitle: {
+    fontSize: 26, fontWeight: '700', color: '#fff',
+    fontFamily: 'Georgia', letterSpacing: -0.4,
+  },
+  categoryBannerCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: '600' },
+
+  categoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 16 },
+  categoryEmoji: { fontSize: 20 },
+  categoryTitle: {
+    fontSize: 16, fontWeight: '700', color: T.primary, fontFamily: 'Georgia',
+  },
+
+  bottomBar: {
+    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border,
+    backgroundColor: T.bg,
+  },
+  logCta: {
+    backgroundColor: T.accent, borderRadius: 14,
+    paddingVertical: 15, alignItems: 'center',
+  },
+  logCtaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
   empty: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
@@ -254,10 +311,8 @@ const styles = StyleSheet.create({
   },
   emptyEmoji: { fontSize: 44, marginBottom: 14 },
   emptyTitle: {
-    fontSize: 20, fontWeight: '700', color: C.primary,
+    fontSize: 20, fontWeight: '700', color: T.primary,
     fontFamily: 'Georgia', marginBottom: 8,
   },
-  emptyBody: { fontSize: 15, color: C.muted, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
-  logCta: { backgroundColor: '#E76F51', borderRadius: 14, paddingVertical: 13, paddingHorizontal: 28 },
-  logCtaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  emptyBody: { fontSize: 15, color: T.muted, textAlign: 'center', lineHeight: 22 },
 });

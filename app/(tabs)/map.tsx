@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView,
+  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image,
 } from 'react-native';
 import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
-import { useFocusEffect, router } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import {
@@ -17,6 +17,8 @@ import {
   currentComparison, ComparisonState, Triage,
 } from '@/lib/ranking';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
+import { uploadPhoto } from '@/lib/storage';
+import { T } from '@/lib/theme';
 
 const SF_REGION: Region = {
   latitude: 37.7749,
@@ -35,9 +37,11 @@ interface DraftVisit {
   notes: string;
   activity_type: ActivityType;
   price: Price;
+  photos: string[];
 }
 
 export default function MapScreen() {
+  const { openLog: openLogParam } = useLocalSearchParams<{ openLog?: string }>();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [step, setStep] = useState<Step | null>(null);
@@ -46,10 +50,17 @@ export default function MapScreen() {
   const [cmpState, setCmpState] = useState<ComparisonState | null>(null);
   const sheetRef = useRef<BottomSheet>(null);
   const mapRef = useRef<MapView>(null);
+  const openLogHandled = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       setVisits(getAllVisits());
+      if (openLogParam === '1' && !openLogHandled.current) {
+        openLogHandled.current = true;
+        setSelectedVisit(null);
+        setStep('location');
+        sheetRef.current?.snapToIndex(1);
+      }
       loadDraft().then((saved) => {
         if (saved && saved.step !== 'done') {
           Alert.alert(
@@ -85,6 +96,22 @@ export default function MapScreen() {
     saveDraft({ ...draft, step, savedAt: new Date().toISOString() });
   }, [step, draft]);
 
+  useEffect(() => {
+    Location.getForegroundPermissionsAsync().then(({ status }) => {
+      if (status !== 'granted') return;
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then(loc => {
+          mapRef.current?.animateToRegion({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            latitudeDelta: 0.08,
+            longitudeDelta: 0.08,
+          }, 800);
+        })
+        .catch(() => {});
+    });
+  }, []);
+
   function openLog() {
     setSelectedVisit(null);
     setStep('location');
@@ -108,7 +135,7 @@ export default function MapScreen() {
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     setDraft((d) => ({ ...d, lat: loc.coords.latitude, lng: loc.coords.longitude }));
     setStep('details');
-    sheetRef.current?.snapToIndex(1);
+    sheetRef.current?.snapToIndex(2);
   }
 
   function handleDropPin() {
@@ -125,7 +152,7 @@ export default function MapScreen() {
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
     setDroppingPin(false);
     setStep('details');
-    sheetRef.current?.snapToIndex(1);
+    sheetRef.current?.snapToIndex(2);
   }
 
   function handleSearchPlaceholder() {
@@ -192,6 +219,7 @@ export default function MapScreen() {
       notes: draft.notes || undefined,
       activity_type: draft.activity_type || 'other',
       price: draft.price || 2,
+      photos: draft.photos || [],
     });
     setVisits(getAllVisits());
     setStep('done');
@@ -203,7 +231,7 @@ export default function MapScreen() {
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
-  const snapPoints = ['30%', '68%'];
+  const snapPoints = ['30%', '68%', '95%'];
 
   return (
     <View style={styles.container}>
@@ -368,6 +396,40 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   onNext: () => void;
   onBack: () => void;
 }) {
+  const [uploading, setUploading] = useState(false);
+
+  const photos: string[] = draft.photos || [];
+
+  async function pickPhoto() {
+    let ImagePicker: any;
+    try { ImagePicker = require('expo-image-picker'); } catch {}
+    if (!ImagePicker?.requestMediaLibraryPermissionsAsync) {
+      Alert.alert('Photo picking unavailable', 'Run `npx expo run:ios` once to compile the native photo module.');
+      return;
+    }
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow photo access in Settings.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    setUploading(true);
+    const path = `visits/${Date.now()}.jpg`;
+    const url = await uploadPhoto(result.assets[0].uri, path);
+    setUploading(false);
+    if (url) onChange('photos', [...photos, url]);
+  }
+
+  function removePhoto(index: number) {
+    onChange('photos', photos.filter((_, i) => i !== index));
+  }
+
   return (
     <ScrollView style={styles.stepContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.stepTitle}>Tell me about it</Text>
@@ -392,8 +454,26 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
         returnKeyType="next"
       />
 
+      <Text style={styles.sectionLabel}>Photos</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.photoScroll}
+        contentContainerStyle={styles.photoScrollContent}
+      >
+        {photos.map((uri, i) => (
+          <Pressable key={i} style={styles.photoThumb} onLongPress={() => removePhoto(i)}>
+            <Image source={{ uri }} style={styles.photoThumbImg} />
+          </Pressable>
+        ))}
+        <Pressable style={styles.photoAdd} onPress={pickPhoto} disabled={uploading}>
+          <Ionicons name={uploading ? 'hourglass-outline' : 'camera-outline'} size={22} color={T.muted} />
+          <Text style={styles.photoAddLabel}>{uploading ? 'Uploading…' : 'Add photo'}</Text>
+        </Pressable>
+      </ScrollView>
+
       <Text style={styles.sectionLabel}>What kind of spot?</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={{ paddingHorizontal: 24 }}>
         {ACTIVITY_TYPES.map((a) => {
           const selected = draft.activity_type === a.value;
           return (
@@ -554,74 +634,90 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12, shadowRadius: 12, elevation: 6,
   },
   detailHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
-  detailName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1c1c1e' },
+  detailName: { flex: 1, fontSize: 16, fontWeight: '700', color: T.primary },
   detailMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   detailScorePill: {
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
   detailScoreText: { fontSize: 13, fontWeight: '800' },
-  detailMetaText: { fontSize: 14, color: '#3a3a3c' },
-  detailMetaDot: { fontSize: 14, color: '#c7c7cc' },
-  detailNotes: { fontSize: 13, color: '#8e8e93', marginTop: 10, lineHeight: 18 },
-  detailTapHint: { fontSize: 12, color: '#c7c7cc', marginTop: 10, textAlign: 'right' },
+  detailMetaText: { fontSize: 14, color: T.primary },
+  detailMetaDot: { fontSize: 14, color: T.placeholder },
+  detailNotes: { fontSize: 13, color: T.muted, marginTop: 10, lineHeight: 18 },
+  detailTapHint: { fontSize: 12, color: T.placeholder, marginTop: 10, textAlign: 'right' },
 
   emptyState: {
     position: 'absolute', bottom: 90, left: 24, right: 24,
     backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: 12, padding: 16, alignItems: 'center',
   },
-  emptyText: { fontSize: 14, color: '#8e8e93', textAlign: 'center' },
+  emptyText: { fontSize: 14, color: T.muted, textAlign: 'center' },
 
   fab: {
     position: 'absolute', bottom: 24, right: 20,
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#ff3b5c',
+    backgroundColor: T.accent,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#ff3b5c', shadowOffset: { width: 0, height: 4 },
+    shadowColor: T.accent, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
 
-  sheetBg: { backgroundColor: '#fff', borderRadius: 20 },
-  handle: { backgroundColor: '#d1d1d6' },
+  sheetBg: { backgroundColor: T.bg, borderRadius: 20 },
+  handle: { backgroundColor: T.border },
   sheetContent: { flex: 1 },
   stepContainer: { paddingHorizontal: 24, paddingTop: 4 },
-  stepTitle: { fontSize: 20, fontWeight: '700', color: '#1c1c1e', textAlign: 'center' },
-  stepSubtitle: { fontSize: 13, color: '#8e8e93', textAlign: 'center', marginTop: 4, marginBottom: 20 },
+  stepTitle: { fontSize: 20, fontWeight: '700', color: T.primary, textAlign: 'center' },
+  stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 4, marginBottom: 20 },
 
   circleRow: { flexDirection: 'row', justifyContent: 'space-between' },
   circleBtn: { alignItems: 'center', flex: 1 },
   circle: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  circleBtnLabel: { fontSize: 13, fontWeight: '600', color: '#1c1c1e', textAlign: 'center' },
-  circleBtnSub: { fontSize: 11, color: '#8e8e93', textAlign: 'center', marginTop: 2 },
+  circleBtnLabel: { fontSize: 13, fontWeight: '600', color: T.primary, textAlign: 'center' },
+  circleBtnSub: { fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 2 },
 
-  sectionLabel: { fontSize: 13, fontWeight: '600', color: '#8e8e93', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionLabel: { fontSize: 13, fontWeight: '600', color: T.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  photoScroll: { marginBottom: 16, marginHorizontal: -24 },
+  photoScrollContent: { paddingHorizontal: 24, alignItems: 'center' },
+  photoThumb: {
+    width: 80, height: 80, borderRadius: 10, overflow: 'hidden',
+    marginRight: 8,
+  },
+  photoThumbImg: { width: '100%', height: '100%' },
+  photoAdd: {
+    width: 80, height: 80, borderRadius: 10,
+    borderWidth: 1.5, borderColor: T.border,
+    backgroundColor: T.card,
+    alignItems: 'center', justifyContent: 'center', gap: 4,
+    marginRight: 8,
+  },
+  photoAddLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
+
   chipScroll: { marginBottom: 16, marginHorizontal: -24 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#f2f2f7', borderRadius: 20,
+    backgroundColor: T.card, borderRadius: 20,
     paddingHorizontal: 14, paddingVertical: 9, marginRight: 8,
-    borderWidth: 1.5, borderColor: 'transparent',
+    borderWidth: 1.5, borderColor: T.border,
   },
-  chipSelected: { backgroundColor: '#fff0f3', borderColor: '#ff3b5c' },
+  chipSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
   chipEmoji: { fontSize: 15 },
-  chipLabel: { fontSize: 14, fontWeight: '500', color: '#3a3a3c' },
-  chipLabelSelected: { color: '#ff3b5c', fontWeight: '700' },
+  chipLabel: { fontSize: 14, fontWeight: '500', color: T.primary },
+  chipLabelSelected: { color: T.accent, fontWeight: '700' },
 
   priceRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   priceBtn: {
-    flex: 1, backgroundColor: '#f2f2f7', borderRadius: 12,
+    flex: 1, backgroundColor: T.inputBg, borderRadius: 12,
     paddingVertical: 12, alignItems: 'center',
     borderWidth: 1.5, borderColor: 'transparent',
   },
-  priceBtnSelected: { backgroundColor: '#fff0f3', borderColor: '#ff3b5c' },
-  priceBtnText: { fontSize: 16, fontWeight: '600', color: '#3a3a3c' },
-  priceBtnTextSelected: { color: '#ff3b5c' },
+  priceBtnSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
+  priceBtnText: { fontSize: 16, fontWeight: '600', color: T.primary },
+  priceBtnTextSelected: { color: T.accent },
 
   input: {
-    backgroundColor: '#f2f2f7', borderRadius: 12,
+    backgroundColor: T.inputBg, borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 15, color: '#1c1c1e', marginBottom: 12,
+    fontSize: 15, color: T.primary, marginBottom: 12,
   },
   inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
 
@@ -636,33 +732,33 @@ const styles = StyleSheet.create({
 
   compareRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
   compareCard: { flex: 1, borderRadius: 16, padding: 16, alignItems: 'center', gap: 8, minHeight: 120, justifyContent: 'center' },
-  compareCardNew: { backgroundColor: '#fff5f7', borderWidth: 2, borderColor: '#ff3b5c' },
-  compareCardOld: { backgroundColor: '#f2f2f7', borderWidth: 2, borderColor: '#e5e5ea' },
+  compareCardNew: { backgroundColor: T.accentTint, borderWidth: 2, borderColor: T.accent },
+  compareCardOld: { backgroundColor: T.inputBg, borderWidth: 2, borderColor: T.border },
   compareCardEmoji: { fontSize: 24 },
   compareCardScorePill: {
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   compareCardScoreText: { fontSize: 13, fontWeight: '800' },
-  compareCardName: { fontSize: 14, fontWeight: '700', color: '#1c1c1e', textAlign: 'center', lineHeight: 18 },
-  compareCardLabel: { fontSize: 11, color: '#8e8e93', fontWeight: '500' },
-  compareVs: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f2f2f7', alignItems: 'center', justifyContent: 'center' },
-  compareVsText: { fontSize: 12, fontWeight: '700', color: '#8e8e93' },
+  compareCardName: { fontSize: 14, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 18 },
+  compareCardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
+  compareVs: { width: 32, height: 32, borderRadius: 16, backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center' },
+  compareVsText: { fontSize: 12, fontWeight: '700', color: T.muted },
 
   tooHardBtn: {
-    backgroundColor: '#f2f2f7', borderRadius: 14,
+    backgroundColor: T.inputBg, borderRadius: 14,
     paddingVertical: 12, alignItems: 'center', marginBottom: 8,
   },
-  tooHardText: { fontSize: 14, fontWeight: '600', color: '#8e8e93' },
+  tooHardText: { fontSize: 14, fontWeight: '600', color: T.muted },
 
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  btnPrimary: { flex: 1, backgroundColor: '#ff3b5c', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  btnPrimary: { flex: 1, backgroundColor: T.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  btnSecondary: { flex: 1, backgroundColor: '#f2f2f7', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
-  btnSecondaryCenter: { backgroundColor: '#f2f2f7', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  btnSecondaryText: { color: '#1c1c1e', fontSize: 16, fontWeight: '600' },
+  btnSecondary: { flex: 1, backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  btnSecondaryCenter: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },
 
   doneContainer: { alignItems: 'center', paddingTop: 16 },
   doneEmoji: { fontSize: 48, marginBottom: 12 },
-  doneTitle: { fontSize: 24, fontWeight: '800', color: '#1c1c1e', marginBottom: 6 },
-  doneSub: { fontSize: 15, color: '#8e8e93', marginBottom: 24 },
+  doneTitle: { fontSize: 24, fontWeight: '800', color: T.primary, marginBottom: 6 },
+  doneSub: { fontSize: 15, color: T.muted, marginBottom: 24 },
 });

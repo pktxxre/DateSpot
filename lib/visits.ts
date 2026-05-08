@@ -7,7 +7,6 @@ export type ActivityType =
   | 'drinks'
   | 'outdoors'
   | 'view'
-  | 'culture'
   | 'entertainment'
   | 'other';
 
@@ -15,8 +14,7 @@ export const ACTIVITY_TYPES: { value: ActivityType; label: string; emoji: string
   { value: 'food', label: 'Food', emoji: '🍽' },
   { value: 'drinks', label: 'Drinks', emoji: '🍸' },
   { value: 'outdoors', label: 'Outdoors', emoji: '🌿' },
-  { value: 'view', label: 'Pretty view', emoji: '🌅' },
-  { value: 'culture', label: 'Culture', emoji: '🎭' },
+  { value: 'view', label: 'Pretty View', emoji: '🌅' },
   { value: 'entertainment', label: 'Entertainment', emoji: '🎬' },
   { value: 'other', label: 'Other', emoji: '✨' },
 ];
@@ -164,4 +162,20 @@ export function ratingColor(rating: number): string {
 
 export function formatRating(rating: number): string {
   return rating.toFixed(1);
+}
+
+export function friendlyDate(raw: string): string {
+  if (!raw) return '';
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw;
+  // Parse as local date to avoid UTC-offset "Today/Yesterday" errors in western timezones.
+  const [year, month, day] = raw.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  if (isNaN(d.getTime())) return raw;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((todayStart.getTime() - d.getTime()) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
