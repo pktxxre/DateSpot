@@ -88,7 +88,7 @@ export default function SpotDetailScreen() {
           <View style={styles.tags}>
             {info && (
               <View style={styles.tag}>
-                <Text style={styles.tagText}>{info.emoji}  {info.label}</Text>
+                <Text style={styles.tagText}>{info.label}</Text>
               </View>
             )}
             <View style={styles.tag}>
@@ -261,7 +261,6 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
               const sel = activity === a.value;
               return (
                 <Pressable key={a.value} style={[e.chip, sel && e.chipSel]} onPress={() => setActivity(a.value)}>
-                  <Text style={e.chipEmoji}>{a.emoji}</Text>
                   <Text style={[e.chipLabel, sel && e.chipLabelSel]}>{a.label}</Text>
                 </Pressable>
               );

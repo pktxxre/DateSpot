@@ -5,6 +5,7 @@ const BUCKET = 'photos';
 // Upload any local file URI to Supabase Storage and return the public URL.
 // Uses fetch → blob so no extra native deps are needed.
 export async function uploadPhoto(localUri: string, storagePath: string): Promise<string | null> {
+  if (!supabase) return null;
   try {
     const response = await fetch(localUri);
     const blob = await response.blob();
@@ -31,6 +32,7 @@ export async function uploadPhoto(localUri: string, storagePath: string): Promis
 
 // Delete a photo from Supabase Storage by its public URL.
 export async function deletePhoto(publicUrl: string): Promise<void> {
+  if (!supabase) return;
   try {
     const urlObj = new URL(publicUrl);
     // path after /object/public/<bucket>/

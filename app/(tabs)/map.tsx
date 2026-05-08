@@ -5,7 +5,12 @@ import {
 import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
-import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
+
+// Module-level flag so home screen can arm the log flow before switching tabs.
+// useFocusEffect fires the instant the tab gains focus and reads this synchronously.
+let _pendingOpenLog = false;
+export function scheduleOpenLog() { _pendingOpenLog = true; }
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import {
@@ -41,7 +46,6 @@ interface DraftVisit {
 }
 
 export default function MapScreen() {
-  const { openLog: openLogParam } = useLocalSearchParams<{ openLog?: string }>();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [step, setStep] = useState<Step | null>(null);
@@ -50,13 +54,12 @@ export default function MapScreen() {
   const [cmpState, setCmpState] = useState<ComparisonState | null>(null);
   const sheetRef = useRef<BottomSheet>(null);
   const mapRef = useRef<MapView>(null);
-  const openLogHandled = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
       setVisits(getAllVisits());
-      if (openLogParam === '1' && !openLogHandled.current) {
-        openLogHandled.current = true;
+      if (_pendingOpenLog) {
+        _pendingOpenLog = false;
         setSelectedVisit(null);
         setStep('location');
         sheetRef.current?.snapToIndex(1);
@@ -270,16 +273,17 @@ export default function MapScreen() {
         <VisitDetail visit={selectedVisit} onClose={() => setSelectedVisit(null)} />
       )}
 
-      {visits.length === 0 && step === null && (
-        <View style={styles.emptyState} pointerEvents="none">
-          <Text style={styles.emptyText}>Tap + to log your first date spot</Text>
-        </View>
-      )}
-
       {step === null && (
-        <Pressable style={styles.fab} onPress={openLog}>
-          <Ionicons name="add" size={30} color="#fff" />
-        </Pressable>
+        <View style={styles.fabRow} pointerEvents="box-none">
+          {visits.length === 0 && (
+            <View style={styles.emptyState} pointerEvents="none">
+              <Text style={styles.emptyText}>Tap + to log your first date spot</Text>
+            </View>
+          )}
+          <Pressable style={styles.fab} onPress={openLog} hitSlop={8}>
+            <Ionicons name="add" size={30} color="#fff" />
+          </Pressable>
+        </View>
       )}
 
       <BottomSheet
@@ -348,7 +352,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
         <View style={[styles.detailScorePill, { backgroundColor: ratingColor(visit.rating) + '2E' }]}>
           <Text style={[styles.detailScoreText, { color: ratingColor(visit.rating) }]}>{formatRating(visit.rating)}</Text>
         </View>
-        <Text style={styles.detailMetaText}>{info?.emoji} {info?.label}</Text>
+        <Text style={styles.detailMetaText}>{info?.label}</Text>
         <Text style={styles.detailMetaDot}>·</Text>
         <Text style={styles.detailMetaText}>{PRICE_LABELS[visit.price as Price]}</Text>
       </View>
@@ -482,7 +486,6 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
               style={[styles.chip, selected && styles.chipSelected]}
               onPress={() => onChange('activity_type', a.value)}
             >
-              <Text style={styles.chipEmoji}>{a.emoji}</Text>
               <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
             </Pressable>
           );
@@ -537,15 +540,12 @@ function TriageStep({ onPick }: { onPick: (t: Triage) => void }) {
       <Text style={styles.stepSubtitle}>Step 3 of 5 · Narrows your comparisons</Text>
       <View style={styles.triageRow}>
         <Pressable style={[styles.triageBtn, { backgroundColor: '#fff2f2', borderColor: '#ff3b30' }]} onPress={() => onPick('bad')}>
-          <Text style={styles.triageEmoji}>😬</Text>
           <Text style={[styles.triageLabel, { color: '#ff3b30' }]}>Bad</Text>
         </Pressable>
         <Pressable style={[styles.triageBtn, { backgroundColor: '#fff8ee', borderColor: '#ff9500' }]} onPress={() => onPick('okay')}>
-          <Text style={styles.triageEmoji}>😐</Text>
           <Text style={[styles.triageLabel, { color: '#ff9500' }]}>Okay</Text>
         </Pressable>
         <Pressable style={[styles.triageBtn, { backgroundColor: '#f0fff4', borderColor: '#34c759' }]} onPress={() => onPick('great')}>
-          <Text style={styles.triageEmoji}>🤩</Text>
           <Text style={[styles.triageLabel, { color: '#34c759' }]}>Great</Text>
         </Pressable>
       </View>
@@ -563,7 +563,6 @@ function CompareStep({ newVenueName, opponent, comparisonNumber, onBetter, onWor
       <Text style={styles.stepSubtitle}>Step 4 of 5 · Comparison {comparisonNumber} of up to 7</Text>
       <View style={styles.compareRow}>
         <Pressable style={[styles.compareCard, styles.compareCardNew]} onPress={onBetter}>
-          <Text style={styles.compareCardEmoji}>✨</Text>
           <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
           <Text style={styles.compareCardLabel}>This one</Text>
         </Pressable>
@@ -646,15 +645,17 @@ const styles = StyleSheet.create({
   detailNotes: { fontSize: 13, color: T.muted, marginTop: 10, lineHeight: 18 },
   detailTapHint: { fontSize: 12, color: T.placeholder, marginTop: 10, textAlign: 'right' },
 
-  emptyState: {
-    position: 'absolute', bottom: 90, left: 24, right: 24,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 12, padding: 16, alignItems: 'center',
+  fabRow: {
+    position: 'absolute', bottom: 24, right: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
   },
-  emptyText: { fontSize: 14, color: T.muted, textAlign: 'center' },
+  emptyState: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+  },
+  emptyText: { fontSize: 14, color: T.muted },
 
   fab: {
-    position: 'absolute', bottom: 24, right: 20,
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: T.accent,
     alignItems: 'center', justifyContent: 'center',
