@@ -7,7 +7,6 @@ export type ActivityType =
   | 'drinks'
   | 'outdoors'
   | 'view'
-  | 'culture'
   | 'entertainment'
   | 'other';
 
@@ -15,8 +14,7 @@ export const ACTIVITY_TYPES: { value: ActivityType; label: string; emoji: string
   { value: 'food', label: 'Food', emoji: '🍽' },
   { value: 'drinks', label: 'Drinks', emoji: '🍸' },
   { value: 'outdoors', label: 'Outdoors', emoji: '🌿' },
-  { value: 'view', label: 'Pretty view', emoji: '🌅' },
-  { value: 'culture', label: 'Culture', emoji: '🎭' },
+  { value: 'view', label: 'Pretty View', emoji: '🌅' },
   { value: 'entertainment', label: 'Entertainment', emoji: '🎬' },
   { value: 'other', label: 'Other', emoji: '✨' },
 ];

@@ -6,7 +6,12 @@ import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating,
 import { T } from '@/lib/theme';
 
 const CATEGORY_BANNERS: Partial<Record<string, any>> = {
-  drinks: require('../../assets/images/category-drinks.jpg'),
+  food:          require('../../assets/images/category-food.jpg'),
+  drinks:        require('../../assets/images/category-drinks.jpg'),
+  outdoors:      require('../../assets/images/category-outdoors.avif'),
+  view:          require('../../assets/images/category-view.jpg'),
+  entertainment: require('../../assets/images/category-entertainment.jpg'),
+  other:         require('../../assets/images/category-other.jpg'),
 };
 
 type Tab = 'picks' | 'all';
