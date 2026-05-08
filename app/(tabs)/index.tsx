@@ -1,9 +1,13 @@
 import { useCallback, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
 import { T } from '@/lib/theme';
+
+const CATEGORY_BANNERS: Partial<Record<string, any>> = {
+  drinks: require('../../assets/images/category-drinks.jpg'),
+};
 
 type Tab = 'picks' | 'all';
 type SortOption = 'date' | 'best' | 'worst';
@@ -44,6 +48,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>DateSpot</Text>
+        <Text style={styles.headerSub}>Your favourite places</Text>
       </View>
 
       {/* Segmented control */}
@@ -108,15 +113,28 @@ function PicksTab({ visits }: { visits: Visit[] }) {
 
   return (
     <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-      {categories.map(cat => (
-        <View key={cat.value} style={styles.categorySection}>
-          <View style={styles.categoryHeader}>
-            <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
-            <Text style={styles.categoryTitle}>{cat.label}</Text>
+      {categories.map(cat => {
+        const banner = CATEGORY_BANNERS[cat.value];
+        return (
+          <View key={cat.value} style={styles.categorySection}>
+            {banner ? (
+              <ImageBackground source={banner} style={styles.categoryBanner} imageStyle={styles.categoryBannerImg}>
+                <View style={styles.categoryBannerOverlay}>
+                  <Text style={styles.categoryBannerEmoji}>{cat.emoji}</Text>
+                  <Text style={styles.categoryBannerTitle}>{cat.label}</Text>
+                  <Text style={styles.categoryBannerCount}>Top {cat.spots.length}</Text>
+                </View>
+              </ImageBackground>
+            ) : (
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+                <Text style={styles.categoryTitle}>{cat.label}</Text>
+              </View>
+            )}
+            {cat.spots.map(v => <SpotRow key={v.id} visit={v} />)}
           </View>
-          {cat.spots.map(v => <SpotRow key={v.id} visit={v} />)}
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -195,12 +213,15 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
 
   header: {
-    paddingHorizontal: 20, paddingTop: 6, paddingBottom: 10,
-    alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14,
+    alignItems: 'center', gap: 2,
   },
   headerTitle: {
-    fontSize: 20, fontWeight: '700', color: T.primary,
-    fontFamily: 'Georgia', letterSpacing: -0.2,
+    fontSize: 32, fontWeight: '700', color: T.primary,
+    fontFamily: 'Georgia', letterSpacing: -0.5,
+  },
+  headerSub: {
+    fontSize: 13, color: T.muted, fontWeight: '500', letterSpacing: 0.2,
   },
 
   segControl: {
@@ -249,6 +270,20 @@ const styles = StyleSheet.create({
   ratingPillText: { fontSize: 12, fontWeight: '800' },
 
   categorySection: { marginBottom: 28 },
+
+  categoryBanner: { height: 120, borderRadius: 16, overflow: 'hidden', marginBottom: 12 },
+  categoryBannerImg: { borderRadius: 16 },
+  categoryBannerOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.42)',
+    borderRadius: 16, padding: 16, justifyContent: 'flex-end', gap: 2,
+  },
+  categoryBannerEmoji: { fontSize: 24 },
+  categoryBannerTitle: {
+    fontSize: 22, fontWeight: '700', color: '#fff',
+    fontFamily: 'Georgia', letterSpacing: -0.3,
+  },
+  categoryBannerCount: { fontSize: 12, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
+
   categoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   categoryEmoji: { fontSize: 20 },
   categoryTitle: {
