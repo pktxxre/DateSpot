@@ -118,7 +118,6 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Recent Activity</Text>
           {activity.length === 0 ? (
             <View style={styles.emptyActivity}>
-              <Text style={styles.emptyEmoji}>🗺</Text>
               <Text style={styles.emptyText}>No activity yet. Start logging spots!</Text>
             </View>
           ) : (
@@ -144,7 +143,6 @@ function StatBox({ value, label }: { value: number; label: string }) {
 function ActivityRow({ item }: { item: ActivityItem }) {
   return (
     <View style={styles.activityRow}>
-      <Text style={styles.activityEmoji}>{item.emoji}</Text>
       <View style={styles.activityInfo}>
         <Text style={styles.activityLabel}>{item.label}</Text>
         <Text style={styles.activitySub}>{item.sublabel} · {friendlyDate(item.date)}</Text>

@@ -1,7 +1,11 @@
-import { useCallback, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground, Dimensions } from 'react-native';
+import Animated, { useSharedValue, withTiming, useAnimatedStyle } from 'react-native-reanimated';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { scheduleOpenLog } from './map';
+
+const SCREEN_W = Dimensions.get('window').width;
 import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
 import { T } from '@/lib/theme';
 
@@ -33,13 +37,15 @@ function sortVisits(visits: Visit[], sort: SortOption): Visit[] {
 }
 
 function openLogFlow() {
-  router.push({ pathname: '/(tabs)/map', params: { openLog: '1' } });
+  scheduleOpenLog();
+  router.navigate('/(tabs)/map');
 }
 
 export default function HomeScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [tab, setTab] = useState<Tab>('picks');
   const [sort, setSort] = useState<SortOption>('best');
+  const slideX = useSharedValue(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -47,13 +53,21 @@ export default function HomeScreen() {
     }, [])
   );
 
+  useEffect(() => {
+    slideX.value = withTiming(tab === 'picks' ? 0 : -SCREEN_W, { duration: 260 });
+  }, [tab]);
+
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: slideX.value }],
+  }));
+
   const allSorted = sortVisits(visits, sort);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>DateSpot</Text>
-        <Text style={styles.headerSub}>Your favourite places</Text>
+        <Text style={styles.headerSub}>Your favorite places</Text>
       </View>
 
       {/* Segmented control */}
@@ -76,21 +90,32 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {tab === 'picks' ? (
-        <PicksTab visits={visits} />
-      ) : (
-        <AllTab visits={allSorted} sort={sort} onSort={setSort} />
-      )}
+      {/* Sort row — always rendered so content doesn't jump when switching tabs */}
+      <View style={[styles.sortRow, tab !== 'all' && styles.sortRowHidden]}>
+        {SORT_OPTIONS.map(opt => (
+          <Pressable
+            key={opt.value}
+            style={[styles.sortChip, sort === opt.value && styles.sortChipActive]}
+            onPress={() => setSort(opt.value)}
+          >
+            <Text style={[styles.sortChipText, sort === opt.value && styles.sortChipTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
-      {/* Fixed bottom button */}
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
-        <Pressable
-          style={({ pressed }) => [styles.logCta, pressed && { opacity: 0.85 }]}
-          onPress={openLogFlow}
-        >
-          <Text style={styles.logCtaText}>+ Log a new spot</Text>
-        </Pressable>
-      </SafeAreaView>
+      {/* Sliding panels */}
+      <View style={styles.slideContainer}>
+        <Animated.View style={[styles.slidePanels, slideStyle]}>
+          <View style={styles.slidePanel}>
+            <PicksTab visits={visits} />
+          </View>
+          <View style={styles.slidePanel}>
+            <AllTab visits={allSorted} />
+          </View>
+        </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -98,10 +123,12 @@ export default function HomeScreen() {
 function PicksTab({ visits }: { visits: Visit[] }) {
   if (visits.length === 0) {
     return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyEmoji}>🗺</Text>
+      <View style={styles.emptyCenter}>
         <Text style={styles.emptyTitle}>No spots yet</Text>
-        <Text style={styles.emptyBody}>Log your first date spot and your favorites will appear here by category.</Text>
+        <Pressable style={styles.logCtaInline} onPress={openLogFlow}>
+          <Text style={styles.logCtaText}>+ Log a new spot</Text>
+        </Pressable>
+        <Text style={styles.emptySubCta}>to get started!</Text>
       </View>
     );
   }
@@ -131,7 +158,6 @@ function PicksTab({ visits }: { visits: Visit[] }) {
               </ImageBackground>
             ) : (
               <View style={styles.categoryHeader}>
-                <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
                 <Text style={styles.categoryTitle}>{cat.label}</Text>
               </View>
             )}
@@ -143,30 +169,16 @@ function PicksTab({ visits }: { visits: Visit[] }) {
   );
 }
 
-function AllTab({ visits, sort, onSort }: { visits: Visit[]; sort: SortOption; onSort: (s: SortOption) => void }) {
+function AllTab({ visits }: { visits: Visit[] }) {
   return (
     <>
-      <View style={styles.sortRow}>
-        {SORT_OPTIONS.map(opt => (
-          <Pressable
-            key={opt.value}
-            style={[styles.sortChip, sort === opt.value && styles.sortChipActive]}
-            onPress={() => onSort(opt.value)}
-          >
-            <Text style={[styles.sortChipText, sort === opt.value && styles.sortChipTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
       {visits.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyEmoji}>🗺</Text>
+        <View style={styles.emptyCenter}>
           <Text style={styles.emptyTitle}>No spots yet</Text>
-          <Text style={styles.emptyBody}>Log your first date spot and it'll show up here.</Text>
-          <Pressable style={styles.logCta} onPress={() => router.push('/(tabs)/map')}>
-            <Text style={styles.logCtaText}>Log a spot</Text>
+          <Pressable style={styles.logCtaInline} onPress={openLogFlow}>
+            <Text style={styles.logCtaText}>+ Log a new spot</Text>
           </Pressable>
+          <Text style={styles.emptySubCta}>to get started!</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
@@ -189,10 +201,6 @@ function SpotRow({ visit }: { visit: Visit }) {
       style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
       onPress={() => router.push(`/spot/${visit.id}`)}
     >
-      <View style={styles.rowEmoji}>
-        <Text style={styles.rowEmojiText}>{info?.emoji ?? '📍'}</Text>
-      </View>
-
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
           <Text style={styles.rowName} numberOfLines={1}>{visit.venue_name}</Text>
@@ -215,6 +223,10 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: T.bg },
   scroll: { flex: 1 },
   listContent: { paddingBottom: 40 },
+
+  slideContainer: { flex: 1, overflow: 'hidden' },
+  slidePanels: { flexDirection: 'row', width: SCREEN_W * 2, flex: 1 },
+  slidePanel: { width: SCREEN_W, flex: 1 },
 
   header: {
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14,
@@ -244,10 +256,11 @@ const styles = StyleSheet.create({
   segBtnTextActive: { color: T.primary, fontWeight: '600' },
 
   sortRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12, flexWrap: 'wrap',
+    flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12,
   },
+  sortRowHidden: { opacity: 0 },
   sortChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    flex: 1, paddingVertical: 6, borderRadius: 20, alignItems: 'center',
     backgroundColor: T.bg, borderWidth: 1, borderColor: T.border,
   },
   sortChipActive: { backgroundColor: T.primary, borderColor: T.primary },
@@ -294,17 +307,23 @@ const styles = StyleSheet.create({
     fontSize: 16, fontWeight: '700', color: T.primary, fontFamily: 'Georgia',
   },
 
-  bottomBar: {
-    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border,
-    backgroundColor: T.bg,
-  },
   logCta: {
-    backgroundColor: T.accent, borderRadius: 14,
+    backgroundColor: 'transparent', borderRadius: 14,
     paddingVertical: 15, alignItems: 'center',
+    borderWidth: 1.5, borderColor: T.accent,
   },
-  logCtaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  logCtaInline: {
+    backgroundColor: 'transparent', borderRadius: 14,
+    paddingVertical: 15, alignItems: 'center',
+    borderWidth: 1.5, borderColor: T.accent,
+    alignSelf: 'stretch', marginTop: 24,
+  },
+  logCtaText: { color: T.accent, fontSize: 16, fontWeight: '700' },
 
+  emptyCenter: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
   empty: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 40, paddingTop: 60,
@@ -315,4 +334,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Georgia', marginBottom: 8,
   },
   emptyBody: { fontSize: 15, color: T.muted, textAlign: 'center', lineHeight: 22 },
+  emptySubCta: { fontSize: 15, color: T.muted, marginTop: 10 },
 });
