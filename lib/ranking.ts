@@ -1,57 +1,30 @@
-import { ActivityType, Visit } from './visits';
+import { Visit, Triage } from './visits';
+
+export { Triage };
 
 export interface ComparisonState {
-  lo: number;       // index into sorted (inclusive lower bound)
-  hi: number;       // index into sorted (exclusive upper bound)
-  mid: number;      // index of current comparison target
-  count: number;    // comparisons made so far
-  sorted: Visit[];  // pool used for this session (may be category-filtered)
+  lo: number;
+  hi: number;
+  mid: number;
+  count: number;
+  sorted: Visit[];
 }
 
 export type ComparisonResult = 'better' | 'worse';
-export type Triage = 'bad' | 'okay' | 'great';
 
 const MAX_COMPARISONS = 7;
-const CATEGORY_THRESHOLD = 5; // min spots in category before category-only mode kicks in
 
 export function startComparison(
   existing: Visit[],
-  activityType?: ActivityType,
-  triage?: Triage
+  triage: Triage
 ): ComparisonState | null {
-  if (existing.length === 0) return null;
-
-  // Category-aware: use category pool if we have enough data in that category
-  let pool = existing;
-  if (activityType) {
-    const categoryPool = existing.filter((v) => v.activity_type === activityType);
-    if (categoryPool.length >= CATEGORY_THRESHOLD) {
-      pool = categoryPool;
-    }
-  }
+  const pool = existing.filter((v) => v.triage === triage);
+  if (pool.length === 0) return null;
 
   const sorted = [...pool].sort((a, b) => b.rank_order - a.rank_order);
   const n = sorted.length;
-
-  // Triage seeds the search region (sorted is DESC: index 0 = best, n-1 = worst)
-  let lo = 0;
-  let hi = n;
-  if (triage && n >= 2) {
-    if (triage === 'great') {
-      hi = Math.max(1, Math.ceil(n / 3));
-    } else if (triage === 'okay') {
-      lo = Math.floor(n / 3);
-      hi = Math.ceil((2 * n) / 3);
-    } else {
-      lo = Math.floor((2 * n) / 3);
-    }
-    // Guard: ensure hi > lo
-    if (hi <= lo) hi = lo + 1;
-    if (hi > n) hi = n;
-  }
-
-  const mid = Math.floor((lo + hi) / 2);
-  return { lo, hi, mid, count: 0, sorted };
+  const mid = Math.floor(n / 2);
+  return { lo: 0, hi: n, mid, count: 0, sorted };
 }
 
 export function advance(

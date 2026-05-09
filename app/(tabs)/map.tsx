@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image,
+  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image, LayoutAnimation,
 } from 'react-native';
 import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
 import { useFocusEffect, router } from 'expo-router';
 
-// Module-level flag so home screen can arm the log flow before switching tabs.
-// useFocusEffect fires the instant the tab gains focus and reads this synchronously.
+// Module-level flags so home screen can arm flows before switching tabs.
 let _pendingOpenLog = false;
 export function scheduleOpenLog() { _pendingOpenLog = true; }
+
+let _pendingOpenFuture = false;
+export function scheduleOpenFutureDate() { _pendingOpenFuture = true; }
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import {
   getAllVisits, insertVisit, ratingColor, formatRating, Visit,
-  ActivityType, Price, ACTIVITY_TYPES, PRICE_LABELS,
+  ActivityType, Price, DateType, ACTIVITY_TYPES, PRICE_LABELS, DATE_TYPES,
 } from '@/lib/visits';
 import {
   startComparison, advance, resolveRankOrder, resolveAtMid,
@@ -23,6 +25,7 @@ import {
 } from '@/lib/ranking';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { uploadPhoto } from '@/lib/storage';
+import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } from '@/lib/future';
 import { T } from '@/lib/theme';
 
 const SF_REGION: Region = {
@@ -32,7 +35,8 @@ const SF_REGION: Region = {
   longitudeDelta: 0.08,
 };
 
-type Step = 'location' | 'details' | 'triage' | 'compare' | 'done';
+type Step = 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name';
+type MapFilter = 'been' | 'want';
 
 interface DraftVisit {
   lat: number;
@@ -42,26 +46,39 @@ interface DraftVisit {
   notes: string;
   activity_type: ActivityType;
   price: Price;
+  date_type: DateType;
   photos: string[];
 }
 
 export default function MapScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
+  const [mapFilter, setMapFilter] = useState<MapFilter>('been');
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
+  const [selectedFuture, setSelectedFuture] = useState<FutureSpot | null>(null);
   const [step, setStep] = useState<Step | null>(null);
   const [draft, setDraft] = useState<Partial<DraftVisit>>({});
   const [droppingPin, setDroppingPin] = useState(false);
   const [cmpState, setCmpState] = useState<ComparisonState | null>(null);
+  const [currentTriage, setCurrentTriage] = useState<Triage>('okay');
   const sheetRef = useRef<BottomSheet>(null);
   const mapRef = useRef<MapView>(null);
 
   useFocusEffect(
     useCallback(() => {
       setVisits(getAllVisits());
+      setFutureSpots(getAllFutureSpots());
       if (_pendingOpenLog) {
         _pendingOpenLog = false;
         setSelectedVisit(null);
         setStep('location');
+        sheetRef.current?.snapToIndex(1);
+      }
+      if (_pendingOpenFuture) {
+        _pendingOpenFuture = false;
+        setSelectedVisit(null);
+        setMapFilter('want');
+        setStep('future-pin');
         sheetRef.current?.snapToIndex(1);
       }
       loadDraft().then((saved) => {
@@ -95,7 +112,7 @@ export default function MapScreen() {
   );
 
   useEffect(() => {
-    if (step === null || step === 'location') return;
+    if (step === null || step === 'location' || step === 'future-pin' || step === 'future-name') return;
     saveDraft({ ...draft, step, savedAt: new Date().toISOString() });
   }, [step, draft]);
 
@@ -126,7 +143,40 @@ export default function MapScreen() {
     setDraft({});
     setDroppingPin(false);
     setCmpState(null);
+    setCurrentTriage('okay');
     clearDraft();
+  }
+
+  function handleFutureDropPin() {
+    setDroppingPin(true);
+    sheetRef.current?.snapToIndex(0);
+  }
+
+  async function handleFutureUseLocation() {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Location access needed', 'Enable location in Settings.');
+      return;
+    }
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    setDraft((d) => ({ ...d, lat: loc.coords.latitude, lng: loc.coords.longitude }));
+    setStep('future-name');
+    sheetRef.current?.snapToIndex(1);
+  }
+
+  function saveFutureSpot() {
+    if (!draft.lat || !draft.lng || !draft.venue_name?.trim()) return;
+    insertFutureSpot({
+      id: Crypto.randomUUID(),
+      venue_name: draft.venue_name.trim(),
+      lat: draft.lat,
+      lng: draft.lng,
+      created_at: new Date().toISOString(),
+    });
+    setFutureSpots(getAllFutureSpots());
+    setStep(null);
+    setDraft({});
+    sheetRef.current?.close();
   }
 
   async function handleUseLocation() {
@@ -149,17 +199,19 @@ export default function MapScreen() {
   function handleMapPress(e: MapPressEvent) {
     if (!droppingPin) {
       setSelectedVisit(null);
+      setSelectedFuture(null);
       return;
     }
     const { latitude, longitude } = e.nativeEvent.coordinate;
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
     setDroppingPin(false);
-    setStep('details');
-    sheetRef.current?.snapToIndex(2);
-  }
-
-  function handleSearchPlaceholder() {
-    Alert.alert('Search venues', 'Venue search coming in V1.5. Drop a pin or use your location for now.');
+    if (step === 'future-pin' || mapFilter === 'want') {
+      setStep('future-name');
+      sheetRef.current?.snapToIndex(1);
+    } else {
+      setStep('details');
+      sheetRef.current?.snapToIndex(2);
+    }
   }
 
   function handleDetailsDone() {
@@ -171,6 +223,17 @@ export default function MapScreen() {
       Alert.alert('Type required', 'What kind of spot was this?');
       return;
     }
+    if (draft.visited_at) {
+      const iso = draft.visited_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) {
+        const picked = new Date(+iso[1], +iso[2] - 1, +iso[3]);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        if (picked > today) {
+          Alert.alert('Future date', 'The date can\'t be in the future.');
+          return;
+        }
+      }
+    }
     const existing = getAllVisits();
     if (existing.length === 0) {
       saveVisit(1000);
@@ -181,11 +244,12 @@ export default function MapScreen() {
   }
 
   function handleTriage(triage: Triage) {
+    setCurrentTriage(triage);
     const existing = getAllVisits();
-    const initial = startComparison(existing, draft.activity_type, triage);
+    const initial = startComparison(existing, triage);
     setCmpState(initial);
     if (initial === null) {
-      saveVisit(1000);
+      saveVisitWithTriage(1000, triage);
       return;
     }
     setStep('compare');
@@ -193,11 +257,13 @@ export default function MapScreen() {
   }
 
   function handleCompare(result: 'better' | 'worse') {
-    const next = cmpState ? advance(cmpState, result) : null;
+    if (!cmpState) return;
+    const next = advance(cmpState, result);
     if (next === null) {
       const existing = getAllVisits();
-      const rank_order = resolveRankOrder(cmpState, existing);
-      saveVisit(rank_order);
+      const finalLo = result === 'better' ? cmpState.lo : cmpState.mid + 1;
+      const rank_order = resolveRankOrder({ ...cmpState, lo: finalLo }, existing);
+      saveVisitWithTriage(rank_order, currentTriage);
     } else {
       setCmpState(next);
     }
@@ -207,10 +273,10 @@ export default function MapScreen() {
     if (!cmpState) return;
     const existing = getAllVisits();
     const rank_order = resolveAtMid(cmpState, existing);
-    saveVisit(rank_order);
+    saveVisitWithTriage(rank_order, currentTriage);
   }
 
-  function saveVisit(rank_order: number) {
+  function saveVisitWithTriage(rank_order: number, triage: Triage) {
     if (!draft.lat || !draft.lng || !draft.venue_name) return;
     insertVisit({
       id: Crypto.randomUUID(),
@@ -221,12 +287,18 @@ export default function MapScreen() {
       rank_order,
       notes: draft.notes || undefined,
       activity_type: draft.activity_type || 'other',
-      price: draft.price || 2,
+      price: draft.price ?? 2,
+      triage,
+      date_type: draft.date_type || undefined,
       photos: draft.photos || [],
     });
     setVisits(getAllVisits());
     setStep('done');
     sheetRef.current?.snapToIndex(1);
+  }
+
+  function saveVisit(rank_order: number) {
+    saveVisitWithTriage(rank_order, currentTriage);
   }
 
   function handlePinPress(visit: Visit) {
@@ -247,7 +319,7 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         onPress={handleMapPress}
       >
-        {visits.map((v) => (
+        {mapFilter === 'been' && visits.map((v) => (
           <Marker
             key={v.id}
             coordinate={{ latitude: v.lat, longitude: v.lng }}
@@ -258,10 +330,41 @@ export default function MapScreen() {
             </View>
           </Marker>
         ))}
+        {mapFilter === 'want' && futureSpots.map((s) => (
+          <Marker
+            key={s.id}
+            coordinate={{ latitude: s.lat, longitude: s.lng }}
+            onPress={() => { if (step === null) setSelectedFuture((p) => p?.id === s.id ? null : s); }}
+          >
+            <View style={styles.futurePinBadge}>
+              <Ionicons name="bookmark" size={13} color="#fff" />
+            </View>
+          </Marker>
+        ))}
         {draft.lat != null && draft.lng != null && (
           <Marker coordinate={{ latitude: draft.lat, longitude: draft.lng }} pinColor="#ff3b5c" />
         )}
       </MapView>
+
+      {/* Filter toggle */}
+      {step === null && (
+        <View style={styles.filterRow} pointerEvents="box-none">
+          <View style={styles.filterPills} pointerEvents="auto">
+            <Pressable
+              style={[styles.filterPill, mapFilter === 'been' && styles.filterPillActive]}
+              onPress={() => { setMapFilter('been'); setSelectedFuture(null); setSelectedVisit(null); }}
+            >
+              <Text style={[styles.filterPillText, mapFilter === 'been' && styles.filterPillTextActive]}>Been To</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterPill, mapFilter === 'want' && styles.filterPillActive]}
+              onPress={() => { setMapFilter('want'); setSelectedVisit(null); setSelectedFuture(null); }}
+            >
+              <Text style={[styles.filterPillText, mapFilter === 'want' && styles.filterPillTextActive]}>Want to Go</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {droppingPin && (
         <View style={styles.pinHint} pointerEvents="none">
@@ -269,18 +372,38 @@ export default function MapScreen() {
         </View>
       )}
 
-      {selectedVisit && step === null && (
+      {selectedVisit && step === null && mapFilter === 'been' && (
         <VisitDetail visit={selectedVisit} onClose={() => setSelectedVisit(null)} />
+      )}
+
+      {selectedFuture && step === null && mapFilter === 'want' && (
+        <FutureDetail
+          spot={selectedFuture}
+          onClose={() => setSelectedFuture(null)}
+          onDelete={() => {
+            deleteFutureSpot(selectedFuture.id);
+            setFutureSpots(getAllFutureSpots());
+            setSelectedFuture(null);
+          }}
+        />
       )}
 
       {step === null && (
         <View style={styles.fabRow} pointerEvents="box-none">
-          {visits.length === 0 && (
+          {visits.length === 0 && mapFilter === 'been' && (
             <View style={styles.emptyState} pointerEvents="none">
               <Text style={styles.emptyText}>Tap + to log your first date spot</Text>
             </View>
           )}
-          <Pressable style={styles.fab} onPress={openLog} hitSlop={8}>
+          {futureSpots.length === 0 && mapFilter === 'want' && (
+            <View style={styles.emptyState} pointerEvents="none">
+              <Text style={styles.emptyText}>Tap + to add a future date</Text>
+            </View>
+          )}
+          <Pressable style={styles.fab} onPress={mapFilter === 'been' ? openLog : () => {
+            setStep('future-pin');
+            sheetRef.current?.snapToIndex(1);
+          }} hitSlop={8}>
             <Ionicons name="add" size={30} color="#fff" />
           </Pressable>
         </View>
@@ -300,7 +423,22 @@ export default function MapScreen() {
             <LocationStep
               onUseLocation={handleUseLocation}
               onDropPin={handleDropPin}
-              onSearch={handleSearchPlaceholder}
+              onFutureDate={() => { setStep('future-pin'); setMapFilter('want'); }}
+            />
+          )}
+          {step === 'future-pin' && (
+            <FuturePinStep
+              onUseLocation={handleFutureUseLocation}
+              onDropPin={handleFutureDropPin}
+              onBack={() => sheetRef.current?.close()}
+            />
+          )}
+          {step === 'future-name' && (
+            <FutureNameStep
+              value={draft.venue_name || ''}
+              onChange={(v) => setDraft((d) => ({ ...d, venue_name: v }))}
+              onSave={saveFutureSpot}
+              onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
             />
           )}
           {step === 'details' && (
@@ -318,7 +456,6 @@ export default function MapScreen() {
             <CompareStep
               newVenueName={draft.venue_name || ''}
               opponent={currentComparison(cmpState)}
-              comparisonNumber={cmpState.count + 1}
               onBetter={() => handleCompare('better')}
               onWorse={() => handleCompare('worse')}
               onTooHard={handleTooHard}
@@ -364,8 +501,8 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   );
 }
 
-function LocationStep({ onUseLocation, onDropPin, onSearch }: {
-  onUseLocation: () => void; onDropPin: () => void; onSearch: () => void;
+function LocationStep({ onUseLocation, onDropPin, onFutureDate }: {
+  onUseLocation: () => void; onDropPin: () => void; onFutureDate: () => void;
 }) {
   return (
     <View style={styles.stepContainer}>
@@ -374,8 +511,77 @@ function LocationStep({ onUseLocation, onDropPin, onSearch }: {
       <View style={styles.circleRow}>
         <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
         <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
-        <CircleButton icon="search" label="Search" sublabel="Venues & places" onPress={onSearch} tint="#e8f8ec" />
+        <CircleButton icon="bookmark-outline" label="Future Date" sublabel="Want to go" onPress={onFutureDate} tint="#f0f0ff" />
       </View>
+    </View>
+  );
+}
+
+function FuturePinStep({ onUseLocation, onDropPin, onBack }: {
+  onUseLocation: () => void; onDropPin: () => void; onBack: () => void;
+}) {
+  return (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Where do you want to go?</Text>
+      <Text style={styles.stepSubtitle}>Pick a location</Text>
+      <View style={styles.circleRow}>
+        <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
+        <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
+      </View>
+      <Pressable style={[styles.btnSecondaryCenter, { marginTop: 16 }]} onPress={onBack}>
+        <Text style={styles.btnSecondaryText}>Cancel</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function FutureNameStep({ value, onChange, onSave, onBack }: {
+  value: string; onChange: (v: string) => void; onSave: () => void; onBack: () => void;
+}) {
+  return (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>What's it called?</Text>
+      <Text style={styles.stepSubtitle}>Give it a name to remember</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="e.g. Lazy Bear"
+        placeholderTextColor="#c7c7cc"
+        value={value}
+        onChangeText={onChange}
+        autoFocus
+        returnKeyType="done"
+        onSubmitEditing={onSave}
+      />
+      <View style={styles.btnRow}>
+        <Pressable style={styles.btnSecondary} onPress={onBack}>
+          <Text style={styles.btnSecondaryText}>Back</Text>
+        </Pressable>
+        <Pressable style={styles.btnPrimary} onPress={onSave}>
+          <Text style={styles.btnPrimaryText}>Save</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function FutureDetail({ spot, onClose, onDelete }: {
+  spot: FutureSpot; onClose: () => void; onDelete: () => void;
+}) {
+  return (
+    <View style={styles.detailCard}>
+      <View style={styles.detailHeader}>
+        <Text style={styles.detailName} numberOfLines={1}>{spot.venue_name}</Text>
+        <Pressable onPress={onClose} hitSlop={12}>
+          <Ionicons name="close" size={20} color="#8e8e93" />
+        </Pressable>
+      </View>
+      <View style={styles.detailMeta}>
+        <Ionicons name="bookmark" size={14} color="#5856d6" />
+        <Text style={[styles.detailMetaText, { color: '#5856d6' }]}>Future Date</Text>
+      </View>
+      <Pressable style={styles.deleteBtn} onPress={onDelete}>
+        <Text style={styles.deleteBtnText}>Remove</Text>
+      </Pressable>
     </View>
   );
 }
@@ -394,6 +600,146 @@ function CircleButton({ icon, label, sublabel, onPress, tint }: {
   );
 }
 
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1));
+const NOW = new Date();
+const YEARS = Array.from({ length: 11 }, (_, i) => String(NOW.getFullYear() - i));
+const DATE_OPTION_H = 46;
+const DATE_DROPDOWN_H = DATE_OPTION_H * 2.5; // 2.5 rows visible before fade
+
+type DateField = 'month' | 'day' | 'year';
+
+function DatePicker({ month, day, year, onMonthChange, onDayChange, onYearChange, error }: {
+  month: string; day: string; year: string;
+  onMonthChange: (v: string) => void;
+  onDayChange: (v: string) => void;
+  onYearChange: (v: string) => void;
+  error?: boolean;
+}) {
+  const [open, setOpen] = useState<DateField | null>(null);
+  const [tabRowH, setTabRowH] = useState(68);
+  const [tabLayouts, setTabLayouts] = useState<Partial<Record<DateField, { x: number; width: number }>>>({});
+  const listRef = useRef<ScrollView>(null);
+
+  function toggle(field: DateField) {
+    LayoutAnimation.configureNext({
+      duration: 240,
+      create: { type: 'easeInEaseOut', property: 'opacity' },
+      update: { type: 'easeInEaseOut' },
+      delete: { type: 'easeInEaseOut', property: 'opacity' },
+    });
+    setOpen(prev => prev === field ? null : field);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const items = open === 'month' ? MONTHS : open === 'day' ? DAYS : YEARS;
+    const val = open === 'month' ? month : open === 'day' ? day : year;
+    const idx = items.indexOf(val);
+    if (idx >= 0) {
+      setTimeout(() => listRef.current?.scrollTo({ y: idx * DATE_OPTION_H, animated: false }), 40);
+    }
+  }, [open]);
+
+  function pick(field: DateField, val: string) {
+    if (field === 'month') onMonthChange(val);
+    else if (field === 'day') onDayChange(val);
+    else onYearChange(val);
+    LayoutAnimation.configureNext({
+      duration: 180,
+      update: { type: 'easeInEaseOut' },
+      delete: { type: 'easeInEaseOut', property: 'opacity' },
+    });
+    setOpen(null);
+  }
+
+  const fields: { key: DateField; label: string; value: string; flex?: number }[] = [
+    { key: 'month', label: 'Month', value: month, flex: 1.3 },
+    { key: 'day',   label: 'Day',   value: day },
+    { key: 'year',  label: 'Year',  value: year, flex: 1.4 },
+  ];
+
+  const openItems = open === 'month' ? MONTHS : open === 'day' ? DAYS : YEARS;
+  const openVal   = open === 'month' ? month  : open === 'day' ? day   : year;
+  const dropLayout = open ? tabLayouts[open] : null;
+
+  return (
+    <View style={{ marginBottom: 12, zIndex: 20 }}>
+      <View
+        style={styles.dateTabRow}
+        onLayout={e => setTabRowH(e.nativeEvent.layout.height)}
+      >
+        {fields.map(f => (
+          <Pressable
+            key={f.key}
+            style={[styles.dateTab, { flex: f.flex ?? 1 }, open === f.key && styles.dateTabOpen, error && !open && styles.dateTabError]}
+            onPress={() => toggle(f.key)}
+            onLayout={e => {
+              const { x, width } = e.nativeEvent.layout;
+              setTabLayouts(prev => ({ ...prev, [f.key]: { x, width } }));
+            }}
+          >
+            <Text style={styles.dateTabLabel}>{f.label}</Text>
+            <Text style={[styles.dateTabValue, open === f.key && styles.dateTabValueOpen]}>{f.value}</Text>
+            <Ionicons name={open === f.key ? 'chevron-up' : 'chevron-down'} size={11} color={open === f.key ? T.accent : T.muted} />
+          </Pressable>
+        ))}
+      </View>
+
+      {open && dropLayout && (
+        <View style={[styles.dateDropdown, {
+          position: 'absolute',
+          top: tabRowH + 4,
+          left: dropLayout.x,
+          width: dropLayout.width,
+          height: DATE_DROPDOWN_H,
+        }]}>
+          <ScrollView
+            ref={listRef}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+            style={{ flex: 1 }}
+          >
+            {openItems.map(item => {
+              const selected = item === openVal;
+              return (
+                <Pressable
+                  key={item}
+                  style={[styles.dateOption, selected && styles.dateOptionSelected]}
+                  onPress={() => pick(open, item)}
+                >
+                  <Text style={[styles.dateOptionText, selected && styles.dateOptionTextSelected]}>{item}</Text>
+                  {selected && <Ionicons name="checkmark" size={16} color={T.accent} />}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {/* Bottom fade — signals scrollability */}
+          <View style={styles.dateFade} pointerEvents="none">
+            <View style={{ flex: 1, backgroundColor: 'rgba(252,249,242,0)' }} />
+            <View style={{ flex: 1, backgroundColor: 'rgba(252,249,242,0.55)' }} />
+            <View style={{ flex: 1, backgroundColor: 'rgba(252,249,242,0.9)' }} />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function initDateState(dateStr?: string): { month: string; day: string; year: string } {
+  if (dateStr) {
+    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      return {
+        month: MONTHS[parseInt(m[2]) - 1] ?? MONTHS[NOW.getMonth()],
+        day: String(parseInt(m[3])),
+        year: m[1],
+      };
+    }
+  }
+  return { month: MONTHS[NOW.getMonth()], day: String(NOW.getDate()), year: String(NOW.getFullYear()) };
+}
+
 function DetailsStep({ draft, onChange, onNext, onBack }: {
   draft: Partial<DraftVisit>;
   onChange: (key: string, val: any) => void;
@@ -401,6 +747,29 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
   onBack: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const initDate = initDateState(draft.visited_at);
+  const [month, setMonth] = useState(initDate.month);
+  const [day, setDay] = useState(initDate.day);
+  const [year, setYear] = useState(initDate.year);
+
+  useEffect(() => {
+    const mi = MONTHS.indexOf(month) + 1;
+    const di = parseInt(day);
+    const yi = parseInt(year);
+    if (mi >= 1 && di >= 1 && di <= 31 && yi >= 2000) {
+      onChange('visited_at', `${yi}-${String(mi).padStart(2, '0')}-${String(di).padStart(2, '0')}`);
+    }
+  }, [month, day, year]);
+
+  const isFutureDate = (() => {
+    const mi = MONTHS.indexOf(month);
+    const di = parseInt(day);
+    const yi = parseInt(year);
+    if (isNaN(di) || isNaN(yi)) return false;
+    const picked = new Date(yi, mi, di);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return picked > today;
+  })();
 
   const photos: string[] = draft.photos || [];
 
@@ -449,14 +818,17 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
         returnKeyType="next"
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Date (e.g. Apr 28)"
-        placeholderTextColor="#c7c7cc"
-        value={draft.visited_at || ''}
-        onChangeText={(v) => onChange('visited_at', v)}
-        returnKeyType="next"
+      <Text style={styles.sectionLabel}>Date</Text>
+      <DatePicker
+        month={month} day={day} year={year}
+        onMonthChange={setMonth}
+        onDayChange={setDay}
+        onYearChange={setYear}
+        error={isFutureDate}
       />
+      {isFutureDate && (
+        <Text style={styles.dateError}>Date can't be in the future</Text>
+      )}
 
       <Text style={styles.sectionLabel}>Photos</Text>
       <ScrollView
@@ -494,7 +866,7 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
 
       <Text style={styles.sectionLabel}>Price range</Text>
       <View style={styles.priceRow}>
-        {([1, 2, 3] as Price[]).map((p) => {
+        {([0, 1, 2, 3] as Price[]).map((p) => {
           const selected = draft.price === p;
           return (
             <Pressable
@@ -509,6 +881,22 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
           );
         })}
       </View>
+
+      <Text style={styles.sectionLabel}>What kind of date?</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={{ paddingHorizontal: 24 }}>
+        {DATE_TYPES.map((d) => {
+          const selected = draft.date_type === d.value;
+          return (
+            <Pressable
+              key={d.value}
+              style={[styles.chip, selected && styles.chipSelected]}
+              onPress={() => onChange('date_type', d.value)}
+            >
+              <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{d.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       <TextInput
         style={[styles.input, styles.inputMultiline]}
@@ -553,14 +941,14 @@ function TriageStep({ onPick }: { onPick: (t: Triage) => void }) {
   );
 }
 
-function CompareStep({ newVenueName, opponent, comparisonNumber, onBetter, onWorse, onTooHard, onBack }: {
-  newVenueName: string; opponent: Visit; comparisonNumber: number;
+function CompareStep({ newVenueName, opponent, onBetter, onWorse, onTooHard, onBack }: {
+  newVenueName: string; opponent: Visit;
   onBetter: () => void; onWorse: () => void; onTooHard: () => void; onBack: () => void;
 }) {
   return (
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>Which was better?</Text>
-      <Text style={styles.stepSubtitle}>Step 4 of 5 · Comparison {comparisonNumber} of up to 7</Text>
+      <Text style={styles.stepSubtitle}>Step 4 of 5</Text>
       <View style={styles.compareRow}>
         <Pressable style={[styles.compareCard, styles.compareCardNew]} onPress={onBetter}>
           <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
@@ -618,6 +1006,38 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25, shadowRadius: 4,
   },
   pinScore: { fontSize: 12, fontWeight: '800' },
+
+  futurePinBadge: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: '#5856d6',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#5856d6', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 4,
+  },
+
+  filterRow: {
+    position: 'absolute', top: 56, left: 0, right: 0,
+    alignItems: 'center',
+  },
+  filterPills: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 20, padding: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 6,
+  },
+  filterPill: {
+    paddingHorizontal: 18, paddingVertical: 7, borderRadius: 17,
+  },
+  filterPillActive: { backgroundColor: T.accent },
+  filterPillText: { fontSize: 14, fontWeight: '600', color: T.muted },
+  filterPillTextActive: { color: '#fff' },
+
+  deleteBtn: {
+    marginTop: 12, backgroundColor: '#fff2f2', borderRadius: 10,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  deleteBtnText: { color: '#ff3b30', fontSize: 14, fontWeight: '600' },
 
   pinHint: {
     position: 'absolute', top: 60, alignSelf: 'center',
@@ -751,9 +1171,40 @@ const styles = StyleSheet.create({
   },
   tooHardText: { fontSize: 14, fontWeight: '600', color: T.muted },
 
+  dateTabRow: { flexDirection: 'row', gap: 8 },
+  dateTab: {
+    flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: T.border,
+    paddingVertical: 10, paddingHorizontal: 10, alignItems: 'center', gap: 2,
+  },
+  dateTabOpen: { borderColor: T.accent, backgroundColor: T.accentTint },
+  dateTabError: { borderColor: '#ff3b30', backgroundColor: '#fff2f2' },
+  dateError: { fontSize: 12, color: '#ff3b30', fontWeight: '600', marginTop: 6, marginBottom: 4 },
+  dateTabLabel: { fontSize: 10, fontWeight: '600', color: T.muted, letterSpacing: 0.5 },
+  dateTabValue: { fontSize: 18, fontWeight: '700', color: T.primary },
+  dateTabValueOpen: { color: T.accent },
+
+  dateDropdown: {
+    borderRadius: 12, borderWidth: 1.5, borderColor: T.accent,
+    backgroundColor: T.card, overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.13, shadowRadius: 14, elevation: 10,
+  },
+  dateOption: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, height: DATE_OPTION_H,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border,
+  },
+  dateOptionSelected: { backgroundColor: T.accentTint },
+  dateOptionText: { fontSize: 15, fontWeight: '500', color: T.primary },
+  dateOptionTextSelected: { color: T.accent, fontWeight: '700' },
+
+  dateFade: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, height: 36,
+  },
+
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  btnPrimary: { flex: 1, backgroundColor: T.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
-  btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  btnPrimary: { flex: 1, backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 16, alignItems: 'center', borderWidth: 1.5, borderColor: T.accent },
+  btnPrimaryText: { color: T.accent, fontSize: 16, fontWeight: '700' },
   btnSecondary: { flex: 1, backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   btnSecondaryCenter: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
   btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },

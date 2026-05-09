@@ -101,7 +101,7 @@ export default function ProfileScreen() {
             style={({ pressed }) => [styles.actionBtn, styles.actionBtnPrimary, pressed && { opacity: 0.8 }]}
             onPress={() => router.push('/edit-profile')}
           >
-            <Ionicons name="pencil-outline" size={15} color="#fff" style={{ marginRight: 6 }} />
+            <Ionicons name="pencil-outline" size={15} color={T.accent} style={{ marginRight: 6 }} />
             <Text style={styles.actionBtnPrimaryText}>Edit Profile</Text>
           </Pressable>
           <Pressable
@@ -205,9 +205,9 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     paddingVertical: 13, borderRadius: 14,
   },
-  actionBtnPrimary: { backgroundColor: T.accent },
+  actionBtnPrimary: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: T.accent },
   actionBtnSecondary: { backgroundColor: T.card, borderWidth: 1, borderColor: T.border },
-  actionBtnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  actionBtnPrimaryText: { color: T.accent, fontSize: 15, fontWeight: '600' },
   actionBtnSecondaryText: { color: T.primary, fontSize: 15, fontWeight: '600' },
 
   activitySection: { paddingHorizontal: 20 },
