@@ -31,9 +31,18 @@ export async function initDb(): Promise<void> {
       price         INTEGER NOT NULL DEFAULT 2,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS future_spots (
+      id         TEXT PRIMARY KEY,
+      venue_name TEXT NOT NULL,
+      lat        REAL NOT NULL,
+      lng        REAL NOT NULL,
+      notes      TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
-  // Migrate existing installs that are missing the new columns
+  // Migrate existing installs that are missing columns
   const cols = db.getAllSync<{ name: string }>(
     `PRAGMA table_info(visits)`
   ).map((r) => r.name);
@@ -46,5 +55,11 @@ export async function initDb(): Promise<void> {
   }
   if (!cols.includes('photos')) {
     db.runSync(`ALTER TABLE visits ADD COLUMN photos TEXT`);
+  }
+  if (!cols.includes('triage')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN triage TEXT NOT NULL DEFAULT 'okay'`);
+  }
+  if (!cols.includes('date_type')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN date_type TEXT`);
   }
 }

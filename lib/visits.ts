@@ -1,7 +1,9 @@
 import { getDb } from './db';
 
 export type Rating = number;
-export type Price = 1 | 2 | 3; // $ $$ $$$
+export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
+export type Triage = 'bad' | 'okay' | 'great';
+export type DateType = 'first' | 'casual' | 'special' | 'friend' | 'solo';
 export type ActivityType =
   | 'food'
   | 'drinks'
@@ -19,7 +21,15 @@ export const ACTIVITY_TYPES: { value: ActivityType; label: string; emoji: string
   { value: 'other', label: 'Other', emoji: '✨' },
 ];
 
-export const PRICE_LABELS: Record<Price, string> = { 1: '$', 2: '$$', 3: '$$$' };
+export const PRICE_LABELS: Record<Price, string> = { 0: 'Free', 1: '$', 2: '$$', 3: '$$$' };
+
+export const DATE_TYPES: { value: DateType; label: string }[] = [
+  { value: 'first',   label: 'First Date' },
+  { value: 'casual',  label: 'Casual Date' },
+  { value: 'special', label: 'Special Occasion' },
+  { value: 'friend',  label: 'Friend Date' },
+  { value: 'solo',    label: 'Solo Date' },
+];
 
 export interface Visit {
   id: string;
@@ -32,6 +42,8 @@ export interface Visit {
   notes: string | null;
   activity_type: ActivityType;
   price: Price;
+  triage: Triage;
+  date_type: DateType | null;
   created_at: string;
   photos: string[];
 }
@@ -46,6 +58,8 @@ export interface NewVisit {
   notes?: string;
   activity_type: ActivityType;
   price: Price;
+  triage: Triage;
+  date_type?: DateType;
   photos?: string[];
 }
 
@@ -58,7 +72,7 @@ function parseRow(row: any): Visit {
 
 export function getAllVisits(): Visit[] {
   const db = getDb();
-  const rows = db.getAllSync<any>('SELECT * FROM visits ORDER BY rank_order DESC');
+  const rows = db.getAllSync<any>('SELECT * FROM visits ORDER BY rating DESC');
   return rows.map(parseRow);
 }
 
@@ -101,9 +115,9 @@ export function getVisitById(id: string): Visit | null {
 export function insertVisit(v: NewVisit): void {
   const db = getDb();
   db.runSync(
-    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price, photos)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price, JSON.stringify(v.photos ?? [])]
+    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price, triage, date_type, photos)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+    [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? [])]
   );
   recomputeRatings();
 }
@@ -136,17 +150,24 @@ export function updateVisit(
 
 export function recomputeRatings(): void {
   const db = getDb();
-  const visits = db.getAllSync<{ id: string; rank_order: number }>(
-    'SELECT id, rank_order FROM visits ORDER BY rank_order ASC'
-  );
-  if (visits.length === 0) return;
-
-  const n = visits.length;
-  visits.forEach((v, i) => {
-    const pct = n === 1 ? 1 : i / (n - 1);
-    const rating = Math.round((0.1 + pct * 9.9) * 10) / 10; // 0.1–10.0, one decimal
-    db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rating, v.id]);
-  });
+  const tiers: Array<{ triage: Triage; min: number; max: number }> = [
+    { triage: 'great', min: 7.0, max: 10.0 },
+    { triage: 'okay',  min: 4.0, max: 6.9  },
+    { triage: 'bad',   min: 2.0, max: 3.9  },
+  ];
+  for (const { triage, min, max } of tiers) {
+    const pool = db.getAllSync<{ id: string; rank_order: number }>(
+      'SELECT id, rank_order FROM visits WHERE triage = ? ORDER BY rank_order ASC',
+      [triage]
+    );
+    if (pool.length === 0) continue;
+    const n = pool.length;
+    pool.forEach((v, i) => {
+      const pct = n === 1 ? 1 : i / (n - 1);
+      const rating = Math.round((min + pct * (max - min)) * 10) / 10;
+      db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rating, v.id]);
+    });
+  }
 }
 
 export function updateRankOrder(id: string, rank_order: number): void {

@@ -1,7 +1,7 @@
 import { startComparison, advance, resolveRankOrder, currentComparison } from '../lib/ranking';
 import type { Visit } from '../lib/visits';
 
-function makeVisit(id: string, rankOrder: number): Visit {
+function makeVisit(id: string, rankOrder: number, triage: 'bad' | 'okay' | 'great' = 'okay'): Visit {
   return {
     id,
     venue_name: `Spot ${id}`,
@@ -13,34 +13,45 @@ function makeVisit(id: string, rankOrder: number): Visit {
     notes: null,
     activity_type: 'food',
     price: 2,
+    triage,
     created_at: '2026-01-01',
     photos: [],
   };
 }
 
-const threeSpots = [makeVisit('a', 3000), makeVisit('b', 2000), makeVisit('c', 1000)];
+const threeOkay = [makeVisit('a', 3000, 'okay'), makeVisit('b', 2000, 'okay'), makeVisit('c', 1000, 'okay')];
+const mixed = [
+  makeVisit('g1', 3000, 'great'), makeVisit('g2', 2500, 'great'),
+  makeVisit('o1', 2000, 'okay'),
+  makeVisit('b1', 1000, 'bad'),
+];
 
 describe('startComparison', () => {
   it('returns null when no existing visits', () => {
-    expect(startComparison([])).toBeNull();
+    expect(startComparison([], 'okay')).toBeNull();
+  });
+
+  it('returns null when no visits in that triage tier', () => {
+    expect(startComparison(threeOkay, 'great')).toBeNull();
   });
 
   it('starts with mid pointing at a real visit', () => {
-    const state = startComparison(threeSpots);
+    const state = startComparison(threeOkay, 'okay');
     expect(state).not.toBeNull();
     expect(state!.sorted[state!.mid]).toBeDefined();
   });
 
-  it('seeds lo/hi correctly for "great" triage on 3 spots', () => {
-    const state = startComparison(threeSpots, undefined, 'great');
+  it('only compares within the same triage tier', () => {
+    const state = startComparison(mixed, 'great');
     expect(state).not.toBeNull();
-    expect(state!.hi).toBeLessThanOrEqual(2);
+    expect(state!.sorted.every(v => v.triage === 'great')).toBe(true);
+    expect(state!.sorted.length).toBe(2);
   });
 });
 
 describe('advance', () => {
   it('narrows the search window on "better"', () => {
-    const state = startComparison(threeSpots)!;
+    const state = startComparison(threeOkay, 'okay')!;
     const next = advance(state, 'better');
     if (next) {
       expect(next.hi).toBeLessThanOrEqual(state.mid);
@@ -48,7 +59,7 @@ describe('advance', () => {
   });
 
   it('narrows the search window on "worse"', () => {
-    const state = startComparison(threeSpots)!;
+    const state = startComparison(threeOkay, 'okay')!;
     const next = advance(state, 'worse');
     if (next) {
       expect(next.lo).toBeGreaterThanOrEqual(state.mid + 1);
@@ -62,8 +73,8 @@ describe('resolveRankOrder', () => {
   });
 
   it('returns a value between neighbors when inserting at mid', () => {
-    const state = startComparison(threeSpots)!;
-    const resolved = resolveRankOrder(state, threeSpots);
+    const state = startComparison(threeOkay, 'okay')!;
+    const resolved = resolveRankOrder(state, threeOkay);
     expect(typeof resolved).toBe('number');
     expect(isFinite(resolved)).toBe(true);
   });
@@ -71,7 +82,7 @@ describe('resolveRankOrder', () => {
 
 describe('currentComparison', () => {
   it('returns the visit at state.mid', () => {
-    const state = startComparison(threeSpots)!;
+    const state = startComparison(threeOkay, 'okay')!;
     const visit = currentComparison(state);
     expect(visit).toBe(state.sorted[state.mid]);
   });

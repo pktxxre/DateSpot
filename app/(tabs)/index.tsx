@@ -3,7 +3,8 @@ import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground, Dimensi
 import Animated, { useSharedValue, withTiming, useAnimatedStyle } from 'react-native-reanimated';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scheduleOpenLog } from './map';
+import { scheduleOpenLog, scheduleOpenFutureDate } from './map';
+import { getAllFutureSpots, FutureSpot } from '@/lib/future';
 
 const SCREEN_W = Dimensions.get('window').width;
 import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
@@ -18,22 +19,31 @@ const CATEGORY_BANNERS: Partial<Record<string, any>> = {
   other:         require('../../assets/images/category-other.jpg'),
 };
 
-type Tab = 'picks' | 'all';
+type Tab = 'picks' | 'all' | 'future';
 type SortOption = 'date' | 'best' | 'worst';
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: 'date', label: 'Date Logged' },
+  { value: 'date', label: 'Most Recent' },
   { value: 'best', label: 'Best to Worst' },
   { value: 'worst', label: 'Worst to Best' },
 ];
 
-
+function visitDate(v: Visit): number {
+  const raw = v.visited_at;
+  if (raw) {
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]).getTime();
+    const t = new Date(raw).getTime();
+    if (!isNaN(t)) return t;
+  }
+  return new Date(v.created_at).getTime();
+}
 
 function sortVisits(visits: Visit[], sort: SortOption): Visit[] {
   const copy = [...visits];
-  if (sort === 'date') return copy.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  if (sort === 'best') return copy.sort((a, b) => b.rank_order - a.rank_order);
-  return copy.sort((a, b) => a.rank_order - b.rank_order);
+  if (sort === 'date') return copy.sort((a, b) => visitDate(b) - visitDate(a));
+  if (sort === 'best') return copy.sort((a, b) => b.rating - a.rating);
+  return copy.sort((a, b) => a.rating - b.rating);
 }
 
 function openLogFlow() {
@@ -41,8 +51,14 @@ function openLogFlow() {
   router.navigate('/(tabs)/map');
 }
 
+function openFutureDateFlow() {
+  scheduleOpenFutureDate();
+  router.navigate('/(tabs)/map');
+}
+
 export default function HomeScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
   const [tab, setTab] = useState<Tab>('picks');
   const [sort, setSort] = useState<SortOption>('best');
   const slideX = useSharedValue(0);
@@ -50,11 +66,13 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       setVisits(getAllVisits());
+      setFutureSpots(getAllFutureSpots());
     }, [])
   );
 
   useEffect(() => {
-    slideX.value = withTiming(tab === 'picks' ? 0 : -SCREEN_W, { duration: 260 });
+    const x = tab === 'picks' ? 0 : tab === 'all' ? -SCREEN_W : -SCREEN_W * 2;
+    slideX.value = withTiming(x, { duration: 260 });
   }, [tab]);
 
   const slideStyle = useAnimatedStyle(() => ({
@@ -88,6 +106,14 @@ export default function HomeScreen() {
             All Spots
           </Text>
         </Pressable>
+        <Pressable
+          style={[styles.segBtn, tab === 'future' && styles.segBtnActive]}
+          onPress={() => setTab('future')}
+        >
+          <Text style={[styles.segBtnText, tab === 'future' && styles.segBtnTextActive]}>
+            Future Dates
+          </Text>
+        </Pressable>
       </View>
 
       {/* Sort row — always rendered so content doesn't jump when switching tabs */}
@@ -113,6 +139,9 @@ export default function HomeScreen() {
           </View>
           <View style={styles.slidePanel}>
             <AllTab visits={allSorted} />
+          </View>
+          <View style={styles.slidePanel}>
+            <FutureTab spots={futureSpots} />
           </View>
         </Animated.View>
       </View>
@@ -190,6 +219,42 @@ function AllTab({ visits }: { visits: Visit[] }) {
 }
 
 
+function FutureTab({ spots }: { spots: FutureSpot[] }) {
+  if (spots.length === 0) {
+    return (
+      <View style={styles.emptyCenter}>
+        <Text style={styles.emptyTitle}>No future dates yet</Text>
+        <Pressable style={styles.logCtaInline} onPress={openFutureDateFlow}>
+          <Text style={styles.logCtaText}>+ Add a future date</Text>
+        </Pressable>
+        <Text style={styles.emptySubCta}>to get started!</Text>
+      </View>
+    );
+  }
+  return (
+    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
+      {spots.map(s => <FutureRow key={s.id} spot={s} />)}
+    </ScrollView>
+  );
+}
+
+function FutureRow({ spot }: { spot: FutureSpot }) {
+  const dateStr = friendlyDate(spot.created_at);
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <Text style={styles.rowName} numberOfLines={1}>{spot.venue_name}</Text>
+          <View style={styles.futureTag}>
+            <Text style={styles.futureTagText}>Want to go</Text>
+          </View>
+        </View>
+        <Text style={styles.rowDate}>Added {dateStr}</Text>
+      </View>
+    </View>
+  );
+}
+
 function SpotRow({ visit }: { visit: Visit }) {
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
   const color = ratingColor(visit.rating);
@@ -225,7 +290,7 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 40 },
 
   slideContainer: { flex: 1, overflow: 'hidden' },
-  slidePanels: { flexDirection: 'row', width: SCREEN_W * 2, flex: 1 },
+  slidePanels: { flexDirection: 'row', width: SCREEN_W * 3, flex: 1 },
   slidePanel: { width: SCREEN_W, flex: 1 },
 
   header: {
@@ -281,8 +346,15 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
   rowName: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1, marginRight: 8 },
+  rowDate: { fontSize: 12, color: T.muted },
   rowMeta: { fontSize: 12, color: T.muted, marginBottom: 4 },
   rowPreview: { fontSize: 12, color: '#A0927E', fontStyle: 'italic', lineHeight: 16 },
+
+  futureTag: {
+    backgroundColor: '#ebebff', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  futureTagText: { fontSize: 11, fontWeight: '600', color: '#5856d6' },
 
   ratingPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   ratingPillText: { fontSize: 12, fontWeight: '800' },
