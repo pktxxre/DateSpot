@@ -29,9 +29,9 @@ import { uploadPhoto } from '@/lib/storage';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } from '@/lib/future';
 import { T } from '@/lib/theme';
 
-const SF_REGION: Region = {
-  latitude: 37.7749,
-  longitude: -122.4194,
+const SEATTLE_REGION: Region = {
+  latitude: 47.6062,
+  longitude: -122.3321,
   latitudeDelta: 0.08,
   longitudeDelta: 0.08,
 };
@@ -55,7 +55,7 @@ export default function MapScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
   const [mapFilter, setMapFilter] = useState<MapFilter>('been');
-  const [region, setRegion] = useState<Region>(SF_REGION);
+  const [region, setRegion] = useState<Region>(SEATTLE_REGION);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [selectedFuture, setSelectedFuture] = useState<FutureSpot | null>(null);
   const [step, setStep] = useState<Step | null>(null);
@@ -309,7 +309,7 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={SF_REGION}
+        initialRegion={SEATTLE_REGION}
         mapType="standard"
         showsUserLocation={false}
         showsMyLocationButton={false}
@@ -1119,10 +1119,10 @@ const styles = StyleSheet.create({
   pinHintText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
   visitBanner: {
-    position: 'absolute', top: 106, left: 12, right: 12,
-    backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 8,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1, shadowRadius: 10, elevation: 6,
+    position: 'absolute', bottom: 90, left: 12, right: 12,
+    backgroundColor: 'rgba(255,255,255,0.97)', borderRadius: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1, shadowRadius: 12, elevation: 8,
   },
   visitBannerInner: { flexDirection: 'row', alignItems: 'flex-start', padding: 14, gap: 8 },
   visitBannerBody: { flex: 1 },

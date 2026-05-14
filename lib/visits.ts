@@ -160,7 +160,7 @@ export function recomputeRatings(): void {
   ];
   for (const { triage, min, max } of tiers) {
     const pool = db.getAllSync<{ id: string; rank_order: number }>(
-      'SELECT id, rank_order FROM visits WHERE triage = ? ORDER BY rank_order ASC',
+      'SELECT id, rank_order FROM visits WHERE triage = ? AND is_seed = 0 ORDER BY rank_order ASC',
       [triage]
     );
     if (pool.length === 0) continue;
