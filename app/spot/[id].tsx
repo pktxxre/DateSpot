@@ -17,6 +17,7 @@ import {
   currentComparison, ComparisonState,
 } from '@/lib/ranking';
 import { uploadPhoto } from '@/lib/storage';
+import { getSeedSpotById, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -233,13 +234,26 @@ function EditDatePicker({ month, day, year, onMonthChange, onDayChange, onYearCh
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [visit, setVisit] = useState<Visit | null>(null);
+  const [seedSpot, setSeedSpot] = useState<SeedSpot | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    if (id) setVisit(getVisitById(id));
+    if (!id) return;
+    const local = getVisitById(id);
+    if (local) {
+      setVisit(local);
+      setSeedSpot(null);
+    } else {
+      setVisit(null);
+      getSeedSpotById(id).then(s => setSeedSpot(s));
+    }
   }, [id]));
+
+  if (!visit && seedSpot) {
+    return <SeedSpotDetail spot={seedSpot} />;
+  }
 
   if (!visit) return null;
 
@@ -413,6 +427,141 @@ export default function SpotDetailScreen() {
     </View>
   );
 }
+
+function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
+  const [mapExpanded, setMapExpanded] = useState(false);
+  const info = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
+  const color = ratingColor(spot.rating);
+  const priceLabel = PRICE_LABELS[spot.price as Price];
+
+  function handleLogVisit() {
+    router.push('/(tabs)/map');
+  }
+
+  return (
+    <View style={styles.root}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView style={styles.headerSafe} edges={['top']}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBtn}>
+            <Ionicons name="chevron-back" size={26} color={T.primary} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View style={sd.editorBadge}>
+            <Text style={sd.editorBadgeText}>Editor's pick</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.hero}>
+          <Text style={styles.venueName}>{spot.venue_name}</Text>
+
+          <View style={styles.tags}>
+            {info && (
+              <View style={styles.tag}><Text style={styles.tagText}>{info.label}</Text></View>
+            )}
+            {priceLabel ? (
+              <View style={styles.tag}><Text style={styles.tagText}>{priceLabel}</Text></View>
+            ) : null}
+          </View>
+
+          <View style={styles.ratingRow}>
+            <View style={[styles.ratingBadge, { borderColor: color }]}>
+              <Text style={[styles.ratingScore, { color }]}>{spot.rating.toFixed(1)}</Text>
+              <Text style={[styles.ratingSlash, { color: color + 'AA' }]}>/10</Text>
+            </View>
+            <Text style={styles.ratingCaption}>Editor score</Text>
+          </View>
+        </View>
+
+        {spot.notes ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Why it's a great date</Text>
+            <View style={styles.notesCard}>
+              <Text style={styles.notesText}>{spot.notes}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Location</Text>
+          <Pressable style={styles.mapCard} onPress={() => setMapExpanded(true)}>
+            <MapView
+              style={StyleSheet.absoluteFill}
+              region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+              scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+              pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+              showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+            >
+              <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+                <View style={[styles.pin, { borderColor: color }]}>
+                  <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
+                </View>
+              </Marker>
+            </MapView>
+            <View style={styles.mapHint}>
+              <Ionicons name="expand-outline" size={12} color="#fff" />
+              <Text style={styles.mapHintText}>Expand</Text>
+            </View>
+          </Pressable>
+        </View>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      <SafeAreaView style={sd.ctaSafe} edges={['bottom']}>
+        <Pressable style={sd.logCta} onPress={handleLogVisit}>
+          <Ionicons name="add-circle-outline" size={20} color="#fff" />
+          <Text style={sd.logCtaText}>Log your visit</Text>
+        </Pressable>
+      </SafeAreaView>
+
+      <Modal visible={mapExpanded} animationType="slide">
+        <View style={styles.fullMap}>
+          <MapView
+            style={StyleSheet.absoluteFill}
+            initialRegion={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
+            showsUserLocation={false} showsPointsOfInterest={false} mapType="standard"
+          >
+            <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+              <View style={[styles.pin, { borderColor: color }]}>
+                <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
+              </View>
+            </Marker>
+          </MapView>
+          <SafeAreaView style={styles.modalOverlay} edges={['top']} pointerEvents="box-none">
+            <View style={styles.modalHeader} pointerEvents="auto">
+              <Pressable onPress={() => setMapExpanded(false)} hitSlop={16} style={styles.modalBackBtn}>
+                <Ionicons name="chevron-back" size={22} color="#1c1c1e" />
+              </Pressable>
+              <View style={styles.modalPill}>
+                <Text style={styles.modalPillText} numberOfLines={1}>{spot.venue_name}</Text>
+              </View>
+              <View style={{ width: 44 }} />
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const sd = StyleSheet.create({
+  editorBadge: {
+    backgroundColor: '#FFF0EB', borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 4,
+    marginRight: 12,
+  },
+  editorBadgeText: { fontSize: 11, fontWeight: '600', color: T.accent },
+  ctaSafe: { backgroundColor: T.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border },
+  logCta: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: T.accent, borderRadius: 16, marginHorizontal: 16, marginVertical: 12,
+    paddingVertical: 16,
+  },
+  logCtaText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+});
 
 function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => void; onSave: (v: Visit) => void }) {
   const [name, setName] = useState(visit.venue_name);

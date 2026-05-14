@@ -1,506 +1,386 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable, ImageBackground, Dimensions, Alert, TextInput, Share } from 'react-native';
-import Animated, { useSharedValue, withTiming, useAnimatedStyle } from 'react-native-reanimated';
+import {
+  StyleSheet, View, Text, ScrollView, Pressable,
+  ActivityIndicator, Dimensions,
+} from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scheduleOpenLog, scheduleOpenFutureDate } from './map';
-import { getAllFutureSpots, deleteFutureSpot, updateFutureSpot, FutureSpot } from '@/lib/future';
 import { Ionicons } from '@expo/vector-icons';
-
-const SCREEN_W = Dimensions.get('window').width;
-import { getAllVisits, Visit, ACTIVITY_TYPES, Price, PRICE_LABELS, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
+import { getAllVisits, Visit, ACTIVITY_TYPES, PRICE_LABELS, Price, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
+import { getSeedSpots, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
 
-const CATEGORY_BANNERS: Partial<Record<string, any>> = {
-  food:          require('../../assets/images/category-food.jpg'),
-  drinks:        require('../../assets/images/category-drinks.jpg'),
-  outdoors:      require('../../assets/images/category-outdoors.avif'),
-  view:          require('../../assets/images/category-view.jpg'),
-  entertainment: require('../../assets/images/category-entertainment.jpg'),
-  other:         require('../../assets/images/category-other.jpg'),
+const SCREEN_W = Dimensions.get('window').width;
+const MONTHLY_GOAL = 6;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  food: 'Food',
+  drinks: 'Drinks',
+  outdoors: 'Outdoors',
+  view: 'Views',
+  entertainment: 'Entertainment',
+  other: 'Other',
 };
 
-type Tab = 'picks' | 'all' | 'future' | 'activity';
-type SortOption = 'best' | 'worst';
+type PriceFilter = 0 | 1 | 2 | 3 | null;
 
-const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: 'best', label: 'Best to Worst' },
-  { value: 'worst', label: 'Worst to Best' },
-];
-
-const RATING_UNLOCK_COUNT = 3;
-
-function visitDate(v: Visit): number {
-  const raw = v.visited_at;
-  if (raw) {
-    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]).getTime();
-    const t = new Date(raw).getTime();
-    if (!isNaN(t)) return t;
-  }
-  return new Date(v.created_at).getTime();
+function getMonthVisits(visits: Visit[]): Visit[] {
+  const now = new Date();
+  return visits.filter(v => {
+    const d = new Date(v.visited_at || v.created_at);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
 }
 
-function sortVisits(visits: Visit[], sort: SortOption): Visit[] {
-  const copy = [...visits];
-  if (sort === 'best') return copy.sort((a, b) => b.rating - a.rating);
-  return copy.sort((a, b) => a.rating - b.rating);
-}
-
-function openLogFlow() {
-  scheduleOpenLog();
-  router.navigate('/(tabs)/map');
-}
-
-function openFutureDateFlow() {
-  scheduleOpenFutureDate();
-  router.navigate('/(tabs)/map');
+function formatMonth(): string {
+  return new Date().toLocaleString('default', { month: 'long' });
 }
 
 export default function HomeScreen() {
+  const [seeds, setSeeds] = useState<SeedSpot[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
-  const [tab, setTab] = useState<Tab>('picks');
-  const [sort, setSort] = useState<SortOption>('best');
-  const slideX = useSharedValue(0);
-
-  const refreshFuture = useCallback(() => setFutureSpots(getAllFutureSpots()), []);
+  const [loading, setLoading] = useState(true);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>(null);
 
   useFocusEffect(
     useCallback(() => {
-      setVisits(getAllVisits());
-      setFutureSpots(getAllFutureSpots());
+      setVisits(getAllVisits().filter(v => !(v as any).is_seed));
     }, [])
   );
 
-  const tabPositions: Record<Tab, number> = { picks: 0, all: -SCREEN_W, future: -SCREEN_W * 2, activity: -SCREEN_W * 3 };
-
   useEffect(() => {
-    slideX.value = withTiming(tabPositions[tab], { duration: 260 });
-  }, [tab]);
+    getSeedSpots().then(data => {
+      setSeeds(data);
+      setLoading(false);
+    });
+  }, []);
 
-  const slideStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: slideX.value }],
-  }));
+  const filtered = seeds.filter(s => {
+    if (categoryFilter && s.activity_type !== categoryFilter) return false;
+    if (priceFilter !== null && s.price !== priceFilter) return false;
+    return true;
+  });
 
-  const allSorted = sortVisits(visits, sort);
-  const hideRating = visits.length < RATING_UNLOCK_COUNT;
+  const categoryCounts: Record<string, number> = {};
+  for (const s of seeds) {
+    categoryCounts[s.activity_type] = (categoryCounts[s.activity_type] ?? 0) + 1;
+  }
+
+  const monthVisits = getMonthVisits(visits);
+  const recentVisits = [...visits].sort((a, b) => {
+    const ta = new Date(a.visited_at || a.created_at).getTime();
+    const tb = new Date(b.visited_at || b.created_at).getTime();
+    return tb - ta;
+  }).slice(0, 5);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>DateSpot</Text>
-        <Text style={styles.headerSub}>Your favorite places</Text>
+    <SafeAreaView style={s.safe} edges={['top']}>
+      {/* Header */}
+      <View style={s.header}>
+        <View>
+          <Text style={s.city}>SEATTLE</Text>
+          <Text style={s.title}>Discover</Text>
+        </View>
+        <Pressable onPress={() => router.push('/(tabs)/profile')} style={s.avatar}>
+          <Text style={s.avatarText}>A</Text>
+        </Pressable>
       </View>
 
-      {/* Segmented control — 4 tabs */}
-      <View style={styles.segControl}>
-        {(['picks', 'all', 'future', 'activity'] as Tab[]).map((t) => {
-          const labels: Record<Tab, string> = { picks: 'Favorites', all: 'All', future: 'Future', activity: 'Activity' };
-          return (
-            <Pressable key={t} style={[styles.segBtn, tab === t && styles.segBtnActive]} onPress={() => setTab(t)}>
-              <Text style={[styles.segBtnText, tab === t && styles.segBtnTextActive]}>{labels[t]}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {/* Monthly goal */}
+      {monthVisits.length > 0 && (
+        <View style={s.goalBar}>
+          <Text style={s.goalText}>
+            Your {formatMonth()} — <Text style={s.goalBold}>{monthVisits.length} of {MONTHLY_GOAL} logged</Text>
+            {monthVisits.length < MONTHLY_GOAL
+              ? ` · ${MONTHLY_GOAL - monthVisits.length} more to hit your monthly goal`
+              : ' · Goal reached! 🎉'}
+          </Text>
+        </View>
+      )}
 
-      {/* Sort row — only visible on All tab */}
-      <View style={[styles.sortRow, tab !== 'all' && styles.sortRowHidden]}>
-        {SORT_OPTIONS.map(opt => (
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        {/* Category filter chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chipScroll} contentContainerStyle={s.chipRow}>
           <Pressable
-            key={opt.value}
-            style={[styles.sortChip, sort === opt.value && styles.sortChipActive]}
-            onPress={() => setSort(opt.value)}
+            style={[s.chip, categoryFilter === null && s.chipActive]}
+            onPress={() => setCategoryFilter(null)}
           >
-            <Text style={[styles.sortChipText, sort === opt.value && styles.sortChipTextActive]}>
-              {opt.label}
+            <Text style={[s.chipText, categoryFilter === null && s.chipTextActive]}>
+              All {seeds.length > 0 ? `(${seeds.length})` : ''}
             </Text>
           </Pressable>
-        ))}
-      </View>
+          {ACTIVITY_TYPES.map(a => {
+            const count = categoryCounts[a.value] ?? 0;
+            if (count === 0) return null;
+            const active = categoryFilter === a.value;
+            return (
+              <Pressable
+                key={a.value}
+                style={[s.chip, active && s.chipActive]}
+                onPress={() => setCategoryFilter(active ? null : a.value)}
+              >
+                <Text style={[s.chipText, active && s.chipTextActive]}>
+                  {CATEGORY_LABELS[a.value]} ({count})
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
-      {/* Sliding panels */}
-      <View style={styles.slideContainer}>
-        <Animated.View style={[styles.slidePanels, slideStyle]}>
-          <View style={styles.slidePanel}>
-            <PicksTab visits={visits} hideRating={hideRating} />
+        {/* Price filter chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chipScroll} contentContainerStyle={s.chipRow}>
+          {([null, 0, 1, 2, 3] as (PriceFilter)[]).map(p => {
+            const active = priceFilter === p;
+            const label = p === null ? 'Any price' : PRICE_LABELS[p as Price];
+            return (
+              <Pressable
+                key={String(p)}
+                style={[s.chip, active && s.chipActive]}
+                onPress={() => setPriceFilter(active ? null : p)}
+              >
+                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* Spot cards */}
+        {loading ? (
+          <View style={s.loadingWrap}>
+            <ActivityIndicator color={T.accent} />
           </View>
-          <View style={styles.slidePanel}>
-            <AllTab visits={allSorted} hideRating={hideRating} />
+        ) : filtered.length === 0 ? (
+          <View style={s.emptyWrap}>
+            <Text style={s.emptyText}>No spots match</Text>
+            <Pressable onPress={() => { setCategoryFilter(null); setPriceFilter(null); }}>
+              <Text style={s.emptyLink}>Clear filters</Text>
+            </Pressable>
           </View>
-          <View style={styles.slidePanel}>
-            <FutureTab spots={futureSpots} onRefresh={refreshFuture} />
+        ) : (
+          filtered.map(spot => (
+            <SeedCard key={spot.id} spot={spot} />
+          ))
+        )}
+
+        {/* Recent dates section */}
+        {recentVisits.length > 0 && (
+          <View style={s.recentSection}>
+            <View style={s.recentHeader}>
+              <Text style={s.recentTitle}>Recent dates</Text>
+              <Pressable onPress={() => router.push('/(tabs)/lists')}>
+                <Text style={s.seeAll}>See all →</Text>
+              </Pressable>
+            </View>
+            {recentVisits.map(v => <RecentRow key={v.id} visit={v} />)}
           </View>
-          <View style={styles.slidePanel}>
-            <ActivityTab visits={visits} />
-          </View>
-        </Animated.View>
-      </View>
+        )}
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function PicksTab({ visits, hideRating }: { visits: Visit[]; hideRating: boolean }) {
-  if (visits.length === 0) {
-    return (
-      <View style={styles.emptyCenter}>
-        <Text style={styles.emptyTitle}>No spots yet</Text>
-        <Pressable style={styles.logCtaInline} onPress={openLogFlow}>
-          <Text style={styles.logCtaText}>+ Log a new spot</Text>
-        </Pressable>
-        <Text style={styles.emptySubCta}>to get started!</Text>
-      </View>
-    );
-  }
+function SeedCard({ spot }: { spot: SeedSpot }) {
+  const catLabel = CATEGORY_LABELS[spot.activity_type] ?? spot.activity_type;
+  const priceLabel = PRICE_LABELS[spot.price as Price] ?? '';
 
-  const categories = ACTIVITY_TYPES
-    .map(type => ({
-      ...type,
-      spots: visits
-        .filter(v => v.activity_type === type.value)
-        .sort((a, b) => b.rank_order - a.rank_order)
-        .slice(0, 3),
-    }))
-    .filter(c => c.spots.length > 0);
-
-  return (
-    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-      {categories.map(cat => {
-        const banner = CATEGORY_BANNERS[cat.value];
-        return (
-          <View key={cat.value} style={styles.categorySection}>
-            {banner ? (
-              <ImageBackground source={banner} style={styles.categoryBanner} imageStyle={styles.categoryBannerImg}>
-                <View style={styles.categoryBannerOverlay}>
-                  <Text style={styles.categoryBannerTitle}>{cat.label}</Text>
-                  <Text style={styles.categoryBannerCount}>Top {cat.spots.length}</Text>
-                </View>
-              </ImageBackground>
-            ) : (
-              <View style={styles.categoryHeader}>
-                <Text style={styles.categoryTitle}>{cat.label}</Text>
-              </View>
-            )}
-            {cat.spots.map(v => <SpotRow key={v.id} visit={v} hideRating={hideRating} />)}
-          </View>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-function AllTab({ visits, hideRating }: { visits: Visit[]; hideRating: boolean }) {
-  return (
-    <>
-      {visits.length === 0 ? (
-        <View style={styles.emptyCenter}>
-          <Text style={styles.emptyTitle}>No spots yet</Text>
-          <Pressable style={styles.logCtaInline} onPress={openLogFlow}>
-            <Text style={styles.logCtaText}>+ Log a new spot</Text>
-          </Pressable>
-          <Text style={styles.emptySubCta}>to get started!</Text>
-        </View>
-      ) : (
-        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-          {visits.map(v => <SpotRow key={v.id} visit={v} hideRating={hideRating} />)}
-        </ScrollView>
-      )}
-    </>
-  );
-}
-
-
-function FutureTab({ spots, onRefresh: _ }: { spots: FutureSpot[]; onRefresh: () => void }) {
-  if (spots.length === 0) {
-    return (
-      <View style={styles.emptyCenter}>
-        <Text style={styles.emptyTitle}>No future dates yet</Text>
-        <Pressable style={styles.logCtaInline} onPress={openFutureDateFlow}>
-          <Text style={styles.logCtaText}>+ Add a future date</Text>
-        </Pressable>
-        <Text style={styles.emptySubCta}>to get started!</Text>
-      </View>
-    );
-  }
-  return (
-    <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-      {spots.map(s => <FutureRow key={s.id} spot={s} />)}
-    </ScrollView>
-  );
-}
-
-function FutureRow({ spot }: { spot: FutureSpot }) {
-  const dateStr = friendlyDate(spot.created_at);
   return (
     <Pressable
-      style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
-      onPress={() => router.push(`/future/${spot.id}` as any)}
+      style={({ pressed }) => [s.card, pressed && { opacity: 0.85 }]}
+      onPress={() => router.push(`/spot/${spot.id}` as any)}
     >
-      <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowName} numberOfLines={1}>{spot.venue_name}</Text>
-          <View style={styles.futureTag}>
-            <Text style={styles.futureTagText}>Want to go</Text>
-          </View>
+      <View style={s.cardBadgeRow}>
+        <View style={s.editorBadge}>
+          <Text style={s.editorBadgeText}>Editor's pick</Text>
         </View>
-        <Text style={styles.rowDate}>Added {dateStr}</Text>
+        <Text style={s.cardScore}>{spot.rating.toFixed(1)}</Text>
       </View>
+      <Text style={s.cardMeta}>
+        {catLabel.toUpperCase()}
+        {priceLabel ? ` · ${priceLabel}` : ''}
+      </Text>
+      <Text style={s.cardName}>{spot.venue_name}</Text>
+      {spot.notes ? (
+        <Text style={s.cardDesc} numberOfLines={2}>{spot.notes}</Text>
+      ) : null}
     </Pressable>
   );
 }
 
-function ActivityTab({ visits }: { visits: Visit[] }) {
-  const [filter, setFilter] = useState<'mine' | 'friends'>('mine');
-  const [query, setQuery] = useState('');
-
-  const recent = [...visits].sort((a, b) => visitDate(b) - visitDate(a));
-
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={styles.sortRow}>
-        {(['mine', 'friends'] as const).map(f => (
-          <Pressable key={f} style={[styles.sortChip, filter === f && styles.sortChipActive]} onPress={() => setFilter(f)}>
-            <Text style={[styles.sortChipText, filter === f && styles.sortChipTextActive]}>
-              {f === 'mine' ? 'My Activity' : 'Friends'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {filter === 'mine' && (
-        recent.length === 0 ? (
-          <View style={styles.emptyCenter}>
-            <Text style={styles.emptyTitle}>No activity yet</Text>
-            <Pressable style={styles.logCtaInline} onPress={openLogFlow}>
-              <Text style={styles.logCtaText}>+ Log a new spot</Text>
-            </Pressable>
-            <Text style={styles.emptySubCta}>to get started!</Text>
-          </View>
-        ) : (
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
-            {recent.map(v => <ActivitySpotRow key={v.id} visit={v} />)}
-          </ScrollView>
-        )
-      )}
-
-      {filter === 'friends' && (
-        <View style={{ flex: 1 }}>
-          <View style={styles.searchWrap}>
-            <Ionicons name="search" size={16} color={T.muted} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by username or phone"
-              placeholderTextColor={T.muted}
-              value={query}
-              onChangeText={setQuery}
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.emptyCenter}>
-            <Text style={styles.emptyTitle}>No friends yet</Text>
-            <Text style={styles.emptyBody}>Search above or share your link to connect</Text>
-            <Pressable style={styles.logCtaInline} onPress={() => Share.share({ message: 'Join me on DateSpot!' }).catch(() => {})}>
-              <Text style={styles.logCtaText}>Share invite link</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function ActivitySpotRow({ visit }: { visit: Visit }) {
-  const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
+function RecentRow({ visit }: { visit: Visit }) {
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
-      onPress={() => router.push(`/spot/${visit.id}`)}
-    >
-      <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowName} numberOfLines={1}>{visit.venue_name}</Text>
-          <Text style={styles.rowDate}>{dateStr}</Text>
-        </View>
-        <Text style={styles.rowMeta}>{info?.label}</Text>
-      </View>
-    </Pressable>
-  );
-}
-
-function SpotRow({ visit, hideRating }: { visit: Visit; hideRating?: boolean }) {
-  const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
   const color = ratingColor(visit.rating);
-  const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const preview = visit.notes?.trim().slice(0, 70) ?? null;
-
   return (
     <Pressable
-      style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [s.recentRow, pressed && { opacity: 0.7 }]}
       onPress={() => router.push(`/spot/${visit.id}`)}
     >
-      <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowName} numberOfLines={1}>{visit.venue_name}</Text>
-          {!hideRating && (
-            <View style={[styles.ratingPill, { borderColor: color }]}>
-              <Text style={[styles.ratingPillText, { color }]}>{formatRating(visit.rating)}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.rowMeta}>
-          {info?.label} · {PRICE_LABELS[visit.price as Price]} · {dateStr}
-        </Text>
-        {preview ? (
-          <Text style={styles.rowPreview} numberOfLines={1}>{preview}</Text>
+      <View style={s.recentRowLeft}>
+        <Text style={s.recentDate}>{dateStr}</Text>
+        <Text style={s.recentName}>{visit.venue_name}</Text>
+        {visit.notes ? (
+          <Text style={s.recentNote} numberOfLines={1}>"{visit.notes.trim().slice(0, 60)}"</Text>
         ) : null}
       </View>
+      {visit.rating > 0 && (
+        <View style={[s.recentScore, { borderColor: color }]}>
+          <Text style={[s.recentScoreText, { color }]}>{formatRating(visit.rating)}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: T.bg },
-  scroll: { flex: 1 },
-  listContent: { paddingBottom: 40 },
-
-  slideContainer: { flex: 1, overflow: 'hidden' },
-  slidePanels: { flexDirection: 'row', width: SCREEN_W * 4, flex: 1 },
-  slidePanel: { width: SCREEN_W, flex: 1 },
+  scroll: { paddingBottom: 20 },
 
   header: {
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14,
-    alignItems: 'center', gap: 2,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
+    backgroundColor: '#F2ECE4',
   },
-  headerTitle: {
-    fontSize: 32, fontWeight: '700', color: T.primary,
-    fontFamily: 'Georgia', letterSpacing: -0.5,
+  city: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.muted,
+    letterSpacing: 1.5,
+    marginBottom: 2,
   },
-  headerSub: {
-    fontSize: 13, color: T.muted, fontWeight: '500', letterSpacing: 0.2,
+  title: {
+    fontSize: 30,
+    fontWeight: '700',
+    color: T.primary,
+    fontFamily: 'Georgia',
+    letterSpacing: -0.5,
   },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#E8C99A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  avatarText: { fontSize: 16, fontWeight: '700', color: T.primary },
 
-  segControl: {
-    flexDirection: 'row', marginHorizontal: 16, marginBottom: 14,
-    backgroundColor: T.segBg, borderRadius: 10, padding: 3,
+  goalBar: {
+    backgroundColor: '#F2ECE4',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
   },
-  segBtn: {
-    flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center',
+  goalText: { fontSize: 12, color: T.muted, lineHeight: 18 },
+  goalBold: { fontWeight: '700', color: T.primary },
+
+  chipScroll: { marginBottom: 0 },
+  chipRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
   },
-  segBtnActive: {
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: T.bg,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  chipActive: { backgroundColor: T.primary, borderColor: T.primary },
+  chipText: { fontSize: 13, fontWeight: '500', color: T.muted },
+  chipTextActive: { color: '#fff', fontWeight: '600' },
+
+  card: {
+    marginHorizontal: 16,
+    marginBottom: 12,
     backgroundColor: T.card,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1, shadowRadius: 3, elevation: 2,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: T.border,
   },
-  segBtnText: { fontSize: 11, fontWeight: '500', color: T.muted },
-  segBtnTextActive: { color: T.primary, fontWeight: '600' },
+  cardBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  editorBadge: {
+    backgroundColor: '#FFF0EB',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  editorBadgeText: { fontSize: 11, fontWeight: '600', color: T.accent },
+  cardScore: { fontSize: 18, fontWeight: '800', color: '#8B6A3E' },
+  cardMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.muted,
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  cardName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: T.primary,
+    fontFamily: 'Georgia',
+    marginBottom: 6,
+  },
+  cardDesc: { fontSize: 13, color: T.muted, lineHeight: 19 },
 
-  sortRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 12,
-  },
-  sortRowHidden: { opacity: 0, height: 0, marginBottom: 0, overflow: 'hidden' },
-  sortChip: {
-    flex: 1, paddingVertical: 6, borderRadius: 20, alignItems: 'center',
-    backgroundColor: T.bg, borderWidth: 1, borderColor: T.border,
-  },
-  sortChipActive: { backgroundColor: T.primary, borderColor: T.primary },
-  sortChipText: { fontSize: 12, fontWeight: '600', color: T.muted },
-  sortChipTextActive: { color: '#fff' },
+  loadingWrap: { paddingVertical: 60, alignItems: 'center' },
+  emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 10 },
+  emptyText: { fontSize: 16, color: T.muted },
+  emptyLink: { fontSize: 14, color: T.accent, fontWeight: '600' },
 
-  row: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    paddingVertical: 12, paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border,
+  recentSection: {
+    marginTop: 24,
+    paddingTop: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: T.border,
   },
-  rowEmoji: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: T.card, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: T.border, marginTop: 1,
+  recentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 4,
   },
-  rowEmojiText: { fontSize: 19 },
-  rowBody: { flex: 1 },
-  rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
-  rowName: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1, marginRight: 8 },
-  rowDate: { fontSize: 12, color: T.muted },
-  rowMeta: { fontSize: 12, color: T.muted, marginBottom: 4 },
-  rowPreview: { fontSize: 12, color: '#A0927E', fontStyle: 'italic', lineHeight: 16 },
+  recentTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: T.primary,
+    fontFamily: 'Georgia',
+  },
+  seeAll: { fontSize: 13, color: T.accent, fontWeight: '600' },
 
-  futureTag: {
-    backgroundColor: '#ebebff', borderRadius: 8,
-    paddingHorizontal: 8, paddingVertical: 3,
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
   },
-  futureTagText: { fontSize: 11, fontWeight: '600', color: '#5856d6' },
-
-  ratingPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1.5, backgroundColor: 'transparent' },
-  ratingPillText: { fontSize: 12, fontWeight: '800' },
-
-  categorySection: { marginBottom: 28 },
-
-  categoryBanner: { height: 90, marginBottom: 12 },
-  categoryBannerImg: {},
-  categoryBannerOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 20, justifyContent: 'flex-end', paddingBottom: 12, gap: 1,
+  recentRowLeft: { flex: 1, marginRight: 12 },
+  recentDate: { fontSize: 11, color: T.muted, marginBottom: 2 },
+  recentName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 2 },
+  recentNote: { fontSize: 12, color: T.muted, fontStyle: 'italic' },
+  recentScore: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1.5,
   },
-  categoryBannerTitle: {
-    fontSize: 26, fontWeight: '700', color: '#fff',
-    fontFamily: 'Georgia', letterSpacing: -0.4,
-  },
-  categoryBannerCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: '600' },
-
-  categoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 16 },
-  categoryEmoji: { fontSize: 20 },
-  categoryTitle: {
-    fontSize: 16, fontWeight: '700', color: T.primary, fontFamily: 'Georgia',
-  },
-
-  logCta: {
-    backgroundColor: 'transparent', borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center',
-    borderWidth: 1.5, borderColor: T.accent,
-  },
-  logCtaInline: {
-    backgroundColor: 'transparent', borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center',
-    borderWidth: 1.5, borderColor: T.accent,
-    alignSelf: 'stretch', marginTop: 24,
-  },
-  logCtaText: { color: T.accent, fontSize: 16, fontWeight: '700' },
-
-  emptyCenter: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 40,
-  },
-  empty: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 40, paddingTop: 60,
-  },
-  emptyEmoji: { fontSize: 44, marginBottom: 14 },
-  emptyTitle: {
-    fontSize: 20, fontWeight: '700', color: T.primary,
-    fontFamily: 'Georgia', marginBottom: 8,
-  },
-  emptyBody: { fontSize: 15, color: T.muted, textAlign: 'center', lineHeight: 22 },
-  emptySubCta: { fontSize: 15, color: T.muted, marginTop: 10 },
-
-  activityFilterRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10,
-  },
-  activityFilterChip: {
-    paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: T.bg, borderWidth: 1, borderColor: T.border,
-  },
-  activityFilterChipActive: { backgroundColor: T.primary, borderColor: T.primary },
-  activityFilterText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  activityFilterTextActive: { color: '#fff' },
-
-  searchWrap: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 16, marginBottom: 4,
-    backgroundColor: T.card, borderRadius: 12,
-    paddingHorizontal: 12, paddingVertical: 10,
-    borderWidth: 1, borderColor: T.border,
-  },
-  searchInput: { flex: 1, fontSize: 14, color: T.primary },
+  recentScoreText: { fontSize: 13, fontWeight: '800' },
 });

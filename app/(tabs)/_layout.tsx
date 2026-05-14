@@ -17,6 +17,15 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="compass-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="lists"
+        options={{
           title: 'Lists',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list" size={size} color={color} />
@@ -33,12 +42,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="friends"
+        options={{
+          title: 'Friends',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
-          ),
+          href: null, // hidden from tab bar, accessible via avatar
         }}
       />
     </Tabs>
