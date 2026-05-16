@@ -1,6 +1,42 @@
 import { supabase } from './supabase';
 import { ActivityType, Price } from './visits';
 
+// Minimum resolved visits in a city before user-contributed Top Spots are shown.
+// Below this threshold getSeedSpots() is the sole source.
+const TOP_SPOTS_MIN_THRESHOLD = 50;
+
+export type TopSpot = {
+  canonical_place_id: string;
+  canonical_name: string;
+  canonical_lat: number;
+  canonical_lng: number;
+  osm_place_id: string | null;
+  city: string | null;
+  activity_type: ActivityType | null;
+  visit_count: number;
+  last_visited_at: string;
+};
+
+export async function getTopSpots(city: string): Promise<TopSpot[]> {
+  if (!supabase || !city) return [];
+  const { data, error } = await supabase
+    .from('top_spots')
+    .select('*')
+    .eq('city', city)
+    .order('visit_count', { ascending: false })
+    .limit(50);
+  if (error) {
+    console.error('getTopSpots error:', error.message);
+    return [];
+  }
+  const spots = (data ?? []) as TopSpot[];
+  // Gate: only surface user-contributed spots once enough signal exists
+  if (spots.reduce((sum, s) => sum + s.visit_count, 0) < TOP_SPOTS_MIN_THRESHOLD) {
+    return [];
+  }
+  return spots;
+}
+
 export type SeedSpot = {
   id: string;
   user_id: string;

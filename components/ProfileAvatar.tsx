@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getProfile } from '@/lib/profile';
+import { T } from '@/lib/theme';
 
 interface Props {
   size?: number;
@@ -20,7 +21,16 @@ export function ProfileAvatar({ size = 36, onPress }: Props) {
   }, []));
 
   const radius = size / 2;
-  const containerStyle = {
+  const ringStyle = {
+    width: size + 4,
+    height: size + 4,
+    borderRadius: radius + 2,
+    borderWidth: 2,
+    borderColor: T.accent,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  };
+  const innerStyle = {
     width: size, height: size, borderRadius: radius,
     backgroundColor: '#E8C5B8',
     alignItems: 'center' as const,
@@ -36,13 +46,17 @@ export function ProfileAvatar({ size = 36, onPress }: Props) {
 
   if (onPress) {
     return (
-      <Pressable style={({ pressed }) => [containerStyle, pressed && { opacity: 0.7 }]} onPress={onPress} hitSlop={8}>
-        {content}
+      <Pressable style={({ pressed }) => [ringStyle, pressed && { opacity: 0.7 }]} onPress={onPress} hitSlop={8}>
+        <View style={innerStyle}>{content}</View>
       </Pressable>
     );
   }
 
-  return <View style={containerStyle}>{content}</View>;
+  return (
+    <View style={ringStyle}>
+      <View style={innerStyle}>{content}</View>
+    </View>
+  );
 }
 
 const s = StyleSheet.create({

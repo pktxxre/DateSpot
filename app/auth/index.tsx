@@ -14,6 +14,10 @@ import { T } from '@/lib/theme';
 
 const { width: W } = Dimensions.get('window');
 
+const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  'Seattle, WA': { lat: 47.6062, lng: -122.3321 },
+};
+
 type Step = 'welcome' | 'signup' | 'verify-email' | 'name' | 'profile' | 'city' | 'login';
 const FORM_STEPS: Step[] = ['signup', 'name', 'profile', 'city'];
 
@@ -185,6 +189,7 @@ export default function OnboardingFlow() {
     setLoading(true);
     const userEmail = (await supabase?.auth.getUser())?.data?.user?.email ?? email;
     const displayName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ') || 'You';
+    const coords = CITY_COORDS[city] ?? null;
     await saveProfile({
       username: displayName,
       handle: handle.trim(),
@@ -192,6 +197,8 @@ export default function OnboardingFlow() {
       profilePhotoUri: photoUri,
       email: userEmail,
       city,
+      cityLat: coords?.lat ?? null,
+      cityLng: coords?.lng ?? null,
     });
     setLoading(false);
     router.replace('/(tabs)');

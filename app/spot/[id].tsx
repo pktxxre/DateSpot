@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Image,
-  Alert, ScrollView, Dimensions, TextInput, Share, LayoutAnimation,
+  Alert, ScrollView, Dimensions, TextInput, Share, LayoutAnimation, Animated,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
@@ -19,6 +19,9 @@ import {
 } from '@/lib/ranking';
 import { uploadPhoto } from '@/lib/storage';
 import { getSeedSpotById, SeedSpot } from '@/lib/seeds';
+import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot } from '@/lib/future';
+import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
+import * as Crypto from 'expo-crypto';
 import { T } from '@/lib/theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -238,7 +241,6 @@ export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [visit, setVisit] = useState<Visit | null>(null);
   const [seedSpot, setSeedSpot] = useState<SeedSpot | null>(null);
-  const [mapExpanded, setMapExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
 
@@ -333,7 +335,7 @@ export default function SpotDetailScreen() {
               <Text style={[styles.ratingScore, { color }]}>{formatRating(visit.rating)}</Text>
               <Text style={[styles.ratingSlash, { color: color + 'AA' }]}>/10</Text>
             </View>
-            <Text style={styles.ratingCaption}>Overall rating</Text>
+            <Text style={styles.ratingCaption}>Avg. of your logs</Text>
             <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
               <Ionicons name="git-compare-outline" size={13} color={T.accent} />
               <Text style={styles.rankAgainText}>Rank again</Text>
@@ -366,7 +368,7 @@ export default function SpotDetailScreen() {
         {/* Map — smaller, below content */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Location</Text>
-          <Pressable style={styles.mapCard} onPress={() => setMapExpanded(true)}>
+          <Pressable style={styles.mapCard} onPress={() => router.push('/(tabs)/map')}>
             <MapView
               style={StyleSheet.absoluteFill}
               region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
@@ -381,42 +383,14 @@ export default function SpotDetailScreen() {
               </Marker>
             </MapView>
             <View style={styles.mapHint}>
-              <Ionicons name="expand-outline" size={12} color="#fff" />
-              <Text style={styles.mapHintText}>Expand</Text>
+              <Ionicons name="map-outline" size={12} color="#fff" />
+              <Text style={styles.mapHintText}>View on map</Text>
             </View>
           </Pressable>
         </View>
 
         <View style={{ height: 48 }} />
       </ScrollView>
-
-      {/* Full-screen map modal */}
-      <Modal visible={mapExpanded} animationType="slide">
-        <View style={styles.fullMap}>
-          <MapView
-            style={StyleSheet.absoluteFill}
-            initialRegion={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
-            showsUserLocation={false} showsPointsOfInterest={false} mapType="standard"
-          >
-            <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
-              <View style={[styles.pin, { borderColor: color }]}>
-                <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
-              </View>
-            </Marker>
-          </MapView>
-          <SafeAreaView style={styles.modalOverlay} edges={['top']} pointerEvents="box-none">
-            <View style={styles.modalHeader} pointerEvents="auto">
-              <Pressable onPress={() => setMapExpanded(false)} hitSlop={16} style={styles.modalBackBtn}>
-                <Ionicons name="chevron-back" size={22} color="#1c1c1e" />
-              </Pressable>
-              <View style={styles.modalPill}>
-                <Text style={styles.modalPillText} numberOfLines={1}>{visit.venue_name}</Text>
-              </View>
-              <View style={{ width: 44 }} />
-            </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
 
       {editing && (
         <EditModal
@@ -446,14 +420,51 @@ const ACTIVITY_COLORS_SD: Record<string, string> = {
 };
 
 function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
-  const [mapExpanded, setMapExpanded] = useState(false);
+  const [savedFutureId, setSavedFutureId] = useState<string | null>(null);
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const info = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
   const color = ratingColor(spot.rating);
   const priceLabel = PRICE_LABELS[spot.price as Price];
   const heroBg = ACTIVITY_COLORS_SD[spot.activity_type] ?? ACTIVITY_COLORS_SD.other;
   const catLabel = info?.label ?? spot.activity_type;
 
+  // Check if already saved on mount
+  useEffect(() => {
+    const existing = getAllFutureSpots().find(
+      f => f.venue_name === spot.venue_name && Math.abs(f.lat - spot.lat) < 0.001
+    );
+    setSavedFutureId(existing?.id ?? null);
+  }, [spot.id]);
+
+  function showSavedBanner() {
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    Animated.spring(bannerAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
+    bannerTimer.current = setTimeout(() => {
+      Animated.timing(bannerAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+    }, 1500);
+  }
+
+  function toggleSave() {
+    if (savedFutureId) {
+      deleteFutureSpot(savedFutureId);
+      setSavedFutureId(null);
+    } else {
+      const newId = Crypto.randomUUID();
+      insertFutureSpot({
+        id: newId,
+        venue_name: spot.venue_name,
+        lat: spot.lat,
+        lng: spot.lng,
+        created_at: new Date().toISOString(),
+      });
+      setSavedFutureId(newId);
+      showSavedBanner();
+    }
+  }
+
   function handleLogVisit() {
+    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng);
     router.push('/(tabs)/map');
   }
 
@@ -468,14 +479,29 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
             <Ionicons name="chevron-back" size={20} color="#fff" />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="bookmark-outline" size={16} color="#fff" />
+          <Pressable onPress={handleLogVisit} hitSlop={12} style={sd.floatingBtn}>
+            <Ionicons name="add" size={18} color="#fff" />
           </Pressable>
-          <Pressable hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="share-outline" size={16} color="#fff" />
+          <Pressable onPress={toggleSave} hitSlop={12} style={sd.floatingBtn}>
+            <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color="#fff" />
           </Pressable>
         </View>
       </SafeAreaView>
+
+      {/* Saved banner */}
+      <Animated.View
+        style={[
+          sd.savedBanner,
+          {
+            opacity: bannerAnim,
+            transform: [{ translateY: bannerAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }],
+          },
+        ]}
+        pointerEvents="none"
+      >
+        <Ionicons name="bookmark" size={13} color="#5856d6" />
+        <Text style={sd.savedBannerText}>Saved! Check it out on your map.</Text>
+      </Animated.View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Full-bleed colored hero */}
@@ -497,8 +523,11 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
               <Ionicons name="star" size={11} color="#E76F51" style={{ marginRight: 4 }} />
               <Text style={sd.editorBadgeText}>EDITOR'S PICK</Text>
             </View>
-            <View style={[sd.ratingBadge, { borderColor: color }]}>
-              <Text style={[sd.ratingBadgeText, { color }]}>{spot.rating.toFixed(1)}</Text>
+            <View style={sd.ratingWrap}>
+              <View style={[sd.ratingBadge, { borderColor: color }]}>
+                <Text style={[sd.ratingBadgeText, { color }]}>{spot.rating.toFixed(1)}</Text>
+              </View>
+              <Text style={sd.ratingCaption}>Avg. of all logs</Text>
             </View>
           </View>
 
@@ -531,43 +560,10 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
             </MapView>
           </View>
 
-          <View style={{ height: 120 }} />
+          <View style={{ height: 40 }} />
         </View>
       </ScrollView>
 
-      {/* Fixed bottom CTA */}
-      <SafeAreaView style={sd.ctaSafe} edges={['bottom']}>
-        <Pressable style={sd.logCta} onPress={handleLogVisit}>
-          <Text style={sd.logCtaText}>+ Log your visit</Text>
-        </Pressable>
-      </SafeAreaView>
-
-      <Modal visible={mapExpanded} animationType="slide">
-        <View style={styles.fullMap}>
-          <MapView
-            style={StyleSheet.absoluteFill}
-            initialRegion={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
-            showsUserLocation={false} showsPointsOfInterest={false} mapType="standard"
-          >
-            <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-              <View style={[styles.pin, { borderColor: color }]}>
-                <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
-              </View>
-            </Marker>
-          </MapView>
-          <SafeAreaView style={styles.modalOverlay} edges={['top']} pointerEvents="box-none">
-            <View style={styles.modalHeader} pointerEvents="auto">
-              <Pressable onPress={() => setMapExpanded(false)} hitSlop={16} style={styles.modalBackBtn}>
-                <Ionicons name="chevron-back" size={22} color="#1c1c1e" />
-              </Pressable>
-              <View style={styles.modalPill}>
-                <Text style={styles.modalPillText} numberOfLines={1}>{spot.venue_name}</Text>
-              </View>
-              <View style={{ width: 44 }} />
-            </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -595,13 +591,35 @@ const sd = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  savedBanner: {
+    position: 'absolute',
+    top: 96,
+    alignSelf: 'center',
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  savedBannerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#5856d6',
+  },
   hero: {
     height: 280,
     justifyContent: 'flex-end',
   },
   heroContent: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 44,
     left: 20,
     right: 20,
   },
@@ -653,6 +671,10 @@ const sd = StyleSheet.create({
     color: '#E76F51',
     letterSpacing: 0.4,
   },
+  ratingWrap: {
+    alignItems: 'flex-end',
+    gap: 3,
+  },
   ratingBadge: {
     borderRadius: 99,
     borderWidth: 1.5,
@@ -662,6 +684,11 @@ const sd = StyleSheet.create({
   ratingBadgeText: {
     fontSize: 13,
     fontWeight: '800',
+  },
+  ratingCaption: {
+    fontSize: 10,
+    color: T.muted,
+    fontWeight: '500',
   },
   sectionLabel: {
     fontSize: 10,

@@ -1,8 +1,10 @@
 import { getDb } from './db';
+import { supabase } from './supabase';
 
 export type Rating = number;
 export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
 export type Triage = 'bad' | 'okay' | 'great';
+export type ResolutionStatus = 'pending' | 'resolved' | 'failed';
 export type DateType = 'first' | 'casual' | 'special' | 'friend' | 'solo' | 'so' | 'secret';
 export type ActivityType =
   | 'food'
@@ -16,7 +18,7 @@ export const ACTIVITY_TYPES: { value: ActivityType; label: string; emoji: string
   { value: 'food', label: 'Food', emoji: '🍽' },
   { value: 'drinks', label: 'Drinks', emoji: '🍸' },
   { value: 'outdoors', label: 'Outdoors', emoji: '🌿' },
-  { value: 'view', label: 'Pretty View', emoji: '🌅' },
+  { value: 'view', label: 'Scenic', emoji: '🌅' },
   { value: 'entertainment', label: 'Entertainment', emoji: '🎬' },
   { value: 'other', label: 'Other', emoji: '✨' },
 ];
@@ -48,6 +50,11 @@ export interface Visit {
   date_type: DateType | null;
   created_at: string;
   photos: string[];
+  canonical_place_id: string | null;
+  canonical_name: string | null;
+  canonical_lat: number | null;
+  canonical_lng: number | null;
+  resolution_status: ResolutionStatus;
 }
 
 export interface NewVisit {
@@ -69,6 +76,11 @@ function parseRow(row: any): Visit {
   return {
     ...row,
     photos: row.photos ? JSON.parse(row.photos) : [],
+    resolution_status: (row.resolution_status as ResolutionStatus) ?? 'pending',
+    canonical_place_id: row.canonical_place_id ?? null,
+    canonical_name: row.canonical_name ?? null,
+    canonical_lat: row.canonical_lat ?? null,
+    canonical_lng: row.canonical_lng ?? null,
   };
 }
 
@@ -114,14 +126,16 @@ export function getVisitById(id: string): Visit | null {
   return row ? parseRow(row) : null;
 }
 
-export function insertVisit(v: NewVisit): void {
+export function insertVisit(v: NewVisit, city?: string): void {
   const db = getDb();
   db.runSync(
-    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price, triage, date_type, photos)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO visits (id, venue_name, lat, lng, visited_at, rating, rank_order, notes, activity_type, price, triage, date_type, photos, resolution_status)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     [v.id, v.venue_name, v.lat, v.lng, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? [])]
   );
   recomputeRatings();
+  // Fire-and-forget: resolve canonical place in background, never blocks insert
+  resolveCanonicalPlace(v.id, v.venue_name, v.lat, v.lng, city ?? '', v.activity_type);
 }
 
 export function deleteVisit(id: string): void {
@@ -165,11 +179,70 @@ export function updateVisit(
   db.runSync(`UPDATE visits SET ${fields.join(', ')} WHERE id = ?`, values);
 }
 
+export function updateVisitCanonical(
+  id: string,
+  canonical: {
+    canonical_place_id?: string;
+    canonical_name?: string;
+    canonical_lat?: number;
+    canonical_lng?: number;
+    resolution_status: ResolutionStatus;
+  }
+): void {
+  const db = getDb();
+  db.runSync(
+    `UPDATE visits SET
+       canonical_place_id = ?,
+       canonical_name = ?,
+       canonical_lat = ?,
+       canonical_lng = ?,
+       resolution_status = ?
+     WHERE id = ?`,
+    [
+      canonical.canonical_place_id ?? null,
+      canonical.canonical_name ?? null,
+      canonical.canonical_lat ?? null,
+      canonical.canonical_lng ?? null,
+      canonical.resolution_status,
+      id,
+    ]
+  );
+}
+
+async function resolveCanonicalPlace(
+  visitId: string,
+  venueName: string,
+  lat: number,
+  lng: number,
+  city: string,
+  activityType: string
+): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase.functions.invoke('resolve-place', {
+      body: { venue_name: venueName, lat, lng, city, activity_type: activityType },
+    });
+    if (error || !data || data.status !== 'resolved') {
+      updateVisitCanonical(visitId, { resolution_status: 'failed' });
+      return;
+    }
+    updateVisitCanonical(visitId, {
+      canonical_place_id: data.canonical_place_id,
+      canonical_name: data.canonical_name,
+      canonical_lat: data.canonical_lat,
+      canonical_lng: data.canonical_lng,
+      resolution_status: 'resolved',
+    });
+  } catch {
+    updateVisitCanonical(visitId, { resolution_status: 'failed' });
+  }
+}
+
 export function recomputeRatings(): void {
   const db = getDb();
   const tiers: Array<{ triage: Triage; min: number; max: number }> = [
     { triage: 'great', min: 7.0, max: 10.0 },
-    { triage: 'okay',  min: 4.0, max: 6.9  },
+    { triage: 'okay',  min: 4.0, max: 6.7  },
     { triage: 'bad',   min: 2.0, max: 3.9  },
   ];
   for (const { triage, min, max } of tiers) {
@@ -180,9 +253,19 @@ export function recomputeRatings(): void {
     if (pool.length === 0) continue;
     const n = pool.length;
     pool.forEach((v, i) => {
-      const pct = n === 1 ? 1 : i / (n - 1);
-      const rating = Math.round((min + pct * (max - min)) * 10) / 10;
-      db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rating, v.id]);
+      let rating: number;
+      if (n === 1) {
+        rating = max;
+      } else if (n <= 10) {
+        // Beli-style: best item always at max, step shrinks as n grows.
+        // step = (max-min)*10/(9*n) so at n=10 the bottom reaches min.
+        const step = (max - min) * 10 / (9 * n);
+        rating = Math.max(min, max - (n - 1 - i) * step);
+      } else {
+        const pct = i / (n - 1);
+        rating = min + pct * (max - min);
+      }
+      db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [Math.round(rating * 10) / 10, v.id]);
     });
   }
 }
@@ -193,13 +276,13 @@ export function updateRankOrder(id: string, rank_order: number): void {
 }
 
 export function ratingColor(rating: number): string {
-  if (rating >= 7.0) return '#34c759';
-  if (rating >= 4.0) return '#ff9500';
+  if (rating >= 6.8) return '#34c759';
+  if (rating >= 3.3) return '#ff9500';
   return '#ff3b30';
 }
 
 export function formatRating(rating: number): string {
-  return rating.toFixed(1);
+  return rating % 1 === 0 && rating < 10 ? rating.toFixed(1) : rating.toFixed(1).replace(/\.0$/, '');
 }
 
 export function friendlyDate(raw: string): string {

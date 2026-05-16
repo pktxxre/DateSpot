@@ -80,6 +80,42 @@ export async function initDb(): Promise<void> {
   if (!cols.includes('is_seed')) {
     db.runSync(`ALTER TABLE visits ADD COLUMN is_seed INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!cols.includes('canonical_place_id')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN canonical_place_id TEXT`);
+  }
+  if (!cols.includes('canonical_name')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN canonical_name TEXT`);
+  }
+  if (!cols.includes('canonical_lat')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN canonical_lat REAL`);
+  }
+  if (!cols.includes('canonical_lng')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN canonical_lng REAL`);
+  }
+  if (!cols.includes('resolution_status')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN resolution_status TEXT NOT NULL DEFAULT 'pending'`);
+  }
+
+  // Migrate future_spots canonical columns
+  const futureColNames = db.getAllSync<{ name: string }>(
+    `PRAGMA table_info(future_spots)`
+  ).map((r) => r.name);
+
+  if (!futureColNames.includes('canonical_place_id')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN canonical_place_id TEXT`);
+  }
+  if (!futureColNames.includes('canonical_name')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN canonical_name TEXT`);
+  }
+  if (!futureColNames.includes('canonical_lat')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN canonical_lat REAL`);
+  }
+  if (!futureColNames.includes('canonical_lng')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN canonical_lng REAL`);
+  }
+  if (!futureColNames.includes('resolution_status')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN resolution_status TEXT NOT NULL DEFAULT 'pending'`);
+  }
 }
 
 export async function clearUserData(): Promise<void> {

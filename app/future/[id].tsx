@@ -41,7 +41,7 @@ export default function FutureSpotDetailScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Save',
-          onPress: (text) => {
+          onPress: (text: string | undefined) => {
             const name = text?.trim();
             if (!name) return;
             updateFutureSpot(spot!.id, name);
@@ -50,7 +50,7 @@ export default function FutureSpotDetailScreen() {
         },
       ],
       'plain-text',
-      spot.venue_name,
+      spot!.venue_name,
     );
   }
 

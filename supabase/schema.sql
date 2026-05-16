@@ -122,7 +122,73 @@ create policy "read settings"
 --   using (bucket_id = 'photos');
 
 -- ─────────────────────────────────────────────
--- 5. delete_user() — lets a user delete their own account
+-- 5. top_spots — canonical crowd-sourced top spots per city
+-- ─────────────────────────────────────────────
+-- canonical_place_id is a vendor-neutral composite:
+--   sha256(normalize(venue_name) + geohash6(lat, lng))
+-- osm_place_id is Nominatim enrichment only (not the PK).
+create table if not exists public.top_spots (
+  canonical_place_id  text primary key,
+  canonical_name      text not null,
+  canonical_lat       float8 not null,
+  canonical_lng       float8 not null,
+  osm_place_id        text,
+  city                text,
+  activity_type       text,
+  visit_count         int4 not null default 1,
+  last_visited_at     timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
+);
+
+alter table public.top_spots enable row level security;
+
+-- Anyone can read Top Spots (seed data model)
+create policy "read top spots"
+  on public.top_spots for select
+  using (true);
+
+-- Only service role (Edge Function) can write — prevents client-side manipulation
+-- No authenticated user write policy intentional.
+
+-- Index for city-based Top Spots queries
+create index if not exists top_spots_city_visit_count
+  on public.top_spots (city, visit_count desc);
+
+-- ─────────────────────────────────────────────
+-- 6. upsert_top_spot() — called by the resolve-place Edge Function (service role)
+--    Increments visit_count if the canonical place already exists.
+-- ─────────────────────────────────────────────
+create or replace function public.upsert_top_spot(
+  p_canonical_place_id text,
+  p_canonical_name     text,
+  p_canonical_lat      float8,
+  p_canonical_lng      float8,
+  p_osm_place_id       text,
+  p_city               text,
+  p_activity_type      text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.top_spots (
+    canonical_place_id, canonical_name, canonical_lat, canonical_lng,
+    osm_place_id, city, activity_type, visit_count, last_visited_at, updated_at
+  ) values (
+    p_canonical_place_id, p_canonical_name, p_canonical_lat, p_canonical_lng,
+    p_osm_place_id, p_city, p_activity_type, 1, now(), now()
+  )
+  on conflict (canonical_place_id) do update
+    set visit_count      = top_spots.visit_count + 1,
+        last_visited_at  = now(),
+        updated_at       = now();
+end;
+$$;
+
+-- ─────────────────────────────────────────────
+-- 7. delete_user() — lets a user delete their own account
 -- ─────────────────────────────────────────────
 -- Run this in the Supabase SQL Editor. The SECURITY DEFINER clause lets it
 -- run as the postgres superuser so it can delete from auth.users.
