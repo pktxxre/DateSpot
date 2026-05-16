@@ -7,7 +7,7 @@ import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getAllVisits, Visit, ACTIVITY_TYPES, PRICE_LABELS, Price, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
-import { getSeedSpots, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
+import { getSeedSpotsRaw, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
 import { getAllStacks, StackSummary } from '@/lib/stacks';
 import { getProfile } from '@/lib/profile';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
@@ -68,10 +68,13 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    getSeedSpots().then(data => {
-      setSeeds(data);
+    let cancelled = false;
+    getSeedSpotsRaw().then(raw => {
+      if (cancelled) return;
+      setSeeds(raw);
       setLoading(false);
     });
+    return () => { cancelled = true; };
   }, []);
 
   // Load user-contributed top spots once city is known; falls back to seeds when below threshold
@@ -95,6 +98,7 @@ export default function HomeScreen() {
         venue_name: ts.canonical_name,
         lat: ts.canonical_lat,
         lng: ts.canonical_lng,
+        address: null,
         activity_type: ts.activity_type ?? 'other',
         price: 2 as const,
         rating: ts.visit_count,  // rank by visit_count when user-contributed
