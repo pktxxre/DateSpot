@@ -8,6 +8,8 @@ export interface UserProfile {
   email: string;
   phone: string;
   city: string;
+  cityLat: number | null;
+  cityLng: number | null;
 }
 
 const KEY = 'datespot:profile';
@@ -21,6 +23,8 @@ const DEFAULT: UserProfile = {
   email: '',
   phone: '',
   city: '',
+  cityLat: null,
+  cityLng: null,
 };
 
 export async function getProfile(): Promise<UserProfile> {

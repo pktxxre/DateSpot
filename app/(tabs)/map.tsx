@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image, LayoutAnimation,
   Modal, KeyboardAvoidingView, Platform,
@@ -13,8 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 // Direct callbacks allow immediate response when map tab is already focused.
 let _openLogCallback: (() => void) | null = null;
 let _openFutureCallback: (() => void) | null = null;
+let _openLogWithLocationCallback: ((name: string, lat: number, lng: number) => void) | null = null;
 let _pendingOpenLog = false;
 let _pendingOpenFuture = false;
+let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number } | null = null;
 
 export function scheduleOpenLog() {
   if (_openLogCallback) { _openLogCallback(); }
@@ -23,6 +25,10 @@ export function scheduleOpenLog() {
 export function scheduleOpenFutureDate() {
   if (_openFutureCallback) { _openFutureCallback(); }
   else { _pendingOpenFuture = true; }
+}
+export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number) {
+  if (_openLogWithLocationCallback) { _openLogWithLocationCallback(name, lat, lng); }
+  else { _pendingOpenLogWithLocation = { name, lat, lng }; }
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -36,8 +42,29 @@ import {
 import type { Triage } from '@/lib/visits';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } from '@/lib/future';
-import { getProfile } from '@/lib/profile';
+import { getProfile, saveProfile } from '@/lib/profile';
+import { getSeedSpots, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
+
+interface NominatimResult {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  name: string;
+  type: string;
+  category: string;
+}
+
+// Symmetric pin-label layout: label slot | badge slot | label slot
+// Badge is always at the horizontal center → anchor { x: 0.5, y: 0.5 } always.
+// centerOffset = (0.5 - 0.5) * anyWidth = 0, so geographic position is immune
+// to snapshot-width measurement errors in react-native-maps.
+const PIN_BADGE_SLOT = 50;
+const PIN_LABEL_SLOT = 100;
+const PIN_GAP = 4;
+const PIN_TOTAL = PIN_LABEL_SLOT + PIN_GAP + PIN_BADGE_SLOT + PIN_GAP + PIN_LABEL_SLOT; // 258
+// badge center = 100+4+25 = 129 = 258/2 → x: 0.5 ✓
 
 const SEATTLE_REGION: Region = {
   latitude: 47.6062,
@@ -51,7 +78,8 @@ const CITY_REGIONS: Record<string, Region> = {
 };
 
 type Step = 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name';
-type MapFilter = 'been' | 'want';
+type MapFilter = 'been' | 'want' | 'spots';
+type SpotsCategory = ActivityType | 'all';
 
 interface DraftVisit {
   lat: number;
@@ -65,10 +93,26 @@ interface DraftVisit {
   photos: string[];
 }
 
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'User-Agent': 'DateSpotApp/1.0' } }
+    );
+    const data = await res.json();
+    return data.name || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function MapScreen() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
+  const [seedSpots, setSeedSpots] = useState<SeedSpot[]>([]);
   const [mapFilter, setMapFilter] = useState<MapFilter>('been');
+  const [spotsCategory, setSpotsCategory] = useState<SpotsCategory>('all');
+  const [selectedSeedSpot, setSelectedSeedSpot] = useState<SeedSpot | null>(null);
   const [region, setRegion] = useState<Region>(SEATTLE_REGION);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [selectedFuture, setSelectedFuture] = useState<FutureSpot | null>(null);
@@ -77,6 +121,8 @@ export default function MapScreen() {
   const [droppingPin, setDroppingPin] = useState(false);
   const [cmpState, setCmpState] = useState<ComparisonState<Visit> | null>(null);
   const [currentTriage, setCurrentTriage] = useState<Triage>('okay');
+  const [geocodeSuggestion, setGeocodeSuggestion] = useState<string | null>(null);
+  const [geocodeLoading, setGeocodeLoading] = useState(false);
   const sheetRef = useRef<BottomSheet>(null);
   const mapRef = useRef<MapView>(null);
   const toModalRef = useRef(false);
@@ -94,9 +140,16 @@ export default function MapScreen() {
       setStep('future-pin');
       sheetRef.current?.snapToIndex(1);
     };
+    _openLogWithLocationCallback = (name: string, lat: number, lng: number) => {
+      setSelectedVisit(null);
+      setDraft({ venue_name: name, lat, lng });
+      toModalRef.current = true;
+      setStep('details');
+    };
     return () => {
       _openLogCallback = null;
       _openFutureCallback = null;
+      _openLogWithLocationCallback = null;
     };
   }, []);
 
@@ -104,6 +157,7 @@ export default function MapScreen() {
     useCallback(() => {
       setVisits(getAllVisits());
       setFutureSpots(getAllFutureSpots());
+      getSeedSpots().then(setSeedSpots);
       if (_pendingOpenLog) {
         _pendingOpenLog = false;
         setSelectedVisit(null);
@@ -116,6 +170,14 @@ export default function MapScreen() {
         setMapFilter('want');
         setStep('future-pin');
         sheetRef.current?.snapToIndex(1);
+      }
+      if (_pendingOpenLogWithLocation) {
+        const { name, lat, lng } = _pendingOpenLogWithLocation;
+        _pendingOpenLogWithLocation = null;
+        setSelectedVisit(null);
+        setDraft({ venue_name: name, lat, lng });
+        toModalRef.current = true;
+        setStep('details');
       }
       loadDraft().then((saved) => {
         if (saved && saved.step !== 'done') {
@@ -154,27 +216,33 @@ export default function MapScreen() {
 
   const [cityRegion, setCityRegion] = useState<Region | null>(null);
   useEffect(() => {
-    getProfile().then(profile => {
-      const r = CITY_REGIONS[profile.city];
+    getProfile().then(async profile => {
+      let r: Region | undefined;
+      if (profile.cityLat != null && profile.cityLng != null) {
+        r = { latitude: profile.cityLat, longitude: profile.cityLng, latitudeDelta: 0.08, longitudeDelta: 0.08 };
+      } else {
+        r = CITY_REGIONS[profile.city];
+      }
+      // Fall back to device GPS if city isn't recognized
+      if (!r) {
+        try {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            r = { latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.08, longitudeDelta: 0.08 };
+            // Persist coords so we don't GPS-fetch every open
+            await saveProfile({ cityLat: loc.coords.latitude, cityLng: loc.coords.longitude });
+          }
+        } catch {}
+      }
       if (r) { setRegion(r); setCityRegion(r); }
     });
   }, []);
 
+  // Animate to city region whenever it resolves (handles race with onMapReady)
   useEffect(() => {
-    Location.getForegroundPermissionsAsync().then(({ status }) => {
-      if (status !== 'granted') return;
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-        .then(loc => {
-          mapRef.current?.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.08,
-            longitudeDelta: 0.08,
-          }, 800);
-        })
-        .catch(() => {});
-    });
-  }, []);
+    if (cityRegion) mapRef.current?.animateToRegion(cityRegion, 0);
+  }, [cityRegion]);
 
   function openLog() {
     setSelectedVisit(null);
@@ -188,6 +256,8 @@ export default function MapScreen() {
     setDroppingPin(false);
     setCmpState(null);
     setCurrentTriage('okay');
+    setGeocodeSuggestion(null);
+    setGeocodeLoading(false);
     clearDraft();
   }
 
@@ -203,7 +273,14 @@ export default function MapScreen() {
       return;
     }
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    setDraft((d) => ({ ...d, lat: loc.coords.latitude, lng: loc.coords.longitude }));
+    const { latitude, longitude } = loc.coords;
+    setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
+    setGeocodeSuggestion(null);
+    setGeocodeLoading(true);
+    reverseGeocode(latitude, longitude).then(name => {
+      setGeocodeSuggestion(name);
+      setGeocodeLoading(false);
+    });
     setStep('future-name');
     sheetRef.current?.snapToIndex(1);
   }
@@ -230,10 +307,38 @@ export default function MapScreen() {
       return;
     }
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    setDraft((d) => ({ ...d, lat: loc.coords.latitude, lng: loc.coords.longitude }));
+    const { latitude, longitude } = loc.coords;
+    setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
+    setGeocodeSuggestion(null);
+    setGeocodeLoading(true);
+    reverseGeocode(latitude, longitude).then(name => {
+      setGeocodeSuggestion(name);
+      setGeocodeLoading(false);
+    });
     toModalRef.current = true;
     setStep('details');
     sheetRef.current?.close();
+  }
+
+  function handleSearchSelect(name: string, lat: number, lng: number) {
+    setDraft(d => ({ ...d, venue_name: name, lat, lng }));
+    mapRef.current?.animateToRegion(
+      { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+      500
+    );
+    toModalRef.current = true;
+    setStep('details');
+    sheetRef.current?.close();
+  }
+
+  function handleFutureSearchSelect(name: string, lat: number, lng: number) {
+    setDraft(d => ({ ...d, venue_name: name, lat, lng }));
+    mapRef.current?.animateToRegion(
+      { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+      500
+    );
+    setStep('future-name');
+    sheetRef.current?.snapToIndex(1);
   }
 
   function handleDropPin() {
@@ -251,6 +356,12 @@ export default function MapScreen() {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
     setDroppingPin(false);
+    setGeocodeSuggestion(null);
+    setGeocodeLoading(true);
+    reverseGeocode(latitude, longitude).then(name => {
+      setGeocodeSuggestion(name);
+      setGeocodeLoading(false);
+    });
     if (step === 'future-pin' || mapFilter === 'want') {
       setStep('future-name');
       sheetRef.current?.snapToIndex(1);
@@ -342,6 +453,82 @@ export default function MapScreen() {
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
+  const displayedSeedSpots = spotsCategory === 'all'
+    ? seedSpots.slice(0, 100)
+    : seedSpots.filter(s => s.activity_type === spotsCategory);
+
+  type ClusterItem =
+    | { kind: 'spot'; spot: SeedSpot }
+    | { kind: 'cluster'; lat: number; lng: number; count: number; key: string };
+
+  // Quantize latitudeDelta into fixed zoom tiers so the grid never shifts while panning.
+  // Cell sizes are fixed constants — not derived from the live delta.
+  const zoomTier = region.latitudeDelta < 0.04 ? 'dissolved'
+    : region.latitudeDelta < 0.12 ? 'close'
+    : region.latitudeDelta < 0.35 ? 'mid'
+    : 'far';
+
+  const CELL_SIZES: Record<string, number> = { close: 0.018, mid: 0.05, far: 0.12 };
+
+  const clusteredItems = useMemo<ClusterItem[]>(() => {
+    if (zoomTier === 'dissolved') {
+      return [...displayedSeedSpots]
+        .sort((a, b) => a.rank_order - b.rank_order)
+        .map(spot => ({ kind: 'spot' as const, spot }));
+    }
+    const cellSize = CELL_SIZES[zoomTier];
+    const cells = new Map<string, SeedSpot[]>();
+    for (const spot of displayedSeedSpots) {
+      const row = Math.floor(spot.lat / cellSize);
+      const col = Math.floor(spot.lng / cellSize);
+      const key = `${row},${col}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key)!.push(spot);
+    }
+    const result: ClusterItem[] = [];
+    for (const [key, group] of cells) {
+      if (group.length >= 10) {
+        const lat = group.reduce((s, g) => s + g.lat, 0) / group.length;
+        const lng = group.reduce((s, g) => s + g.lng, 0) / group.length;
+        result.push({ kind: 'cluster', lat, lng, count: group.length, key });
+      } else {
+        [...group]
+          .sort((a, b) => a.rank_order - b.rank_order)
+          .forEach(spot => result.push({ kind: 'spot', spot }));
+      }
+    }
+    return result;
+  }, [displayedSeedSpots, zoomTier]);
+
+  // For each visible spot, decide label side: if a neighbor exists to the right, push label left.
+  const LABEL_NEIGHBOR_THRESHOLD = 0.005; // ~500m in degrees
+  const visitLabelSides = useMemo<Map<string, 'left' | 'right'>>(() => {
+    if (mapFilter !== 'been') return new Map();
+    return new Map(visits.map((v, i) => {
+      const hasRightNeighbor = visits.some((other, j) =>
+        i !== j &&
+        Math.abs(other.lat - v.lat) < LABEL_NEIGHBOR_THRESHOLD &&
+        other.lng > v.lng && other.lng - v.lng < LABEL_NEIGHBOR_THRESHOLD
+      );
+      return [v.id, hasRightNeighbor ? 'left' : 'right'];
+    }));
+  }, [visits, mapFilter]);
+
+  const seedLabelSides = useMemo<Map<string, 'left' | 'right'>>(() => {
+    if (mapFilter !== 'spots') return new Map();
+    const spots = clusteredItems
+      .filter(item => item.kind === 'spot')
+      .map(item => (item as { kind: 'spot'; spot: SeedSpot }).spot);
+    return new Map(spots.map((s, i) => {
+      const hasRightNeighbor = spots.some((other, j) =>
+        i !== j &&
+        Math.abs(other.lat - s.lat) < LABEL_NEIGHBOR_THRESHOLD &&
+        other.lng > s.lng && other.lng - s.lng < LABEL_NEIGHBOR_THRESHOLD
+      );
+      return [s.id, hasRightNeighbor ? 'left' : 'right'];
+    }));
+  }, [clusteredItems, mapFilter]);
+
   const snapPoints = ['12%', '68%', '95%'];
 
   return (
@@ -355,26 +542,33 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         onPress={handleMapPress}
         onRegionChangeComplete={(r) => setRegion(r)}
-        onMapReady={() => {
-          if (cityRegion) mapRef.current?.animateToRegion(cityRegion, 600);
-        }}
       >
         {mapFilter === 'been' && visits.map((v) => {
           const showLabel = region.latitudeDelta < 0.02;
+          const labelSide = visitLabelSides.get(v.id) ?? 'right';
           return (
             <Marker
               key={v.id}
               coordinate={{ latitude: v.lat, longitude: v.lng }}
               onPress={() => handlePinPress(v)}
               tracksViewChanges
+              zIndex={Math.round(v.rating * 10)}
+              anchor={{ x: 0.5, y: 0.5 }}
             >
-              <View style={{ alignItems: 'center' }} pointerEvents="none">
-                {showLabel && (
-                  <Text style={styles.pinLabelText} numberOfLines={1}>{v.venue_name}</Text>
-                )}
-                <View style={[styles.pinBadge, { borderColor: ratingColor(v.rating) }]}>
-                  <Text style={[styles.pinScore, { color: ratingColor(v.rating) }]}>{formatRating(v.rating)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', width: PIN_TOTAL }} pointerEvents="none">
+                {labelSide === 'left'
+                  ? <Text style={[styles.pinLabelText, styles.pinLabelLeft, { width: PIN_LABEL_SLOT, opacity: showLabel ? 1 : 0 }]} numberOfLines={1}>{v.venue_name}</Text>
+                  : <View style={{ width: PIN_LABEL_SLOT }} />}
+                <View style={{ width: PIN_GAP }} />
+                <View style={{ width: PIN_BADGE_SLOT, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={[styles.pinBadge, { borderColor: ratingColor(v.rating) }]}>
+                    <Text style={[styles.pinScore, { color: ratingColor(v.rating) }]}>{formatRating(v.rating)}</Text>
+                  </View>
                 </View>
+                <View style={{ width: PIN_GAP }} />
+                {labelSide === 'right'
+                  ? <Text style={[styles.pinLabelText, styles.pinLabelRight, { width: PIN_LABEL_SLOT, opacity: showLabel ? 1 : 0 }]} numberOfLines={1}>{v.venue_name}</Text>
+                  : <View style={{ width: PIN_LABEL_SLOT }} />}
               </View>
             </Marker>
           );
@@ -390,6 +584,50 @@ export default function MapScreen() {
             </View>
           </Marker>
         ))}
+        {mapFilter === 'spots' && clusteredItems.map((item) => {
+          if (item.kind === 'cluster') {
+            return (
+              <Marker
+                key={item.key}
+                coordinate={{ latitude: item.lat, longitude: item.lng }}
+                tracksViewChanges={false}
+              >
+                <View style={styles.clusterBadge} pointerEvents="none">
+                  <Text style={styles.clusterText}>{item.count}</Text>
+                </View>
+              </Marker>
+            );
+          }
+          const s = item.spot;
+          const showLabel = region.latitudeDelta < 0.02;
+          const labelSide = seedLabelSides.get(s.id) ?? 'right';
+          return (
+            <Marker
+              key={s.id}
+              coordinate={{ latitude: s.lat, longitude: s.lng }}
+              onPress={() => { if (step === null) setSelectedSeedSpot(p => p?.id === s.id ? null : s); }}
+              tracksViewChanges
+              zIndex={Math.round(s.rating * 10)}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', width: PIN_TOTAL }} pointerEvents="none">
+                {labelSide === 'left'
+                  ? <Text style={[styles.pinLabelText, styles.pinLabelLeft, { width: PIN_LABEL_SLOT, opacity: showLabel ? 1 : 0 }]} numberOfLines={1}>{s.venue_name}</Text>
+                  : <View style={{ width: PIN_LABEL_SLOT }} />}
+                <View style={{ width: PIN_GAP }} />
+                <View style={{ width: PIN_BADGE_SLOT, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={[styles.seedPinBadge, { borderColor: ratingColor(s.rating) }]}>
+                    <Text style={[styles.seedPinScore, { color: ratingColor(s.rating) }]}>{formatRating(s.rating)}</Text>
+                  </View>
+                </View>
+                <View style={{ width: PIN_GAP }} />
+                {labelSide === 'right'
+                  ? <Text style={[styles.pinLabelText, styles.pinLabelRight, { width: PIN_LABEL_SLOT, opacity: showLabel ? 1 : 0 }]} numberOfLines={1}>{s.venue_name}</Text>
+                  : <View style={{ width: PIN_LABEL_SLOT }} />}
+              </View>
+            </Marker>
+          );
+        })}
         {draft.lat != null && draft.lng != null && (
           <Marker coordinate={{ latitude: draft.lat, longitude: draft.lng }} pinColor="#ff3b5c" />
         )}
@@ -401,17 +639,50 @@ export default function MapScreen() {
           <View style={styles.filterPills} pointerEvents="auto">
             <Pressable
               style={[styles.filterPill, mapFilter === 'been' && styles.filterPillActive]}
-              onPress={() => { setMapFilter('been'); setSelectedFuture(null); setSelectedVisit(null); }}
+              onPress={() => { setMapFilter('been'); setSelectedFuture(null); setSelectedVisit(null); setSelectedSeedSpot(null); }}
             >
               <Text style={[styles.filterPillText, mapFilter === 'been' && styles.filterPillTextActive]}>Been To</Text>
             </Pressable>
             <Pressable
               style={[styles.filterPill, mapFilter === 'want' && styles.filterPillActive]}
-              onPress={() => { setMapFilter('want'); setSelectedVisit(null); setSelectedFuture(null); }}
+              onPress={() => { setMapFilter('want'); setSelectedVisit(null); setSelectedFuture(null); setSelectedSeedSpot(null); }}
             >
               <Text style={[styles.filterPillText, mapFilter === 'want' && styles.filterPillTextActive]}>Want to Go</Text>
             </Pressable>
+            <Pressable
+              style={[styles.filterPill, mapFilter === 'spots' && styles.filterPillActive]}
+              onPress={() => { setMapFilter('spots'); setSelectedVisit(null); setSelectedFuture(null); setSpotsCategory('all'); }}
+            >
+              <Text style={[styles.filterPillText, mapFilter === 'spots' && styles.filterPillTextActive]}>Top Spots</Text>
+            </Pressable>
           </View>
+          {mapFilter === 'spots' && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoryRow}
+              contentContainerStyle={styles.categoryRowContent}
+              pointerEvents="auto"
+            >
+              <Pressable
+                style={[styles.categoryPill, spotsCategory === 'all' && styles.categoryPillActive]}
+                onPress={() => { setSpotsCategory('all'); setSelectedSeedSpot(null); }}
+              >
+                <Text style={[styles.categoryPillText, spotsCategory === 'all' && styles.categoryPillTextActive]}>All</Text>
+              </Pressable>
+              {ACTIVITY_TYPES.map(a => (
+                <Pressable
+                  key={a.value}
+                  style={[styles.categoryPill, spotsCategory === a.value && styles.categoryPillActive]}
+                  onPress={() => { setSpotsCategory(a.value); setSelectedSeedSpot(null); }}
+                >
+                  <Text style={[styles.categoryPillText, spotsCategory === a.value && styles.categoryPillTextActive]}>
+                    {a.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
         </View>
       )}
 
@@ -437,6 +708,10 @@ export default function MapScreen() {
         />
       )}
 
+      {selectedSeedSpot && step === null && mapFilter === 'spots' && (
+        <SeedSpotDetail spot={selectedSeedSpot} onClose={() => setSelectedSeedSpot(null)} />
+      )}
+
 
       <BottomSheet
         ref={sheetRef}
@@ -456,6 +731,8 @@ export default function MapScreen() {
               onUseLocation={handleUseLocation}
               onDropPin={handleDropPin}
               onFutureDate={() => { setStep('future-pin'); setMapFilter('want'); }}
+              onSelect={handleSearchSelect}
+              region={region}
             />
           )}
           {step === 'future-pin' && (
@@ -463,6 +740,8 @@ export default function MapScreen() {
               onUseLocation={handleFutureUseLocation}
               onDropPin={handleFutureDropPin}
               onBack={() => sheetRef.current?.close()}
+              onSelect={handleFutureSearchSelect}
+              region={region}
             />
           )}
           {step === 'future-name' && (
@@ -471,6 +750,9 @@ export default function MapScreen() {
               onChange={(v) => setDraft((d) => ({ ...d, venue_name: v }))}
               onSave={saveFutureSpot}
               onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
+              suggestion={geocodeSuggestion}
+              geocodeLoading={geocodeLoading}
+              onDismissSuggestion={() => setGeocodeSuggestion(null)}
             />
           )}
         </BottomSheetView>
@@ -492,6 +774,8 @@ export default function MapScreen() {
                   onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
                   onNext={handleDetailsDone}
                   onBack={resetFlow}
+                  suggestion={geocodeSuggestion}
+                  geocodeLoading={geocodeLoading}
                 />
               </View>
             ) : (
@@ -561,6 +845,34 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   );
 }
 
+function SeedSpotDetail({ spot, onClose }: { spot: SeedSpot; onClose: () => void }) {
+  const info = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
+  const preview = spot.notes?.trim().slice(0, 70) ?? null;
+  return (
+    <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${spot.id}`)}>
+      <View style={styles.visitBannerInner}>
+        <View style={styles.visitBannerBody}>
+          <View style={styles.visitBannerTop}>
+            <Text style={styles.visitBannerName} numberOfLines={1}>{spot.venue_name}</Text>
+            <View style={[styles.visitBannerPill, { borderColor: ratingColor(spot.rating) }]}>
+              <Text style={[styles.visitBannerPillText, { color: ratingColor(spot.rating) }]}>{formatRating(spot.rating)}</Text>
+            </View>
+          </View>
+          <Text style={styles.visitBannerMeta}>
+            {info?.label} · {PRICE_LABELS[spot.price as Price]}
+          </Text>
+          {preview ? (
+            <Text style={styles.visitBannerPreview} numberOfLines={1}>{preview}</Text>
+          ) : null}
+        </View>
+        <Pressable onPress={onClose} hitSlop={12} style={styles.visitBannerClose}>
+          <Ionicons name="close" size={18} color={T.muted} />
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
+
 function ProgressDots({ currentStep }: { currentStep: number }) {
   return (
     <View style={styles.dotsRow}>
@@ -578,66 +890,193 @@ function ProgressDots({ currentStep }: { currentStep: number }) {
   );
 }
 
-function LocationStep({ onUseLocation, onDropPin, onFutureDate }: {
-  onUseLocation: () => void; onDropPin: () => void; onFutureDate: () => void;
+function useNominatimSearch(region: Region) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  // Freeze the region at mount so panning while searching doesn't shift the box.
+  const regionRef = useRef(region);
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); setLoading(false); return; }
+    setLoading(true);
+    const { latitude: lat, longitude: lng } = regionRef.current;
+    // Always search at least a ~35km radius regardless of current zoom level.
+    const delta = Math.max(regionRef.current.latitudeDelta, 0.3);
+    const vb = `${lng - delta},${lat + delta},${lng + delta},${lat - delta}`;
+    const timer = setTimeout(async () => {
+      try {
+        const bounded = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=6&bounded=1&viewbox=${vb}&addressdetails=1`;
+        const res = await fetch(bounded, { headers: { 'User-Agent': 'DateSpotApp/1.0' } });
+        const data: NominatimResult[] = await res.json();
+        if (data.length > 0) {
+          setResults(data);
+        } else {
+          // Nothing nearby — fall back to a biased global search so the field isn't empty.
+          const fallback = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=6&viewbox=${vb}&addressdetails=1`;
+          const fb = await fetch(fallback, { headers: { 'User-Agent': 'DateSpotApp/1.0' } });
+          setResults(await fb.json());
+        }
+      } catch { setResults([]); }
+      setLoading(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  return { query, setQuery, results, loading };
+}
+
+function SearchResultsList({ results, loading, query, onSelect }: {
+  results: NominatimResult[];
+  loading: boolean;
+  query: string;
+  onSelect: (name: string, lat: number, lng: number) => void;
 }) {
+  return (
+    <ScrollView style={styles.searchResults} keyboardShouldPersistTaps="handled">
+      {loading && <Text style={styles.searchMsg}>Searching…</Text>}
+      {!loading && query.length >= 2 && results.length === 0 && (
+        <Text style={styles.searchMsg}>No results found</Text>
+      )}
+      {results.map(r => {
+        const name = r.name || r.display_name.split(', ')[0];
+        const parts = r.display_name.split(', ');
+        const addr = parts.slice(1, 3).join(', ');
+        return (
+          <Pressable
+            key={r.place_id}
+            style={styles.searchResult}
+            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon))}
+          >
+            <Ionicons name="location-outline" size={16} color={T.muted} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.searchResultName} numberOfLines={1}>{name}</Text>
+              {addr ? <Text style={styles.searchResultAddr} numberOfLines={1}>{addr}</Text> : null}
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function LocationStep({ onUseLocation, onDropPin, onFutureDate, onSelect, region }: {
+  onUseLocation: () => void; onDropPin: () => void; onFutureDate: () => void;
+  onSelect: (name: string, lat: number, lng: number) => void;
+  region: Region;
+}) {
+  const { query, setQuery, results, loading } = useNominatimSearch(region);
+  const showResults = query.length > 0;
   return (
     <View style={styles.stepContainer}>
       <ProgressDots currentStep={1} />
       <Text style={styles.stepTitle}>Where did you go?</Text>
-      <Text style={styles.stepSubtitle}>Step 1 of 5</Text>
-      <View style={styles.circleRow}>
-        <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
-        <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
-        <CircleButton icon="bookmark-outline" label="Future Date" sublabel="Want to go" onPress={onFutureDate} tint="#f0f0ff" />
-      </View>
+      {!showResults && <Text style={styles.stepSubtitle}>Step 1 of 5</Text>}
+      <TextInput
+        style={[styles.input, { marginBottom: showResults ? 4 : 16 }]}
+        placeholder="Search for a place…"
+        placeholderTextColor="#c7c7cc"
+        value={query}
+        onChangeText={setQuery}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+      />
+      {showResults ? (
+        <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
+      ) : (
+        <View style={styles.circleRow}>
+          <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
+          <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
+          <CircleButton icon="bookmark-outline" label="Future Date" sublabel="Want to go" onPress={onFutureDate} tint="#f0f0ff" />
+        </View>
+      )}
     </View>
   );
 }
 
-function FuturePinStep({ onUseLocation, onDropPin, onBack }: {
+function FuturePinStep({ onUseLocation, onDropPin, onBack, onSelect, region }: {
   onUseLocation: () => void; onDropPin: () => void; onBack: () => void;
+  onSelect: (name: string, lat: number, lng: number) => void;
+  region: Region;
 }) {
+  const { query, setQuery, results, loading } = useNominatimSearch(region);
+  const showResults = query.length > 0;
   return (
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>Where do you want to go?</Text>
-      <Text style={styles.stepSubtitle}>Pick a location</Text>
-      <View style={styles.circleRow}>
-        <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
-        <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
-      </View>
-      <Pressable style={[styles.btnSecondaryCenter, { marginTop: 16 }]} onPress={onBack}>
-        <Text style={styles.btnSecondaryText}>Cancel</Text>
-      </Pressable>
+      {!showResults && <Text style={styles.stepSubtitle}>Pick a location</Text>}
+      <TextInput
+        style={[styles.input, { marginBottom: showResults ? 4 : 16 }]}
+        placeholder="Search for a place…"
+        placeholderTextColor="#c7c7cc"
+        value={query}
+        onChangeText={setQuery}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+      />
+      {showResults ? (
+        <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
+      ) : (
+        <>
+          <View style={styles.circleRow}>
+            <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
+            <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
+          </View>
+          <Pressable style={[styles.btnSecondaryCenter, { marginTop: 16 }]} onPress={onBack}>
+            <Text style={styles.btnSecondaryText}>Cancel</Text>
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
 
-function FutureNameStep({ value, onChange, onSave, onBack }: {
+function FutureNameStep({ value, onChange, onSave, onBack, suggestion, geocodeLoading, onDismissSuggestion }: {
   value: string; onChange: (v: string) => void; onSave: () => void; onBack: () => void;
+  suggestion: string | null; geocodeLoading: boolean; onDismissSuggestion: () => void;
 }) {
+  const showConfirm = !!suggestion && !value;
   return (
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>What's it called?</Text>
-      <Text style={styles.stepSubtitle}>Give it a name to remember</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="e.g. Lazy Bear"
-        placeholderTextColor="#c7c7cc"
-        value={value}
-        onChangeText={onChange}
-        autoFocus
-        returnKeyType="done"
-        onSubmitEditing={onSave}
-      />
-      <View style={styles.btnRow}>
-        <Pressable style={styles.btnSecondary} onPress={onBack}>
-          <Text style={styles.btnSecondaryText}>Back</Text>
-        </Pressable>
-        <Pressable style={styles.btnPrimary} onPress={onSave}>
-          <Text style={styles.btnPrimaryText}>Save</Text>
-        </Pressable>
-      </View>
+      {showConfirm ? (
+        <View style={styles.suggestionCard}>
+          <Text style={styles.suggestionPrompt}>Is this right?</Text>
+          <Text style={styles.suggestionName}>{suggestion}</Text>
+          <View style={styles.btnRow}>
+            <Pressable style={styles.btnSecondary} onPress={onDismissSuggestion}>
+              <Text style={styles.btnSecondaryText}>No</Text>
+            </Pressable>
+            <Pressable style={styles.btnPrimary} onPress={() => { onChange(suggestion); setTimeout(onSave, 0); }}>
+              <Text style={styles.btnPrimaryText}>Yes, that's it</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <>
+          <Text style={styles.stepSubtitle}>
+            {geocodeLoading && !value ? 'Looking up the spot…' : 'Give it a name to remember'}
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. Lazy Bear"
+            placeholderTextColor="#c7c7cc"
+            value={value}
+            onChangeText={onChange}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={onSave}
+          />
+          <View style={styles.btnRow}>
+            <Pressable style={styles.btnSecondary} onPress={onBack}>
+              <Text style={styles.btnSecondaryText}>Back</Text>
+            </Pressable>
+            <Pressable style={styles.btnPrimary} onPress={onSave}>
+              <Text style={styles.btnPrimaryText}>Save</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -820,12 +1259,22 @@ function initDateState(dateStr?: string): { month: string; day: string; year: st
   return { month: MONTHS[NOW.getMonth()], day: String(NOW.getDate()), year: String(NOW.getFullYear()) };
 }
 
-function DetailsStep({ draft, onChange, onNext, onBack }: {
+function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoading }: {
   draft: Partial<DraftVisit>;
   onChange: (key: string, val: any) => void;
   onNext: () => void;
   onBack: () => void;
+  suggestion: string | null;
+  geocodeLoading: boolean;
 }) {
+  const autofilled = useRef(false);
+  useEffect(() => {
+    if (suggestion && !draft.venue_name && !autofilled.current) {
+      autofilled.current = true;
+      onChange('venue_name', suggestion);
+    }
+  }, [suggestion]);
+
   const initDate = initDateState(draft.visited_at);
   const [month, setMonth] = useState(initDate.month);
   const [day, setDay] = useState(initDate.day);
@@ -879,6 +1328,9 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
       <Text style={styles.stepTitle}>Tell me about it</Text>
       <Text style={styles.stepSubtitle}>Step 2 of 5</Text>
 
+      {geocodeLoading && !draft.venue_name && (
+        <Text style={styles.geocodeHint}>Looking up the spot…</Text>
+      )}
       <TextInput
         style={styles.input}
         placeholder="Name your date!"
@@ -888,6 +1340,9 @@ function DetailsStep({ draft, onChange, onNext, onBack }: {
         autoFocus
         returnKeyType="next"
       />
+      {suggestion && suggestion === draft.venue_name && (
+        <Text style={styles.geocodeHint}>Suggested from map · tap to edit</Text>
+      )}
 
       <Text style={styles.sectionLabel}>Date</Text>
       <DatePicker
@@ -1105,9 +1560,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4, shadowRadius: 4,
   },
 
+  seedPinBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, paddingVertical: 4, borderRadius: 13,
+    backgroundColor: '#fff', borderWidth: 2,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2, shadowRadius: 4,
+  },
+  seedPinScore: { fontSize: 11, fontWeight: '800' },
+
+  clusterBadge: {
+    minWidth: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#fff', borderWidth: 2, borderColor: '#000',
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 6,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2, shadowRadius: 4,
+  },
+  clusterText: { fontSize: 13, fontWeight: '800', color: '#000' },
+
   filterRow: {
     position: 'absolute', top: 56, left: 0, right: 0,
-    alignItems: 'center',
+    alignItems: 'center', gap: 8,
   },
   filterPills: {
     flexDirection: 'row',
@@ -1117,11 +1591,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12, shadowRadius: 6,
   },
   filterPill: {
-    paddingHorizontal: 18, paddingVertical: 7, borderRadius: 17,
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 17,
   },
   filterPillActive: { backgroundColor: T.accent },
   filterPillText: { fontSize: 14, fontWeight: '600', color: T.muted },
   filterPillTextActive: { color: '#fff' },
+
+  categoryRow: { maxHeight: 40 },
+  categoryRowContent: {
+    paddingHorizontal: 12, gap: 6, flexDirection: 'row', alignItems: 'center',
+  },
+  categoryPill: {
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08, shadowRadius: 3,
+  },
+  categoryPillActive: { backgroundColor: '#F5A623' },
+  categoryPillText: { fontSize: 13, fontWeight: '600', color: T.muted },
+  categoryPillTextActive: { color: '#fff' },
 
 
   pinHint: {
@@ -1149,10 +1637,21 @@ const styles = StyleSheet.create({
 
   pinLabelText: {
     fontSize: 11, fontWeight: '700', color: T.primary,
-    marginBottom: 3, maxWidth: 130, textAlign: 'center',
     textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
+  pinLabelRight: { textAlign: 'left' },
+  pinLabelLeft: { textAlign: 'right' },
+
+  searchResults: { maxHeight: 300, marginTop: 4 },
+  searchResult: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    paddingVertical: 11, paddingHorizontal: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border,
+  },
+  searchResultName: { fontSize: 14, fontWeight: '600', color: T.primary },
+  searchResultAddr: { fontSize: 12, color: T.muted, marginTop: 2 },
+  searchMsg: { fontSize: 13, color: T.muted, textAlign: 'center', paddingVertical: 16 },
 
 
   sheetBg: { backgroundColor: T.bg, borderRadius: 20 },
@@ -1314,4 +1813,20 @@ const styles = StyleSheet.create({
   doneEmoji: { fontSize: 48, marginBottom: 12 },
   doneTitle: { fontSize: 24, fontWeight: '800', color: T.primary, marginBottom: 6 },
   doneSub: { fontSize: 15, color: T.muted, marginBottom: 24 },
+
+  suggestionCard: {
+    backgroundColor: T.accentTint,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    padding: 20,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+    gap: 6,
+  },
+  suggestionPrompt: { fontSize: 13, color: T.muted, fontWeight: '500' },
+  suggestionName: { fontSize: 20, fontWeight: '700', color: T.primary, textAlign: 'center', marginBottom: 8 },
+
+  geocodeHint: { fontSize: 11, color: T.muted, marginTop: -6, marginBottom: 8, marginLeft: 2 },
 });

@@ -152,6 +152,7 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
       delayLongPress={350}
       accessibilityLabel={`${isSelected ? 'Selected' : 'Not selected'}, ${visit.venue_name}`}
     >
+      <View style={[s.rowLeftBar, { backgroundColor: color }]} />
       {selectionMode && (
         <View style={[s.checkbox, isSelected && s.checkboxChecked]}>
           {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
@@ -274,10 +275,10 @@ export default function RankedScreen() {
 
       {/* ── Spots Tab ── */}
       {activeTab === 'spots' && (
-        <>
+        <View style={{ flex: 1 }}>
+          {/* Search + filter always visible at top */}
           {!selectionMode && (
             <>
-              {/* Search bar */}
               <View style={s.searchBar}>
                 <Ionicons name="search-outline" size={16} color={T.placeholder} style={{ marginRight: 8 }} />
                 <TextInput
@@ -290,8 +291,6 @@ export default function RankedScreen() {
                   clearButtonMode="while-editing"
                 />
               </View>
-
-              {/* Category filter row */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -323,19 +322,6 @@ export default function RankedScreen() {
                   );
                 })}
               </ScrollView>
-
-              {/* Sort + count row */}
-              <View style={s.sortRow}>
-                <Text style={s.countLabel}>{sorted.length} spot{sorted.length !== 1 ? 's' : ''}</Text>
-                <Pressable
-                  style={s.sortToggle}
-                  onPress={() => setSort(sort === 'best' ? 'recent' : 'best')}
-                >
-                  <Text style={s.sortToggleText}>
-                    Sort: {sort === 'best' ? 'Best' : 'Recent'} ↓
-                  </Text>
-                </Pressable>
-              </View>
             </>
           )}
 
@@ -352,7 +338,7 @@ export default function RankedScreen() {
             </View>
           )}
 
-          {visits.length === 0 ? (
+          {visits.length === 0 && !selectionMode ? (
             <View style={s.empty}>
               <Text style={s.emptyTitle}>No dates logged yet</Text>
               <View style={s.emptyHintRow}>
@@ -361,29 +347,47 @@ export default function RankedScreen() {
                 <Text style={s.emptyHint}> below to log your first date spot</Text>
               </View>
             </View>
-          ) : sorted.length === 0 ? (
-            <View style={s.empty}>
-              <Text style={s.emptyTitle}>No {ACTIVITY_TYPES.find(a => a.value === category)?.label} spots yet</Text>
-              <Pressable onPress={() => setCategory(null)}>
-                <Text style={s.clearFilter}>Clear filter</Text>
-              </Pressable>
-            </View>
           ) : (
-            <FlatList
-              data={selectionMode ? visits : sorted}
-              keyExtractor={v => v.id}
-              renderItem={({ item }) => (
-                <SpotRow
-                  visit={item}
-                  selectionMode={selectionMode}
-                  isSelected={selectedIds.has(item.id)}
-                  onSelect={() => toggle(item.id)}
-                  onLongPress={() => { if (!selectionMode) { enter(); toggle(item.id); } }}
+            <>
+              {!selectionMode && (
+                <View style={s.sortRow}>
+                  <Text style={s.countLabel}>{sorted.length} spot{sorted.length !== 1 ? 's' : ''}</Text>
+                  <Pressable
+                    style={s.sortToggle}
+                    onPress={() => setSort(sort === 'best' ? 'recent' : 'best')}
+                  >
+                    <Text style={s.sortToggleText}>
+                      Sort: {sort === 'best' ? 'Best' : 'Recent'} ↓
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {sorted.length === 0 ? (
+                <View style={s.empty}>
+                  <Text style={s.emptyTitle}>No {ACTIVITY_TYPES.find(a => a.value === category)?.label} spots yet</Text>
+                  <Pressable onPress={() => setCategory(null)}>
+                    <Text style={s.clearFilter}>Clear filter</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <FlatList
+                  data={selectionMode ? visits : sorted}
+                  keyExtractor={v => v.id}
+                  renderItem={({ item }) => (
+                    <SpotRow
+                      visit={item}
+                      selectionMode={selectionMode}
+                      isSelected={selectedIds.has(item.id)}
+                      onSelect={() => toggle(item.id)}
+                      onLongPress={() => { if (!selectionMode) { enter(); toggle(item.id); } }}
+                    />
+                  )}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={s.listContent}
                 />
               )}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={s.listContent}
-            />
+            </>
           )}
 
           {/* Floating stack action bar */}
@@ -407,7 +411,7 @@ export default function RankedScreen() {
               </Pressable>
             </View>
           )}
-        </>
+        </View>
       )}
 
       {/* ── Date Nights Tab ── */}
@@ -524,7 +528,7 @@ const s = StyleSheet.create({
   tabPillText: { fontSize: 14, fontWeight: '600', color: T.muted },
   tabPillTextActive: { color: '#fff' },
 
-  chipScroll: { flexShrink: 0 },
+  chipScroll: { flexShrink: 0, flexGrow: 0 },
   chipRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -577,9 +581,16 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingRight: 16,
+    paddingLeft: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: T.border,
+  },
+  rowLeftBar: {
+    width: 3,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginRight: 12,
   },
   checkbox: {
     width: 22,
@@ -603,9 +614,10 @@ const s = StyleSheet.create({
     fontFamily: 'InstrumentSerif-Regular', flex: 1, marginRight: 10,
   },
   scorePill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: 'transparent',
+    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
-  scorePillText: { fontSize: 12, fontWeight: '800' },
+  scorePillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
   rowMeta: { fontSize: 12, color: T.muted, marginBottom: 3 },
   note: { fontSize: 12, color: '#A0927E', fontStyle: 'italic', lineHeight: 17 },
 
@@ -684,7 +696,7 @@ const s = StyleSheet.create({
     width: 20, height: 20, borderRadius: 10, backgroundColor: '#E76F51',
     borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center',
   },
-  plusCircleText: { color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 },
+  plusCircleText: { color: '#fff', fontSize: 14, fontWeight: '700', lineHeight: 14, includeFontPadding: false },
 });
 
 const sc = StyleSheet.create({

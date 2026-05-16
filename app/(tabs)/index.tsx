@@ -7,7 +7,7 @@ import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getAllVisits, Visit, ACTIVITY_TYPES, PRICE_LABELS, Price, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
-import { getSeedSpots, SeedSpot } from '@/lib/seeds';
+import { getSeedSpots, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
 import { getAllStacks, StackSummary } from '@/lib/stacks';
 import { getProfile } from '@/lib/profile';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
@@ -52,6 +52,7 @@ function formatMonth(): string {
 
 export default function HomeScreen() {
   const [seeds, setSeeds] = useState<SeedSpot[]>([]);
+  const [topSpots, setTopSpots] = useState<TopSpot[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [stacks, setStacks] = useState<StackSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +74,12 @@ export default function HomeScreen() {
     });
   }, []);
 
+  // Load user-contributed top spots once city is known; falls back to seeds when below threshold
+  useEffect(() => {
+    if (!city) return;
+    getTopSpots(city).then(setTopSpots);
+  }, [city]);
+
   const monthVisits = getMonthVisits(visits);
   const recentVisits = [...visits].sort((a, b) => {
     const ta = new Date(a.visited_at || a.created_at).getTime();
@@ -80,18 +87,38 @@ export default function HomeScreen() {
     return tb - ta;
   }).slice(0, 5);
 
-  // Build category cards: each ACTIVITY_TYPE that has >= 1 spot, top 5 by rating
+  // Build category cards from user-contributed top spots (when above threshold) or seeds
+  const discoverySpots: SeedSpot[] = topSpots.length > 0
+    ? topSpots.map(ts => ({
+        id: ts.canonical_place_id,
+        user_id: '',
+        venue_name: ts.canonical_name,
+        lat: ts.canonical_lat,
+        lng: ts.canonical_lng,
+        activity_type: ts.activity_type ?? 'other',
+        price: 2 as const,
+        rating: ts.visit_count,  // rank by visit_count when user-contributed
+        rank_order: ts.visit_count,
+        notes: null,
+        triage: 'great',
+        is_seed: false,
+        visited_at: ts.last_visited_at,
+        created_at: ts.last_visited_at,
+      }))
+    : seeds;
+
   const categoryCards = ACTIVITY_TYPES.map(a => {
-    const spots = seeds
+    const spots = discoverySpots
       .filter(s => s.activity_type === a.value)
       .sort((x, y) => y.rating - x.rating)
       .slice(0, 5);
     return { category: a, spots };
   }).filter(({ spots }) => spots.length > 0);
 
-  // Search results
+  // Search results — prefer user-contributed spots, fall back to seeds
+  const searchPool = topSpots.length > 0 ? discoverySpots : seeds;
   const searchResults = search.trim()
-    ? seeds.filter(s => {
+    ? searchPool.filter(s => {
         const q = search.trim().toLowerCase();
         return (
           s.venue_name.toLowerCase().includes(q) ||
@@ -134,26 +161,63 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Monthly goal card */}
-        <View style={s.goalCard}>
-          <View style={s.goalCardTop}>
-            <Text style={s.goalLabel}>YOUR {formatMonth()}</Text>
-            <Text style={s.goalCount}>{monthVisits.length} of {MONTHLY_GOAL} logged</Text>
-          </View>
-          <View style={s.goalPills}>
-            {Array.from({ length: MONTHLY_GOAL }).map((_, i) => (
-              <View
-                key={i}
-                style={[s.goalPill, i < monthVisits.length ? s.goalPillFilled : s.goalPillEmpty]}
-              />
-            ))}
-          </View>
-          <Text style={s.goalFooter}>
-            {monthVisits.length < MONTHLY_GOAL
-              ? `${MONTHLY_GOAL - monthVisits.length} more date${MONTHLY_GOAL - monthVisits.length === 1 ? '' : 's'} to hit your monthly goal.`
-              : 'You hit your monthly goal!'}
-          </Text>
-        </View>
+        {/* Friend referral unlock card */}
+        {(() => {
+          const friendCount = 1; // visual-only placeholder
+          const tiers = [
+            { n: 1, label: 'Friends tab' },
+            { n: 2, label: 'Top spots' },
+            { n: 3, label: 'Filter top spots' },
+            { n: 4, label: 'Filter saved & been-to' },
+            { n: 5, label: 'Friends activity' },
+            { n: 6, label: 'Date calendar' },
+          ];
+          return (
+            <View style={s.goalCard}>
+              <View style={s.goalCardTop}>
+                <Text style={s.goalLabel}>INVITE FRIENDS TO UNLOCK FEATURES</Text>
+                <Text style={s.goalCount}>{friendCount}/6</Text>
+              </View>
+              <View style={s.goalPills}>
+                {tiers.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[s.goalPill, i < friendCount ? s.goalPillFilled : s.goalPillEmpty]}
+                  />
+                ))}
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.unlockScroll}
+              >
+                {tiers.map((tier) => {
+                  const unlocked = friendCount >= tier.n;
+                  return (
+                    <View key={tier.n} style={[s.unlockChip, unlocked && s.unlockChipUnlocked]}>
+                      <Ionicons
+                        name={unlocked ? 'checkmark-circle' : 'lock-closed-outline'}
+                        size={16}
+                        color={unlocked ? '#E76F51' : '#C4B9AD'}
+                        style={{ marginBottom: 6 }}
+                      />
+                      <Text style={[s.unlockChipCount, unlocked && s.unlockChipCountUnlocked]}>
+                        {tier.n} friend{tier.n > 1 ? 's' : ''}
+                      </Text>
+                      <Text style={[s.unlockChipLabel, unlocked && s.unlockChipLabelUnlocked]}>
+                        {tier.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              <Pressable style={s.inviteButton}>
+                <Ionicons name="person-add-outline" size={15} color="#fff" style={{ marginRight: 7 }} />
+                <Text style={s.inviteButtonText}>Invite your Friends</Text>
+              </Pressable>
+            </View>
+          );
+        })()}
 
         {/* Your Stacks — only shown when stacks exist */}
         {stacks.length > 0 && (
@@ -319,7 +383,7 @@ function CategoryCard({ category, spots, cardW }: {
                 {priceLabel ? <Text style={s.spotPrice}>{priceLabel}</Text> : null}
               </View>
               <View style={[s.ratingPill, { borderColor: color }]}>
-                <Text style={[s.ratingPillText, { color }]}>{spot.rating.toFixed(1)}</Text>
+                <Text style={[s.ratingPillText, { color }]}>{formatRating(spot.rating)}</Text>
               </View>
             </Pressable>
             {idx < spots.length - 1 && <View style={s.rowDivider} />}
@@ -346,7 +410,7 @@ function SearchResultRow({ spot }: { spot: SeedSpot }) {
         <Text style={s.spotMeta}>{meta}</Text>
       </View>
       <View style={[s.ratingPill, { borderColor: color }]}>
-        <Text style={[s.ratingPillText, { color }]}>{spot.rating.toFixed(1)}</Text>
+        <Text style={[s.ratingPillText, { color }]}>{formatRating(spot.rating)}</Text>
       </View>
     </Pressable>
   );
@@ -468,6 +532,61 @@ const s = StyleSheet.create({
     color: T.muted,
     lineHeight: 17,
   },
+  unlockScroll: {
+    paddingTop: 4,
+    paddingBottom: 2,
+    gap: 8,
+    paddingRight: 4,
+  },
+  unlockChip: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F1ED',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    width: 112,
+  },
+  unlockChipUnlocked: {
+    backgroundColor: '#FEF0EB',
+    borderWidth: 1,
+    borderColor: '#F3CABF',
+  },
+  unlockChipCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#C4B9AD',
+    letterSpacing: 0.3,
+    marginBottom: 3,
+  },
+  unlockChipCountUnlocked: {
+    color: '#E76F51',
+  },
+  unlockChipLabel: {
+    fontSize: 12,
+    color: '#C4B9AD',
+    textAlign: 'center',
+    lineHeight: 15,
+  },
+  unlockChipLabelUnlocked: {
+    color: T.primary,
+    fontWeight: '500',
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E76F51',
+    borderRadius: 11,
+    paddingVertical: 13,
+    marginTop: 14,
+  },
+  inviteButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.2,
+  },
 
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -525,11 +644,11 @@ const s = StyleSheet.create({
   rowDivider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 46 },
 
   // Rating pill
-  ratingPill: { borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: 'transparent' },
-  ratingPillText: {
-    fontSize: 12,
-    fontWeight: '800',
+  ratingPill: {
+    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
+  ratingPillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
 
   // Search results
   searchResultsList: {
@@ -650,9 +769,10 @@ const s = StyleSheet.create({
   },
   plusCircleText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     lineHeight: 14,
+    includeFontPadding: false,
   },
 
   recentRow: {
@@ -674,7 +794,8 @@ const s = StyleSheet.create({
   recentName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 3 },
   recentMeta: { fontSize: 12, color: T.muted },
   recentScore: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: 'transparent',
+    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
-  recentScoreText: { fontSize: 13, fontWeight: '800' },
+  recentScoreText: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
 });

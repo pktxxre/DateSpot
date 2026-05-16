@@ -71,8 +71,14 @@ export default function EditProfileScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={T.primary} />
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={12}
+          style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+        >
+          <View style={styles.backBtnCircle}>
+            <Ionicons name="chevron-back" size={20} color={T.primary} />
+          </View>
         </Pressable>
         <Text style={styles.headerTitle}>Edit Profile</Text>
         <Pressable
@@ -153,7 +159,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 6, paddingBottom: 14,
   },
-  backBtn: { marginRight: 'auto' },
+  backBtnCircle: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: T.inputBg,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 'auto',
+  },
   headerTitle: {
     position: 'absolute', left: 0, right: 0, textAlign: 'center',
     fontSize: 18, fontWeight: '700', color: T.primary,
