@@ -43,7 +43,7 @@ import type { Triage } from '@/lib/visits';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } from '@/lib/future';
 import { getProfile, saveProfile } from '@/lib/profile';
-import { getSeedSpots, SeedSpot } from '@/lib/seeds';
+import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
 
 interface NominatimResult {
@@ -77,7 +77,7 @@ const CITY_REGIONS: Record<string, Region> = {
   'Seattle, WA': SEATTLE_REGION,
 };
 
-type Step = 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name';
+type Step = 'mode-select' | 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name';
 type MapFilter = 'been' | 'want' | 'spots';
 type SpotsCategory = ActivityType | 'all';
 
@@ -91,6 +91,8 @@ interface DraftVisit {
   price: Price;
   date_type: DateType;
   photos: string[];
+  isPinOnly: boolean;
+  address: string;
 }
 
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
@@ -131,7 +133,7 @@ export default function MapScreen() {
   useEffect(() => {
     _openLogCallback = () => {
       setSelectedVisit(null);
-      setStep('location');
+      setStep('mode-select');
       sheetRef.current?.snapToIndex(1);
     };
     _openFutureCallback = () => {
@@ -157,11 +159,11 @@ export default function MapScreen() {
     useCallback(() => {
       setVisits(getAllVisits());
       setFutureSpots(getAllFutureSpots());
-      getSeedSpots().then(setSeedSpots);
+      getSeedSpotsRaw().then(setSeedSpots);
       if (_pendingOpenLog) {
         _pendingOpenLog = false;
         setSelectedVisit(null);
-        setStep('location');
+        setStep('mode-select');
         sheetRef.current?.snapToIndex(1);
       }
       if (_pendingOpenFuture) {
@@ -210,7 +212,7 @@ export default function MapScreen() {
   );
 
   useEffect(() => {
-    if (step === null || step === 'location' || step === 'future-pin' || step === 'future-name') return;
+    if (step === null || step === 'mode-select' || step === 'location' || step === 'future-pin' || step === 'future-name') return;
     saveDraft({ ...draft, step, savedAt: new Date().toISOString() });
   }, [step, draft]);
 
@@ -246,7 +248,7 @@ export default function MapScreen() {
 
   function openLog() {
     setSelectedVisit(null);
-    setStep('location');
+    setStep('mode-select');
     sheetRef.current?.snapToIndex(1);
   }
 
@@ -266,24 +268,6 @@ export default function MapScreen() {
     sheetRef.current?.snapToIndex(0);
   }
 
-  async function handleFutureUseLocation() {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Location access needed', 'Enable location in Settings.');
-      return;
-    }
-    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    const { latitude, longitude } = loc.coords;
-    setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
-    setGeocodeSuggestion(null);
-    setGeocodeLoading(true);
-    reverseGeocode(latitude, longitude).then(name => {
-      setGeocodeSuggestion(name);
-      setGeocodeLoading(false);
-    });
-    setStep('future-name');
-    sheetRef.current?.snapToIndex(1);
-  }
 
   function saveFutureSpot() {
     if (!draft.lat || !draft.lng || !draft.venue_name?.trim()) return;
@@ -302,10 +286,7 @@ export default function MapScreen() {
 
   async function handleUseLocation() {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Location access needed', 'Enable location in Settings to use this feature.');
-      return;
-    }
+    if (status !== 'granted') return;
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     const { latitude, longitude } = loc.coords;
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
@@ -320,8 +301,8 @@ export default function MapScreen() {
     sheetRef.current?.close();
   }
 
-  function handleSearchSelect(name: string, lat: number, lng: number) {
-    setDraft(d => ({ ...d, venue_name: name, lat, lng }));
+  function handleSearchSelect(name: string, lat: number, lng: number, address?: string) {
+    setDraft(d => ({ ...d, venue_name: name, lat, lng, address: address ?? '' }));
     mapRef.current?.animateToRegion(
       { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
       500
@@ -331,8 +312,8 @@ export default function MapScreen() {
     sheetRef.current?.close();
   }
 
-  function handleFutureSearchSelect(name: string, lat: number, lng: number) {
-    setDraft(d => ({ ...d, venue_name: name, lat, lng }));
+  function handleFutureSearchSelect(name: string, lat: number, lng: number, address?: string) {
+    setDraft(d => ({ ...d, venue_name: name, lat, lng, address: address ?? '' }));
     mapRef.current?.animateToRegion(
       { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
       500
@@ -366,6 +347,7 @@ export default function MapScreen() {
       setStep('future-name');
       sheetRef.current?.snapToIndex(1);
     } else {
+      setDraft((d) => ({ ...d, isPinOnly: true }));
       toModalRef.current = true;
       setStep('details');
       sheetRef.current?.close();
@@ -430,6 +412,7 @@ export default function MapScreen() {
       venue_name: draft.venue_name.trim(),
       lat: draft.lat,
       lng: draft.lng,
+      address: draft.address || undefined,
       visited_at: draft.visited_at || new Date().toISOString(),
       rank_order,
       notes: draft.notes || undefined,
@@ -438,7 +421,7 @@ export default function MapScreen() {
       triage,
       date_type: draft.date_type || undefined,
       photos: draft.photos || [],
-    });
+    }, undefined, draft.isPinOnly === true);
     setVisits(getAllVisits());
     setStep('done');
   }
@@ -726,20 +709,24 @@ export default function MapScreen() {
         handleIndicatorStyle={{ backgroundColor: 'transparent' }}
       >
         <BottomSheetView style={styles.sheetContent}>
+          {step === 'mode-select' && (
+            <ModeSelectStep
+              onBeenTo={() => setStep('location')}
+              onWantToGo={() => { setMapFilter('want'); setStep('future-pin'); }}
+            />
+          )}
           {step === 'location' && (
             <LocationStep
-              onUseLocation={handleUseLocation}
               onDropPin={handleDropPin}
-              onFutureDate={() => { setStep('future-pin'); setMapFilter('want'); }}
               onSelect={handleSearchSelect}
+              onBack={() => setStep('mode-select')}
               region={region}
             />
           )}
           {step === 'future-pin' && (
             <FuturePinStep
-              onUseLocation={handleFutureUseLocation}
               onDropPin={handleFutureDropPin}
-              onBack={() => sheetRef.current?.close()}
+              onBack={() => { setMapFilter('been'); setStep('mode-select'); }}
               onSelect={handleFutureSearchSelect}
               region={region}
             />
@@ -930,7 +917,7 @@ function SearchResultsList({ results, loading, query, onSelect }: {
   results: NominatimResult[];
   loading: boolean;
   query: string;
-  onSelect: (name: string, lat: number, lng: number) => void;
+  onSelect: (name: string, lat: number, lng: number, address: string) => void;
 }) {
   return (
     <ScrollView style={styles.searchResults} keyboardShouldPersistTaps="handled">
@@ -946,7 +933,7 @@ function SearchResultsList({ results, loading, query, onSelect }: {
           <Pressable
             key={r.place_id}
             style={styles.searchResult}
-            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon))}
+            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon), r.display_name)}
           >
             <Ionicons name="location-outline" size={16} color={T.muted} style={{ marginTop: 2 }} />
             <View style={{ flex: 1 }}>
@@ -960,73 +947,108 @@ function SearchResultsList({ results, loading, query, onSelect }: {
   );
 }
 
-function LocationStep({ onUseLocation, onDropPin, onFutureDate, onSelect, region }: {
-  onUseLocation: () => void; onDropPin: () => void; onFutureDate: () => void;
-  onSelect: (name: string, lat: number, lng: number) => void;
-  region: Region;
+function ModeSelectStep({ onBeenTo, onWantToGo }: {
+  onBeenTo: () => void;
+  onWantToGo: () => void;
 }) {
-  const { query, setQuery, results, loading } = useNominatimSearch(region);
-  const showResults = query.length > 0;
   return (
     <View style={styles.stepContainer}>
-      <ProgressDots currentStep={1} />
-      <Text style={styles.stepTitle}>Where did you go?</Text>
-      {!showResults && <Text style={styles.stepSubtitle}>Step 1 of 5</Text>}
-      <TextInput
-        style={[styles.input, { marginBottom: showResults ? 4 : 16 }]}
-        placeholder="Search for a place…"
-        placeholderTextColor="#c7c7cc"
-        value={query}
-        onChangeText={setQuery}
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-      />
-      {showResults ? (
-        <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
-      ) : (
-        <View style={styles.circleRow}>
-          <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
-          <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
-          <CircleButton icon="bookmark-outline" label="Future Date" sublabel="Want to go" onPress={onFutureDate} tint="#f0f0ff" />
-        </View>
-      )}
+      <Text style={styles.stepTitle}>What are you logging?</Text>
+      <Text style={styles.stepSubtitle}>Choose one to get started</Text>
+      <View style={{ gap: 12, marginTop: 8 }}>
+        <Pressable
+          style={({ pressed }) => [styles.modeCard, { opacity: pressed ? 0.85 : 1 }]}
+          onPress={onBeenTo}
+        >
+          <Ionicons name="checkmark-circle" size={28} color={T.accent} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modeCardTitle}>Been To</Text>
+            <Text style={styles.modeCardSub}>Log a place you've visited</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={T.muted} />
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.modeCard, { opacity: pressed ? 0.85 : 1 }]}
+          onPress={onWantToGo}
+        >
+          <Ionicons name="bookmark" size={28} color="#5856d6" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modeCardTitle}>Want to Go</Text>
+            <Text style={styles.modeCardSub}>Save a place for later</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={T.muted} />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-function FuturePinStep({ onUseLocation, onDropPin, onBack, onSelect, region }: {
-  onUseLocation: () => void; onDropPin: () => void; onBack: () => void;
-  onSelect: (name: string, lat: number, lng: number) => void;
+function LocationStep({ onDropPin, onSelect, onBack, region }: {
+  onDropPin: () => void;
+  onSelect: (name: string, lat: number, lng: number, address: string) => void;
+  onBack: () => void;
   region: Region;
 }) {
   const { query, setQuery, results, loading } = useNominatimSearch(region);
-  const showResults = query.length > 0;
   return (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Where do you want to go?</Text>
-      {!showResults && <Text style={styles.stepSubtitle}>Pick a location</Text>}
+      <ProgressDots currentStep={1} />
+      <Text style={styles.stepTitle}>Where did you go?</Text>
+      <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
       <TextInput
-        style={[styles.input, { marginBottom: showResults ? 4 : 16 }]}
+        style={[styles.input, { marginBottom: 4 }]}
         placeholder="Search for a place…"
         placeholderTextColor="#c7c7cc"
         value={query}
         onChangeText={setQuery}
         returnKeyType="search"
         clearButtonMode="while-editing"
+        autoFocus
       />
-      {showResults ? (
-        <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
-      ) : (
-        <>
-          <View style={styles.circleRow}>
-            <CircleButton icon="location" label="Use location" sublabel="Where I am now" onPress={onUseLocation} tint="#e8f0fe" />
-            <CircleButton icon="map" label="Drop a pin" sublabel="Tap the map" onPress={onDropPin} tint="#f2f2f7" />
-          </View>
-          <Pressable style={[styles.btnSecondaryCenter, { marginTop: 16 }]} onPress={onBack}>
-            <Text style={styles.btnSecondaryText}>Cancel</Text>
-          </Pressable>
-        </>
-      )}
+      <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
+      <View style={styles.pinFallbackRow}>
+        <Pressable onPress={onDropPin} style={styles.pinFallbackBtn}>
+          <Ionicons name="map-outline" size={15} color={T.muted} />
+          <Text style={styles.pinFallbackText}>Can't find it? Drop a pin on the map</Text>
+        </Pressable>
+        <Pressable onPress={onBack}>
+          <Text style={[styles.pinFallbackText, { color: T.muted }]}>Back</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function FuturePinStep({ onDropPin, onBack, onSelect, region }: {
+  onDropPin: () => void; onBack: () => void;
+  onSelect: (name: string, lat: number, lng: number, address: string) => void;
+  region: Region;
+}) {
+  const { query, setQuery, results, loading } = useNominatimSearch(region);
+  return (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Where do you want to go?</Text>
+      <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
+      <TextInput
+        style={[styles.input, { marginBottom: 4 }]}
+        placeholder="Search for a place…"
+        placeholderTextColor="#c7c7cc"
+        value={query}
+        onChangeText={setQuery}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        autoFocus
+      />
+      <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
+      <View style={styles.pinFallbackRow}>
+        <Pressable onPress={onDropPin} style={styles.pinFallbackBtn}>
+          <Ionicons name="map-outline" size={15} color={T.muted} />
+          <Text style={styles.pinFallbackText}>Can't find it? Drop a pin on the map</Text>
+        </Pressable>
+        <Pressable onPress={onBack}>
+          <Text style={[styles.pinFallbackText, { color: T.muted }]}>Back</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1689,6 +1711,22 @@ const styles = StyleSheet.create({
   stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 72 },
   stepTitle: { fontSize: 18, fontWeight: '700', color: T.primary, textAlign: 'center', fontFamily: 'InstrumentSerif-Regular' },
   stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 28 },
+
+  modeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: T.card, borderRadius: 14,
+    paddingHorizontal: 18, paddingVertical: 16,
+    borderWidth: 1.5, borderColor: T.border,
+  },
+  modeCardTitle: { fontSize: 15, fontWeight: '700', color: T.primary },
+  modeCardSub: { fontSize: 12, color: T.muted, marginTop: 2 },
+
+  pinFallbackRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 12, paddingHorizontal: 2,
+  },
+  pinFallbackBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  pinFallbackText: { fontSize: 13, color: T.accent },
 
   circleRow: { flexDirection: 'row', justifyContent: 'space-between' },
   circleBtn: { alignItems: 'center', flex: 1 },
