@@ -293,18 +293,6 @@ export default function StackDetailScreen() {
             </Text>
           )}
 
-          {allPhotos.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={s.photoStrip}
-              contentContainerStyle={s.photoStripContent}
-            >
-              {allPhotos.map((uri, i) => (
-                <Image key={i} source={{ uri }} style={s.photoThumb} />
-              ))}
-            </ScrollView>
-          )}
         </View>
 
         {/* Spots */}
@@ -315,18 +303,22 @@ export default function StackDetailScreen() {
           ))}
         </View>
 
-        {/* Rank CTA */}
-        <View style={s.section}>
-          <Pressable
-            style={s.rankBtn}
-            onPress={() => setRanking(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Rank this date night"
-          >
-            <Ionicons name="git-compare-outline" size={18} color="#fff" />
-            <Text style={s.rankBtnText}>Rank this date night</Text>
-          </Pressable>
-        </View>
+        {/* Photos */}
+        {allPhotos.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>PHOTOS</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={s.photoStrip}
+              contentContainerStyle={s.photoStripContent}
+            >
+              {allPhotos.map((uri, i) => (
+                <Image key={i} source={{ uri }} style={s.photoThumb} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={{ height: 48 }} />
       </ScrollView>
@@ -415,7 +407,6 @@ const s = StyleSheet.create({
   },
 
   photoStrip: {
-    marginTop: 16,
     marginHorizontal: -20,
   },
   photoStripContent: {
