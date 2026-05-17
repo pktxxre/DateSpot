@@ -1510,6 +1510,7 @@ function CompareStep({ newVenueName, opponent, onBetter, onWorse, onTooHard, onB
   newVenueName: string; opponent: Visit;
   onBetter: () => void; onWorse: () => void; onTooHard: () => void; onBack: () => void;
 }) {
+  const opponentColor = ratingColor(opponent.rating);
   return (
     <View style={styles.stepContainer}>
       <ProgressDots currentStep={4} />
@@ -1517,15 +1518,18 @@ function CompareStep({ newVenueName, opponent, onBetter, onWorse, onTooHard, onB
       <Text style={styles.stepSubtitle}>Step 4 of 5</Text>
       <View style={styles.compareRow}>
         <Pressable style={[styles.compareCard, styles.compareCardNew]} onPress={onBetter}>
-          <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
+          <View style={[styles.comparePill, styles.compareNewPill]}>
+            <Text style={[styles.comparePillText, { color: '#B0A090' }]}>?</Text>
+          </View>
+          <Text style={styles.compareCardName} numberOfLines={3}>{newVenueName}</Text>
           <Text style={styles.compareCardLabel}>This one</Text>
         </Pressable>
         <View style={styles.compareVs}><Text style={styles.compareVsText}>vs</Text></View>
         <Pressable style={[styles.compareCard, styles.compareCardOld]} onPress={onWorse}>
-          <View style={[styles.compareCardScorePill, { backgroundColor: ratingColor(opponent.rating) + '2E' }]}>
-            <Text style={[styles.compareCardScoreText, { color: ratingColor(opponent.rating) }]}>{formatRating(opponent.rating)}</Text>
+          <View style={[styles.comparePill, { borderColor: opponentColor }]}>
+            <Text style={[styles.comparePillText, { color: opponentColor }]}>{formatRating(opponent.rating)}</Text>
           </View>
-          <Text style={styles.compareCardName} numberOfLines={2}>{opponent.venue_name}</Text>
+          <Text style={styles.compareCardName} numberOfLines={3}>{opponent.venue_name}</Text>
           <Text style={styles.compareCardLabel}>That one</Text>
         </Pressable>
       </View>
@@ -1696,8 +1700,7 @@ const styles = StyleSheet.create({
     backgroundColor: T.bg,
     borderRadius: 24,
     overflow: 'hidden',
-    paddingVertical: 32,
-    minHeight: 360,
+    paddingVertical: 20,
     justifyContent: 'center',
     opacity: 0.9,
   },
@@ -1708,7 +1711,7 @@ const styles = StyleSheet.create({
   dotDone: { backgroundColor: '#c9b89e' },
 
   detailsScroll: { flex: 1 },
-  stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 72 },
+  stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
   stepTitle: { fontSize: 18, fontWeight: '700', color: T.primary, textAlign: 'center', fontFamily: 'InstrumentSerif-Regular' },
   stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 28 },
 
@@ -1789,15 +1792,16 @@ const styles = StyleSheet.create({
   triageLabel: { fontSize: 15, fontWeight: '700' },
 
   compareRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  compareCard: { flex: 1, borderRadius: 16, padding: 16, alignItems: 'center', gap: 8, minHeight: 120, justifyContent: 'center' },
+  compareCard: { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 6, height: 148, justifyContent: 'center' },
   compareCardNew: { backgroundColor: T.accentTint, borderWidth: 2, borderColor: T.accent },
   compareCardOld: { backgroundColor: T.inputBg, borderWidth: 2, borderColor: T.border },
-  compareCardEmoji: { fontSize: 24 },
-  compareCardScorePill: {
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+  comparePill: {
+    paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999,
+    borderWidth: 1.5, backgroundColor: 'transparent',
   },
-  compareCardScoreText: { fontSize: 13, fontWeight: '800' },
-  compareCardName: { fontSize: 14, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 18 },
+  comparePillText: { fontSize: 12, fontWeight: '800' },
+  compareNewPill: { borderColor: '#B0A090' },
+  compareCardName: { fontSize: 13, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 18 },
   compareCardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
   compareVs: { width: 32, height: 32, borderRadius: 16, backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center' },
   compareVsText: { fontSize: 12, fontWeight: '700', color: T.muted },
