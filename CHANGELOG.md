@@ -2,6 +2,25 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.1.1.0] - 2026-05-17
+
+### Added
+- All Date Spots screen now shows a shimmer skeleton while spots load — chip rows, price filters, and spot rows all animate in sync
+- Stack detail screen shows a horizontal photo strip of all photos from the selected visits, placed below the spots list
+- Stack detail photo strip is edge-to-edge with rounded thumbnails
+
+### Changed
+- Compare step (logging flow) cards have fixed height so names, pills, and labels stay at consistent eye level across all comparison rounds
+- Compare step rating pill now uses transparent background with colored border and text (matching the map view style)
+- New spot in compare step shows a grey "?" pill before its first comparison, then updates live as ratings are assigned
+- Stack list card removes the trash icon, creation date, and score — showing only name and spot journey
+- Stack creation modal slides up without a dark overlay behind the card
+- Stack detail hero removes the creation date; average rating pill switches to transparent background with colored border and text
+- All Spots list truncates long venue names to a single line with ellipsis so row heights stay uniform
+
+### Fixed
+- Real category chips and price filter row are hidden during skeleton load, preventing overlap with skeleton UI
+
 ## [0.1.0.0] - 2026-05-08
 
 ### Added
