@@ -1,16 +1,108 @@
 import { useEffect, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable,
-  ActivityIndicator, FlatList,
+  FlatList, useWindowDimensions,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
+} from 'react-native-reanimated';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { ACTIVITY_TYPES, PRICE_LABELS, ratingColor, formatRating, Price } from '@/lib/visits';
 import { T } from '@/lib/theme';
 
 type PriceFilter = 0 | 1 | 2 | 3 | null;
+
+const SK_BASE = '#E8DDD0';
+const SK_LIGHT = '#F6F1E8';
+
+function SkBox({
+  shimmer,
+  w,
+  h,
+  r = 4,
+  style,
+  screenW,
+}: {
+  shimmer: ReturnType<typeof useAnimatedStyle>;
+  w: number | `${number}%`;
+  h: number;
+  r?: number;
+  style?: object;
+  screenW: number;
+}) {
+  return (
+    <View style={[{ width: w, height: h, backgroundColor: SK_BASE, overflow: 'hidden', borderRadius: r }, style]}>
+      <Animated.View
+        style={[
+          { position: 'absolute', top: 0, left: 0, bottom: 0, width: screenW * 0.45, backgroundColor: SK_LIGHT, opacity: 0.85 },
+          shimmer,
+        ]}
+      />
+    </View>
+  );
+}
+
+function SpotsSkeleton() {
+  const { width: screenW } = useWindowDimensions();
+  const offset = useSharedValue(-screenW);
+
+  useEffect(() => {
+    offset.value = withRepeat(
+      withTiming(screenW, { duration: 1100, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, [screenW]);
+
+  const shimmer = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} w={w} h={h} r={r} style={style} screenW={screenW} />
+  );
+
+  const ROWS = 12;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      {/* Category chips */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, paddingBottom: 12, gap: 8 }}>
+        {[68, 54, 88, 78, 106, 56].map((w, i) => (
+          <SkBox key={i} shimmer={shimmer} w={w} h={32} r={20} screenW={screenW} />
+        ))}
+      </View>
+
+      {/* Price filter */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, paddingBottom: 12, gap: 10, marginBottom: 8 }}>
+        {sk(38, 10, 2)}
+        {[38, 28, 34, 46].map((w, i) => (
+          <SkBox key={i} shimmer={shimmer} w={w} h={32} r={20} screenW={screenW} />
+        ))}
+      </View>
+
+      {/* Spot rows */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+        {Array.from({ length: ROWS }).map((_, i) => (
+          <View key={i}>
+            {i > 0 && (
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 44 }} />
+            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}>
+              {sk(4, 36, 2, { marginRight: 10 })}
+              {sk(22, 13, 3, { marginRight: 10 })}
+              <View style={{ flex: 1, marginRight: 10, gap: 5 }}>
+                {sk('70%', 15, 3)}
+                {sk('48%', 12, 3)}
+              </View>
+              {sk(42, 26, 10)}
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   food: 'Food',
@@ -85,61 +177,63 @@ export default function SpotsScreen() {
         </View>
 
         {/* Category filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={s.chipScroll}
-          contentContainerStyle={s.chipRow}
-        >
-          <Pressable
-            style={[s.chip, categoryFilter === null && s.chipActive]}
-            onPress={() => setCategoryFilter(null)}
+        {!loading && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={s.chipScroll}
+            contentContainerStyle={s.chipRow}
           >
-            <Text style={[s.chipText, categoryFilter === null && s.chipTextActive]}>
-              All {seeds.length > 0 ? seeds.length : ''}
-            </Text>
-          </Pressable>
-          {ACTIVITY_TYPES.map(a => {
-            const count = categoryCounts[a.value] ?? 0;
-            if (count === 0) return null;
-            const active = categoryFilter === a.value;
-            return (
-              <Pressable
-                key={a.value}
-                style={[s.chip, active && s.chipActive]}
-                onPress={() => setCategoryFilter(active ? null : a.value)}
-              >
-                <Text style={[s.chipText, active && s.chipTextActive]}>
-                  {CATEGORY_LABELS[a.value] ?? a.label} {count}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+            <Pressable
+              style={[s.chip, categoryFilter === null && s.chipActive]}
+              onPress={() => setCategoryFilter(null)}
+            >
+              <Text style={[s.chipText, categoryFilter === null && s.chipTextActive]}>
+                All {seeds.length > 0 ? seeds.length : ''}
+              </Text>
+            </Pressable>
+            {ACTIVITY_TYPES.map(a => {
+              const count = categoryCounts[a.value] ?? 0;
+              if (count === 0) return null;
+              const active = categoryFilter === a.value;
+              return (
+                <Pressable
+                  key={a.value}
+                  style={[s.chip, active && s.chipActive]}
+                  onPress={() => setCategoryFilter(active ? null : a.value)}
+                >
+                  <Text style={[s.chipText, active && s.chipTextActive]}>
+                    {CATEGORY_LABELS[a.value] ?? a.label} {count}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
 
         {/* Price filter row */}
-        <View style={s.priceRow}>
-          <Text style={s.priceLabel}>PRICE</Text>
-          {([1, 2, 3, 0] as Price[]).map(p => {
-            const active = priceFilter === p;
-            const label = PRICE_LABELS[p];
-            return (
-              <Pressable
-                key={p}
-                style={[s.chip, active && s.chipActive]}
-                onPress={() => setPriceFilter(active ? null : p as PriceFilter)}
-              >
-                <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {!loading && (
+          <View style={s.priceRow}>
+            <Text style={s.priceLabel}>PRICE</Text>
+            {([1, 2, 3, 0] as Price[]).map(p => {
+              const active = priceFilter === p;
+              const label = PRICE_LABELS[p];
+              return (
+                <Pressable
+                  key={p}
+                  style={[s.chip, active && s.chipActive]}
+                  onPress={() => setPriceFilter(active ? null : p as PriceFilter)}
+                >
+                  <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {/* Spot list */}
         {loading ? (
-          <View style={s.loadingWrap}>
-            <ActivityIndicator color={T.accent} />
-          </View>
+          <SpotsSkeleton />
         ) : filtered.length === 0 ? (
           <View style={s.emptyWrap}>
             <Text style={s.emptyText}>No spots match</Text>
@@ -169,7 +263,7 @@ export default function SpotsScreen() {
                   <View style={[s.accentBar, { backgroundColor: color }]} />
                   <Text style={s.spotRank}>{index + 1}</Text>
                   <View style={s.spotInfo}>
-                    <Text style={s.spotName}>{item.venue_name}</Text>
+                    <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{item.venue_name}</Text>
                     <Text style={s.spotMeta}>
                       <Text style={{ color: accentColor }}>{catLabel}</Text>
                       {restMeta ? <Text>{' · ' + restMeta}</Text> : null}
@@ -297,7 +391,6 @@ const s = StyleSheet.create({
     fontWeight: '800',
   },
 
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   emptyText: { fontSize: 16, color: T.muted },
   emptyLink: { fontSize: 14, color: T.accent, fontWeight: '600' },
