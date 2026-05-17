@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Alert,
-  ScrollView, TextInput, FlatList,
+  ScrollView, TextInput, FlatList, Image,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -234,6 +234,7 @@ export default function StackDetailScreen() {
     : 0;
   const qualityColor = ratingColor(avgRating);
   const dateStr = friendlyDate(detail.created_at);
+  const allPhotos = detail.visits.flatMap(v => v.photos).filter(Boolean);
 
   function handleDelete() {
     Alert.alert(
@@ -275,15 +276,13 @@ export default function StackDetailScreen() {
         {/* Hero */}
         <View style={s.hero}>
           <Text style={s.heroName}>{detail.name}</Text>
-          <Text style={s.heroDate}>{dateStr}</Text>
-
           <View style={s.heroMeta}>
             <View style={s.spotCountBadge}>
               <Text style={s.spotCountText}>{detail.visits.length} spot{detail.visits.length !== 1 ? 's' : ''}</Text>
             </View>
             {avgRating > 0 && (
-              <View style={[s.qualityDot, { backgroundColor: qualityColor }]}>
-                <Text style={s.qualityLabel}>{formatRating(avgRating)} avg</Text>
+              <View style={[s.qualityDot, { borderColor: qualityColor }]}>
+                <Text style={[s.qualityLabel, { color: qualityColor }]}>{formatRating(avgRating)} avg</Text>
               </View>
             )}
           </View>
@@ -293,6 +292,7 @@ export default function StackDetailScreen() {
               {detail.visits[0].venue_name} → {detail.visits[detail.visits.length - 1].venue_name}
             </Text>
           )}
+
         </View>
 
         {/* Spots */}
@@ -303,18 +303,22 @@ export default function StackDetailScreen() {
           ))}
         </View>
 
-        {/* Rank CTA */}
-        <View style={s.section}>
-          <Pressable
-            style={s.rankBtn}
-            onPress={() => setRanking(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Rank this date night"
-          >
-            <Ionicons name="git-compare-outline" size={18} color="#fff" />
-            <Text style={s.rankBtnText}>Rank this date night</Text>
-          </Pressable>
-        </View>
+        {/* Photos */}
+        {allPhotos.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>PHOTOS</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={s.photoStrip}
+              contentContainerStyle={s.photoStripContent}
+            >
+              {allPhotos.map((uri, i) => (
+                <Image key={i} source={{ uri }} style={s.photoThumb} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={{ height: 48 }} />
       </ScrollView>
@@ -391,13 +395,29 @@ const s = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 5,
+    borderWidth: 1.5,
+    backgroundColor: 'transparent',
   },
-  qualityLabel: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  qualityLabel: { fontSize: 13, fontWeight: '700' },
 
   journeyLine: {
     fontSize: 13,
     color: T.muted,
     fontStyle: 'italic',
+  },
+
+  photoStrip: {
+    marginHorizontal: -20,
+  },
+  photoStripContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  photoThumb: {
+    width: 96,
+    height: 96,
+    borderRadius: 10,
+    backgroundColor: T.inputBg,
   },
 
   section: { paddingHorizontal: 20, marginTop: 24 },
