@@ -137,6 +137,12 @@ export default function MapScreen() {
   const toModalRef = useRef(false);
   const lastPinPressAt = useRef(0);
   const lastSavedLatLng = useRef<{ lat: number; lng: number } | null>(null);
+  const [animatingVisitId, setAnimatingVisitId] = useState<string | null>(null);
+  const [trackedVisitId, setTrackedVisitId] = useState<string | null>(null);
+  const sproutAnim = useRef(new Animated.Value(1)).current;
+  const stepAnim = useRef(new Animated.Value(0)).current;
+  const sproutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sproutInnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     _openLogCallback = () => {
@@ -275,6 +281,12 @@ export default function MapScreen() {
     setGeocodeSuggestion(null);
     setGeocodeLoading(false);
     clearDraft();
+    // Cancel any in-flight sprout animation so tracksViewChanges doesn't stay true
+    if (sproutTimerRef.current) { clearTimeout(sproutTimerRef.current); sproutTimerRef.current = null; }
+    if (sproutInnerTimerRef.current) { clearTimeout(sproutInnerTimerRef.current); sproutInnerTimerRef.current = null; }
+    sproutAnim.stopAnimation();
+    setAnimatingVisitId(null);
+    setTrackedVisitId(null);
     const saved = lastSavedLatLng.current;
     if (saved) {
       lastSavedLatLng.current = null;
@@ -285,6 +297,21 @@ export default function MapScreen() {
         );
       }, 150);
     }
+  }
+
+  function triggerStepTransition(newStep: Step, dir: 'forward' | 'back' = 'forward') {
+    const startX = dir === 'forward' ? 340 : -340;
+    stepAnim.stopAnimation();
+    stepAnim.setValue(startX);
+    setStep(newStep);
+    requestAnimationFrame(() => {
+      Animated.spring(stepAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 220,
+        friction: 22,
+      }).start();
+    });
   }
 
   function handleFutureDropPin() {
@@ -410,7 +437,7 @@ export default function MapScreen() {
         }
       }
     }
-    setStep('triage');
+    triggerStepTransition('triage');
   }
 
   function handleTriage(triage: Triage) {
@@ -419,7 +446,7 @@ export default function MapScreen() {
     const occasion = draft.occasion_type || 'romantic';
     const initial = startComparison(existing, (v) => v.triage === triage && v.occasion_type === occasion);
     setCmpState(initial);
-    setStep('compare'); // always go to step 4; NoCompareStep handles the null case
+    triggerStepTransition('compare'); // always go to step 4; NoCompareStep handles the null case
   }
 
   function handleCompare(result: 'better' | 'worse') {
@@ -444,8 +471,9 @@ export default function MapScreen() {
 
   function saveVisitWithTriage(rank_order: number, triage: Triage) {
     if (!draft.lat || !draft.lng || !draft.venue_name) return;
+    const newId = Crypto.randomUUID();
     insertVisit({
-      id: Crypto.randomUUID(),
+      id: newId,
       venue_name: draft.venue_name.trim(),
       lat: draft.lat,
       lng: draft.lng,
@@ -462,11 +490,42 @@ export default function MapScreen() {
     setVisits(getAllVisits());
     lastSavedLatLng.current = { lat: draft.lat, lng: draft.lng };
     setMapFilter('been');
-    setStep('done');
+    // Mark the new pin for animation (batches with setVisits so first render has tracksViewChanges=true)
+    sproutAnim.setValue(0);
+    setAnimatingVisitId(newId);
+    triggerStepTransition('done');
   }
 
   function saveVisit(rank_order: number) {
     saveVisitWithTriage(rank_order, currentTriage);
+  }
+
+  function handleDoneClose() {
+    const pendingId = animatingVisitId;
+    resetFlow(); // clears animatingVisitId/trackedVisitId and cancels any prior timers
+    if (!pendingId) return;
+    // Re-arm for the new animation (resetFlow cleared the state above)
+    sproutAnim.setValue(0);
+    setAnimatingVisitId(pendingId);
+    // Wait for modal fade-out (~300ms) then play the sprout animation.
+    // useNativeDriver:false keeps the animation on the JS thread so react-native-maps
+    // can snapshot the correct scale value when tracksViewChanges goes false.
+    sproutTimerRef.current = setTimeout(() => {
+      sproutTimerRef.current = null;
+      Animated.sequence([
+        Animated.spring(sproutAnim, { toValue: 1.1, useNativeDriver: false, tension: 110, friction: 5 }),
+        Animated.spring(sproutAnim, { toValue: 1.0, useNativeDriver: false, tension: 65, friction: 8 }),
+      ]).start(() => {
+        // Phase 1: swap Animated.View → plain View while tracksViewChanges stays true
+        setAnimatingVisitId(null);
+        setTrackedVisitId(pendingId);
+        // Phase 2: give native 250ms to commit the static view before freezing
+        sproutInnerTimerRef.current = setTimeout(() => {
+          sproutInnerTimerRef.current = null;
+          setTrackedVisitId(null);
+        }, 250);
+      });
+    }, 320);
   }
 
   function handlePinPress(visit: Visit) {
@@ -586,19 +645,29 @@ export default function MapScreen() {
             const color = ratingColor(v.rating);
             const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
             const labelSide = beenLabelSides.get(v.id) ?? 'right';
+            const isAnimating = v.id === animatingVisitId;
+            const isTracked = v.id === trackedVisitId;
             return (
               <Marker
                 key={isSelected ? `sel-${v.id}` : v.id}
                 coordinate={{ latitude: v.lat, longitude: v.lng }}
                 onPress={() => handlePinPress(v)}
-                tracksViewChanges={false}
+                tracksViewChanges={isAnimating || isTracked}
                 zIndex={isSelected ? 9999 : Math.round(v.rating * 10)}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
                 <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                  <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
-                    <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
-                  </View>
+                  {isAnimating ? (
+                    <Animated.View style={{ transform: [{ scale: sproutAnim }] }}>
+                      <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
+                        <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
+                      </View>
+                    </Animated.View>
+                  ) : (
+                    <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
+                      <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
+                    </View>
+                  )}
                   {showLabel && (
                     <Text
                       style={[styles.pinLabel, labelSide === 'right' ? styles.pinLabelRight : styles.pinLabelLeft, { color: '#000' }, isTop3 && { fontWeight: '900' }]}
@@ -682,9 +751,6 @@ export default function MapScreen() {
             </Marker>
           );
         })}
-        {draft.lat != null && draft.lng != null && (
-          <Marker coordinate={{ latitude: draft.lat, longitude: draft.lng }} pinColor="#ff3b5c" />
-        )}
       </MapView>
 
       {/* Filter toggle */}
@@ -806,44 +872,48 @@ export default function MapScreen() {
           <View style={styles.modalOverlay}>
             {step === 'details' ? (
               <View style={styles.modalCard}>
-                <DetailsStep
-                  draft={draft}
-                  onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
-                  onNext={handleDetailsDone}
-                  onBack={resetFlow}
-                  suggestion={geocodeSuggestion}
-                  geocodeLoading={geocodeLoading}
-                />
+                <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: stepAnim }] }]}>
+                  <DetailsStep
+                    draft={draft}
+                    onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
+                    onNext={handleDetailsDone}
+                    onBack={resetFlow}
+                    suggestion={geocodeSuggestion}
+                    geocodeLoading={geocodeLoading}
+                  />
+                </Animated.View>
               </View>
             ) : (
               <View style={styles.modalCardCompact}>
-                {step === 'triage' && (
-                  <TriageStep onPick={handleTriage} />
-                )}
-                {step === 'compare' && !cmpState && (
-                  <NoCompareStep
-                    triage={currentTriage}
-                    activityLabel={OCCASION_TYPES.find(a => a.value === (draft.occasion_type || 'romantic'))?.label ?? 'Romantic'}
-                    onSave={() => saveVisitWithTriage(1000, currentTriage)}
-                  />
-                )}
-                {step === 'compare' && cmpState && (
-                  <CompareStep
-                    newVenueName={draft.venue_name || ''}
-                    opponent={currentComparison(cmpState)}
-                    onBetter={() => handleCompare('better')}
-                    onWorse={() => handleCompare('worse')}
-                    onTooHard={handleTooHard}
-                    onBack={() => setStep('triage')}
-                  />
-                )}
-                {step === 'done' && (
-                  <DoneStep
-                    venueName={draft.venue_name || ''}
-                    onAnother={() => { resetFlow(); openLog(); }}
-                    onClose={resetFlow}
-                  />
-                )}
+                <Animated.View style={{ transform: [{ translateX: stepAnim }] }}>
+                  {step === 'triage' && (
+                    <TriageStep onPick={handleTriage} />
+                  )}
+                  {step === 'compare' && !cmpState && (
+                    <NoCompareStep
+                      triage={currentTriage}
+                      activityLabel={OCCASION_TYPES.find(a => a.value === (draft.occasion_type || 'romantic'))?.label ?? 'Romantic'}
+                      onSave={() => saveVisitWithTriage(1000, currentTriage)}
+                    />
+                  )}
+                  {step === 'compare' && cmpState && (
+                    <CompareStep
+                      newVenueName={draft.venue_name || ''}
+                      opponent={currentComparison(cmpState)}
+                      onBetter={() => handleCompare('better')}
+                      onWorse={() => handleCompare('worse')}
+                      onTooHard={handleTooHard}
+                      onBack={() => triggerStepTransition('triage', 'back')}
+                    />
+                  )}
+                  {step === 'done' && (
+                    <DoneStep
+                      venueName={draft.venue_name || ''}
+                      onAnother={() => { handleDoneClose(); openLog(); }}
+                      onClose={handleDoneClose}
+                    />
+                  )}
+                </Animated.View>
               </View>
             )}
           </View>

@@ -2,6 +2,15 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.1.2.1] - 2026-05-19
+
+### Changed
+- Logging steps now slide in with a drill/push transition instead of appearing instantly
+- Draft pin no longer appears on the map while logging is in progress
+- Newly saved spots sprout onto the map with a pop animation (scale up, brief overshoot, settle) immediately after the Done screen is dismissed
+- Sprout animation uses the JS thread so react-native-maps snapshots the correct scale before freezing the marker; prevents the pin from going invisible after animation
+- Animation state is properly cancelled if the log flow is reset mid-animation, preventing stale timers and tracksViewChanges staying true
+
 ## [0.1.2.0] - 2026-05-19
 
 ### Added
