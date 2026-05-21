@@ -15,6 +15,7 @@ import {
   FriendProfile, FriendWithStats, FriendActivityItem, FriendRecommendation,
 } from '@/lib/friends';
 import { getUnreadCount } from '@/lib/notifications';
+import { ratingColor } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -41,14 +42,6 @@ function initial(name: string): string {
   return (name?.[0] ?? '?').toUpperCase();
 }
 
-// Rating color ramp
-function ratingColor(r: number): string {
-  if (r >= 9.0) return '#2E7D32';
-  if (r >= 8.0) return '#558B2F';
-  if (r >= 7.0) return '#F9A825';
-  if (r >= 6.0) return '#EF6C00';
-  return '#C62828';
-}
 
 const ACTIVITY_LABEL: Record<string, string> = {
   food: 'Food', bars: 'Drinks', cafes: 'Cafes',
@@ -182,13 +175,13 @@ function AddFriendModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
 // ─── Activity card ────────────────────────────────────────────────────────────
 
-function ActivityCard({ item }: { item: FriendActivityItem }) {
+function ActivityCard({ item, isLast }: { item: FriendActivityItem; isLast: boolean }) {
   const actLabel = ACTIVITY_LABEL[item.activityType] ?? item.activityType;
   const showRating = item.rating > 0;
   const rColor = showRating ? ratingColor(item.rating) : null;
 
   return (
-    <Pressable style={s.card} onPress={() => router.push(`/spot/${item.visitId}` as any)}>
+    <Pressable style={[s.activityRow, !isLast && s.activityRowBorder]} onPress={() => router.push(`/spot/${item.visitId}` as any)}>
       {/* Top: avatar + meta + rating pill */}
       <View style={s.cardTop}>
         <Avatar
@@ -464,8 +457,8 @@ export default function FriendsScreen() {
                   </View>
                 ) : (
                   <View style={s.cardsStack}>
-                    {activity.slice(0, 10).map(item => (
-                      <ActivityCard key={item.visitId} item={item} />
+                    {activity.slice(0, 10).map((item, i, arr) => (
+                      <ActivityCard key={item.visitId} item={item} isLast={i === arr.length - 1} />
                     ))}
                   </View>
                 )}
@@ -559,13 +552,10 @@ const s = StyleSheet.create({
   sectionSub: { fontSize: 11, color: MUTED, marginTop: 1 },
   sectionAction: { fontSize: 13, fontWeight: '600', color: ACCENT },
 
-  // Activity cards stack
-  cardsStack: { paddingHorizontal: 20, gap: 10, marginBottom: 18 },
-  card: {
-    backgroundColor: CARD, borderRadius: 14,
-    borderWidth: 1, borderColor: BORDER,
-    padding: 12,
-  },
+  // Activity list
+  cardsStack: { paddingHorizontal: 20, marginBottom: 18 },
+  activityRow: { paddingVertical: 14 },
+  activityRowBorder: { borderBottomWidth: 1, borderBottomColor: BORDER },
   cardTop: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
   },
