@@ -28,8 +28,10 @@ export function scheduleOpenFutureDate() {
   else { _pendingOpenFuture = true; }
 }
 export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number) {
-  if (_openLogWithLocationCallback) { _openLogWithLocationCallback(name, lat, lng); }
-  else { _pendingOpenLogWithLocation = { name, lat, lng }; }
+  // Always use pending; useFocusEffect fires reliably on focus gain regardless of mount state.
+  // The direct callback path is unreliable when called from a root-stack screen (spot/[id])
+  // because the map tab is in the background and its state update may not survive navigation.
+  _pendingOpenLogWithLocation = { name, lat, lng };
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -899,6 +901,7 @@ export default function MapScreen() {
                   {step === 'compare' && cmpState && (
                     <CompareStep
                       newVenueName={draft.venue_name || ''}
+                      newActivityType={draft.activity_type || 'other'}
                       opponent={currentComparison(cmpState)}
                       onBetter={() => handleCompare('better')}
                       onWorse={() => handleCompare('worse')}
@@ -1707,32 +1710,91 @@ function NoCompareStep({ triage, activityLabel, onSave }: { triage: Triage; acti
   );
 }
 
-function CompareStep({ newVenueName, opponent, onBetter, onWorse, onTooHard, onBack }: {
-  newVenueName: string; opponent: Visit;
+const COMPARE_ACTIVITY_COLORS: Record<string, string> = {
+  food:          '#B5614A',
+  bars:          '#6B6B9E',
+  cafes:         '#8B6B45',
+  outdoors:      '#5A8066',
+  indoors:       '#6B7B8D',
+  view:          '#6080A0',
+  entertainment: '#4B8080',
+  shopping:      '#9E6B80',
+  other:         '#8B7762',
+};
+
+function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWorse, onTooHard, onBack }: {
+  newVenueName: string; newActivityType: string; opponent: Visit;
   onBetter: () => void; onWorse: () => void; onTooHard: () => void; onBack: () => void;
 }) {
+  const thisScaleAnim = useRef(new Animated.Value(1)).current;
+  const thatScaleAnim = useRef(new Animated.Value(1)).current;
+  const [thisBorder, setThisBorder] = useState(false);
+  const [thatBorder, setThatBorder] = useState(false);
+
+  function animateTap(
+    anim: Animated.Value,
+    setBorder: (v: boolean) => void,
+    onDone: () => void,
+  ) {
+    setBorder(true);
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1.06, duration: 80, useNativeDriver: true }),
+      Animated.spring(anim, { toValue: 1.03, friction: 5, tension: 200, useNativeDriver: true }),
+    ]).start(() => {
+      setBorder(false);
+      onDone();
+    });
+  }
+
   const opponentColor = ratingColor(opponent.rating);
+  const thisColor = COMPARE_ACTIVITY_COLORS[newActivityType] ?? '#8B7762';
+  const thatColor = COMPARE_ACTIVITY_COLORS[opponent.activity_type] ?? '#8B7762';
+  const thisLabel = ACTIVITY_TYPES.find(a => a.value === newActivityType)?.label ?? 'Spot';
+  const thatLabel = ACTIVITY_TYPES.find(a => a.value === opponent.activity_type)?.label ?? 'Spot';
+
   return (
     <View style={styles.stepContainer}>
       <ProgressDots currentStep={4} />
       <Text style={styles.stepTitle}>Which was better?</Text>
       <Text style={styles.stepSubtitle}>Step 4 of 5</Text>
       <View style={styles.compareRow}>
-        <Pressable style={[styles.compareCard, styles.compareCardNew]} onPress={onBetter}>
-          <View style={[styles.comparePill, styles.compareNewPill]}>
-            <Text style={[styles.comparePillText, { color: '#B0A090' }]}>?</Text>
-          </View>
-          <Text style={styles.compareCardName} numberOfLines={3}>{newVenueName}</Text>
-          <Text style={styles.compareCardLabel}>This one</Text>
-        </Pressable>
-        <View style={styles.compareVs}><Text style={styles.compareVsText}>vs</Text></View>
-        <Pressable style={[styles.compareCard, styles.compareCardOld]} onPress={onWorse}>
-          <View style={[styles.comparePill, { borderColor: opponentColor }]}>
-            <Text style={[styles.comparePillText, { color: opponentColor }]}>{formatRating(opponent.rating)}</Text>
-          </View>
-          <Text style={styles.compareCardName} numberOfLines={3}>{opponent.venue_name}</Text>
-          <Text style={styles.compareCardLabel}>That one</Text>
-        </Pressable>
+        <Animated.View style={[styles.compareCardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
+          <Pressable
+            style={[styles.compareCard, { borderColor: thisBorder ? T.accent : T.border }]}
+            onPress={() => animateTap(thisScaleAnim, setThisBorder, onBetter)}
+          >
+            <View style={[styles.compareCardHeader, { backgroundColor: thisColor }]}>
+              <Text style={styles.compareCardCategory}>{thisLabel.toUpperCase()}</Text>
+              <View style={styles.compareNewPill}>
+                <Text style={styles.compareNewPillText}>?</Text>
+              </View>
+            </View>
+            <View style={styles.compareCardBody}>
+              <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
+              <Text style={styles.compareCardLabel}>This one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+        <View style={styles.compareVs}><Text style={styles.compareVsText}>VS</Text></View>
+        <Animated.View style={[styles.compareCardWrap, { transform: [{ scale: thatScaleAnim }] }]}>
+          <Pressable
+            style={[styles.compareCard, { borderColor: thatBorder ? T.accent : T.border }]}
+            onPress={() => animateTap(thatScaleAnim, setThatBorder, onWorse)}
+          >
+            <View style={[styles.compareCardHeader, { backgroundColor: thatColor }]}>
+              <Text style={styles.compareCardCategory}>{thatLabel.toUpperCase()}</Text>
+              {opponent.rating > 0 && (
+                <View style={[styles.compareRatingPill, { borderColor: opponentColor }]}>
+                  <Text style={[styles.compareRatingPillText, { color: opponentColor }]}>{formatRating(opponent.rating)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.compareCardBody}>
+              <Text style={styles.compareCardName} numberOfLines={2}>{opponent.venue_name}</Text>
+              <Text style={styles.compareCardLabel}>That one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
       </View>
       <Pressable style={styles.tooHardBtn} onPress={onTooHard}>
         <Text style={styles.tooHardText}>Too hard to compare</Text>
@@ -2020,20 +2082,33 @@ const styles = StyleSheet.create({
   triageEmoji: { fontSize: 32 },
   triageLabel: { fontSize: 15, fontWeight: '700' },
 
-  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  compareCard: { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 6, height: 148, justifyContent: 'center' },
-  compareCardNew: { backgroundColor: T.accentTint, borderWidth: 2, borderColor: T.accent },
-  compareCardOld: { backgroundColor: T.inputBg, borderWidth: 2, borderColor: T.border },
-  comparePill: {
-    paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999,
-    borderWidth: 1.5, backgroundColor: 'transparent',
+  compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  compareCardWrap: { flex: 1, height: 140 },
+  compareCard: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
+  compareCardNew: { borderColor: T.accent },
+  compareCardOld: { borderColor: T.border },
+  compareCardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  compareCardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  compareNewPill: {
+    backgroundColor: 'rgba(255,255,255,0.2)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
   },
-  comparePillText: { fontSize: 12, fontWeight: '800' },
-  compareNewPill: { borderColor: '#B0A090' },
-  compareCardName: { fontSize: 13, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 18 },
+  compareNewPillText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.8)' },
+  compareRatingPill: {
+    backgroundColor: '#fff', borderWidth: 1.5,
+    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
+  },
+  compareRatingPillText: { fontSize: 12, fontWeight: '800' },
+  compareCardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
+  compareCardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
   compareCardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
-  compareVs: { width: 32, height: 32, borderRadius: 16, backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center' },
-  compareVsText: { fontSize: 12, fontWeight: '700', color: T.muted },
+  compareVs: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: T.bg, borderWidth: 2, borderColor: T.accent,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 10, marginHorizontal: -10,
+  },
+  compareVsText: { fontSize: 11, fontWeight: '700', color: T.accent },
 
   tooHardBtn: {
     backgroundColor: T.inputBg, borderRadius: 14,

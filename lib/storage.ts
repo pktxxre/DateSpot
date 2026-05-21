@@ -1,29 +1,42 @@
 import { supabase } from './supabase';
 
 const BUCKET = 'photos';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
-// Upload any local file URI to Supabase Storage and return the public URL.
-// Uses fetch → blob so no extra native deps are needed.
+// Upload a local file URI to Supabase Storage and return the public URL.
+// Uses FormData (the React Native-correct approach) — fetch→blob produces 0-byte files.
 export async function uploadPhoto(localUri: string, storagePath: string): Promise<string | null> {
-  if (!supabase) return null;
+  if (!supabase || !SUPABASE_URL) return null;
   try {
-    const response = await fetch(localUri);
-    const blob = await response.blob();
-
     const ext = localUri.split('.').pop()?.toLowerCase() ?? 'jpg';
     const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
+    const filename = localUri.split('/').pop() ?? `photo.${ext}`;
 
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .upload(storagePath, blob, { contentType, upsert: true });
+    const formData = new FormData();
+    formData.append('file', { uri: localUri, name: filename, type: contentType } as any);
 
-    if (error) {
-      console.error('Supabase upload error:', error.message);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    const response = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${storagePath}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'x-upsert': 'true',
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('Supabase upload error:', response.status, text);
       return null;
     }
 
-    const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-    return publicUrl;
+    return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${storagePath}`;
   } catch (e) {
     console.error('uploadPhoto failed:', e);
     return null;

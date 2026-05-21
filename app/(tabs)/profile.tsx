@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getAllVisits, Visit, ACTIVITY_TYPES, friendlyDate } from '@/lib/visits';
 import { getProfile, UserProfile } from '@/lib/profile';
+import { getFriends } from '@/lib/friends';
 import { T } from '@/lib/theme';
 
 type ActivityItem = {
@@ -40,11 +41,13 @@ function buildActivity(visits: Visit[]): ActivityItem[] {
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [friendCount, setFriendCount] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
       getProfile().then(setProfile);
       setVisits(getAllVisits());
+      getFriends().then(friends => setFriendCount(friends.length));
     }, [])
   );
 
@@ -75,14 +78,22 @@ export default function ProfileScreen() {
         <View style={styles.heroSection}>
           <View style={styles.avatarWrap}>
             {profile?.profilePhotoUri ? (
-              <Image source={{ uri: profile.profilePhotoUri }} style={styles.avatar} />
+              <Image
+                key={profile.profilePhotoUri}
+                source={{ uri: profile.profilePhotoUri, cache: 'reload' }}
+                style={styles.avatar}
+              />
             ) : (
               <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Ionicons name="person" size={46} color="#B0A090" />
+                <Text style={styles.avatarEmoticon}>
+                  {profile?.avatarEmoticon || ':)'}
+                </Text>
               </View>
             )}
           </View>
-          <Text style={styles.username}>{profile?.username ?? 'You'}</Text>
+          <Text style={styles.username}>
+            {profile?.handle ? `@${profile.handle}` : (profile?.username ?? 'You')}
+          </Text>
           {!!profile?.bio && <Text style={styles.bio}>{profile.bio}</Text>}
         </View>
 
@@ -91,7 +102,7 @@ export default function ProfileScreen() {
           <StatBox value={visits.length} label="Logs" />
           <View style={styles.statDivider} />
           <Pressable style={styles.statBox} onPress={() => router.push('/friends' as any)}>
-            <Text style={styles.statValue}>0</Text>
+            <Text style={styles.statValue}>{friendCount}</Text>
             <Text style={styles.statLabel}>Friends</Text>
           </Pressable>
           <View style={styles.statDivider} />
@@ -177,8 +188,11 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 96, height: 96, borderRadius: 48 },
   avatarPlaceholder: {
-    backgroundColor: T.placeholder,
+    backgroundColor: T.inputBg,
     alignItems: 'center', justifyContent: 'center',
+  },
+  avatarEmoticon: {
+    fontSize: 20, color: T.primary, fontWeight: '600', letterSpacing: 0,
   },
   username: {
     fontSize: 19, fontWeight: '700', color: T.primary,

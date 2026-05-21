@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Alert,
-  ScrollView, TextInput, FlatList, Image,
+  ScrollView, TextInput, FlatList, Image, Animated,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +21,9 @@ import { T } from '@/lib/theme';
 
 // ─── Rank Stack Modal ────────────────────────────────────────────────────────
 
+const STACK_THIS_COLOR = '#8B6B45';
+const STACK_THAT_COLOR = '#6B7B8D';
+
 function RankStackModal({ stack, onClose, onDone }: {
   stack: StackType;
   onClose: () => void;
@@ -30,6 +33,15 @@ function RankStackModal({ stack, onClose, onDone }: {
   const [cmpState, setCmpState] = useState<ComparisonState<StackType> | null>(
     () => startComparison(others, () => true)
   );
+  const thisScaleAnim = useRef(new Animated.Value(1)).current;
+  const thatScaleAnim = useRef(new Animated.Value(1)).current;
+
+  function animateTap(anim: Animated.Value) {
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1.06, duration: 80, useNativeDriver: true }),
+      Animated.spring(anim, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }),
+    ]).start();
+  }
 
   function handleResult(result: 'better' | 'worse') {
     const prev = cmpState!;
@@ -52,7 +64,8 @@ function RankStackModal({ stack, onClose, onDone }: {
   }
 
   const opponent = cmpState ? currentComparison(cmpState) : null;
-  const oppColor = ratingColor(opponent?.rating ?? 0);
+  const thisRatingColor = ratingColor(stack.rating);
+  const thatRatingColor = opponent ? ratingColor(opponent.rating) : T.muted;
 
   const cardContent = others.length === 0 ? (
     <>
@@ -65,20 +78,39 @@ function RankStackModal({ stack, onClose, onDone }: {
       <Text style={rm.title}>Which was a better date night?</Text>
       <Text style={rm.subtitle}>Tap to rank</Text>
       <View style={rm.compareRow}>
-        <Pressable style={[rm.card, rm.cardThis]} onPress={() => handleResult('better')}>
-          <Text style={rm.cardName} numberOfLines={3}>{stack.name}</Text>
-          <Text style={rm.cardLabel}>This one</Text>
-        </Pressable>
-        <View style={rm.vs}><Text style={rm.vsText}>vs</Text></View>
-        <Pressable style={[rm.card, rm.cardThat]} onPress={() => handleResult('worse')}>
-          {opponent.rating > 0 && (
-            <View style={[rm.scorePill, { backgroundColor: oppColor + '2E' }]}>
-              <Text style={[rm.scoreText, { color: oppColor }]}>{formatRating(opponent.rating)}</Text>
+        <Animated.View style={[rm.cardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
+          <Pressable style={[rm.card, rm.cardThis]} onPress={() => { animateTap(thisScaleAnim); handleResult('better'); }}>
+            <View style={[rm.cardHeader, { backgroundColor: STACK_THIS_COLOR }]}>
+              <Text style={rm.cardCategory}>DATE NIGHT</Text>
+              {stack.rating > 0 && (
+                <View style={[rm.cardRatingPill, { borderColor: thisRatingColor }]}>
+                  <Text style={[rm.cardRatingText, { color: thisRatingColor }]}>{formatRating(stack.rating)}</Text>
+                </View>
+              )}
             </View>
-          )}
-          <Text style={rm.cardName} numberOfLines={3}>{opponent.name}</Text>
-          <Text style={rm.cardLabel}>That one</Text>
-        </Pressable>
+            <View style={rm.cardBody}>
+              <Text style={rm.cardName} numberOfLines={2}>{stack.name}</Text>
+              <Text style={rm.cardLabel}>This one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+        <View style={rm.vs}><Text style={rm.vsText}>VS</Text></View>
+        <Animated.View style={[rm.cardWrap, { transform: [{ scale: thatScaleAnim }] }]}>
+          <Pressable style={[rm.card, rm.cardThat]} onPress={() => { animateTap(thatScaleAnim); handleResult('worse'); }}>
+            <View style={[rm.cardHeader, { backgroundColor: STACK_THAT_COLOR }]}>
+              <Text style={rm.cardCategory}>DATE NIGHT</Text>
+              {opponent.rating > 0 && (
+                <View style={[rm.cardRatingPill, { borderColor: thatRatingColor }]}>
+                  <Text style={[rm.cardRatingText, { color: thatRatingColor }]}>{formatRating(opponent.rating)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={rm.cardBody}>
+              <Text style={rm.cardName} numberOfLines={2}>{opponent.name}</Text>
+              <Text style={rm.cardLabel}>That one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
       </View>
       <Pressable style={rm.tooHardBtn} onPress={handleTooHard}>
         <Text style={rm.tooHardText}>Too hard to compare</Text>
@@ -478,19 +510,31 @@ const rm = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular', textAlign: 'center', marginBottom: 4 },
   subtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 20 },
-  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  card: { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 8, minHeight: 110, justifyContent: 'center' },
-  cardThis: { backgroundColor: T.accentTint, borderWidth: 2, borderColor: T.accent },
-  cardThat: { backgroundColor: T.inputBg, borderWidth: 2, borderColor: T.border },
-  scorePill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  scoreText: { fontSize: 13, fontWeight: '800' },
-  cardName: { fontSize: 13, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 17 },
+  compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardWrap: { flex: 1, height: 140 },
+  card: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
+  cardThis: { borderColor: T.accent },
+  cardThat: { borderColor: T.border },
+  cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  cardRatingPill: {
+    backgroundColor: '#fff', borderWidth: 1.5,
+    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
+  },
+  cardRatingText: { fontSize: 12, fontWeight: '800' },
+  cardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
+  cardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
   cardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
-  vs: { width: 30, height: 30, borderRadius: 15, backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center' },
-  vsText: { fontSize: 11, fontWeight: '700', color: T.muted },
+  vs: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: T.bg, borderWidth: 2, borderColor: T.accent,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 10, marginHorizontal: -10,
+  },
+  vsText: { fontSize: 11, fontWeight: '700', color: T.accent },
   tooHardBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 8 },
   tooHardText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  secBtn: { borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  secBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
   secBtnText: { fontSize: 14, fontWeight: '500', color: T.muted },
 });
 

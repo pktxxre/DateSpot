@@ -1,5 +1,6 @@
 import { getDb } from './db';
 import { supabase } from './supabase';
+import { syncVisitToCloud, deleteVisitFromCloud } from './sync';
 
 export type Rating = number;
 export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
@@ -153,6 +154,7 @@ export function insertVisit(v: NewVisit, city?: string, skipResolution = false):
     [v.id, v.venue_name, v.lat, v.lng, v.address ?? null, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.occasion_type, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? []), skipResolution ? 'failed' : 'pending']
   );
   recomputeRatings();
+  syncVisitToCloud(v.id);
   if (!skipResolution) {
     resolveCanonicalPlace(v.id, v.venue_name, v.lat, v.lng, city ?? '', v.activity_type);
   }
@@ -176,6 +178,7 @@ export function deleteVisit(id: string): void {
     db.runSync('DELETE FROM visits WHERE id = ?', [id]);
   });
   recomputeRatings();
+  deleteVisitFromCloud(id);
 }
 
 export function updateVisit(
@@ -198,6 +201,7 @@ export function updateVisit(
   if (fields.length === 0) return;
   values.push(id);
   db.runSync(`UPDATE visits SET ${fields.join(', ')} WHERE id = ?`, values);
+  syncVisitToCloud(id);
 }
 
 export function updateVisitCanonical(
@@ -228,6 +232,7 @@ export function updateVisitCanonical(
       id,
     ]
   );
+  syncVisitToCloud(id);
 }
 
 async function resolveCanonicalPlace(

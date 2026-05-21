@@ -1,4 +1,5 @@
 import { getDb } from './db';
+import { syncStackToCloud, deleteStackFromCloud } from './sync';
 
 // ─── Tier System ──────────────────────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ export function createStack(
   });
 
   recomputeStackRatings();
+  syncStackToCloud(id);
   return getStackById(id)!;
 }
 
@@ -165,11 +167,13 @@ export function getStacksForVisit(visitId: string): StackSummary[] {
 export function updateStack(id: string, name: string): void {
   const db = getDb();
   db.runSync(`UPDATE stacks SET name = ? WHERE id = ?`, [name, id]);
+  syncStackToCloud(id);
 }
 
 export function deleteStack(id: string): void {
   const db = getDb();
   db.runSync(`DELETE FROM stacks WHERE id = ?`, [id]);
+  deleteStackFromCloud(id);
 }
 
 export function addVisitToStack(stackId: string, visitId: string): void {
@@ -184,6 +188,7 @@ export function addVisitToStack(stackId: string, visitId: string): void {
     [stackId, visitId, nextPos]
   );
   recomputeStackRatings();
+  syncStackToCloud(stackId);
 }
 
 export function removeVisitFromStack(stackId: string, visitId: string): void {
@@ -198,8 +203,10 @@ export function removeVisitFromStack(stackId: string, visitId: string): void {
   );
   if ((count?.n ?? 0) < 2) {
     db.runSync(`DELETE FROM stacks WHERE id = ?`, [stackId]);
+    deleteStackFromCloud(stackId);
   } else {
     recomputeStackRatings();
+    syncStackToCloud(stackId);
   }
 }
 

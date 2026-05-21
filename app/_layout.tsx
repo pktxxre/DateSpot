@@ -11,6 +11,7 @@ import { initDb, clearUserData } from '@/lib/db';
 import { recomputeRatings } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 import { getProfile, clearProfile, getLastUserId, setLastUserId, clearLastUserId } from '@/lib/profile';
+import { restoreFromCloud } from '@/lib/sync';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -72,6 +73,7 @@ export default function RootLayout() {
           await clearProfile();
         }
         await setLastUserId(session.user.id);
+        await restoreFromCloud(session.user.id);
 
         // auth/index.tsx manages its own navigation through the signup flow,
         // so don't interrupt it mid-step when SIGNED_IN fires from signUp().
@@ -106,9 +108,11 @@ export default function RootLayout() {
         <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
         <Stack.Screen name="auth/login" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="walkthrough" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="inbox" options={{ headerShown: false }} />
       </Stack>
     </GestureHandlerRootView>
   );

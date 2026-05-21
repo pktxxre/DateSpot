@@ -2,6 +2,21 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.1.3.0] - 2026-05-20
+
+### Added
+- Friends tab now loads and displays accepted friends' recent spot activity — after accepting a request the feed populates immediately on next focus
+- When a friend accepts your request, you receive a "Friends now!" notification in the inbox
+- Profile screen friends count is now live — reflects accepted friendships and updates when you navigate to the tab
+
+### Fixed
+- Accepting or declining a friend request in the inbox now persists correctly — leaving and returning to Notifications no longer resets the row back to the Accept/Decline buttons
+- Friend request rows initialize their state from the database on every load, so "Friends now!" and "Declined" survive navigation
+
+### Changed
+- `lib/friends.ts` — added `getFriends()`, `getFriendActivity()`, and `notifyFriendAccepted()` to power the friends feed and accepted-request notifications
+- `lib/notifications.ts` — notifications now carry `actorId` and `friendStatus` so the inbox can render correct state without extra round-trips
+
 ## [0.1.2.1] - 2026-05-19
 
 ### Changed

@@ -204,7 +204,7 @@ export default function OnboardingFlow() {
       cityLng: coords?.lng ?? null,
     });
     setLoading(false);
-    router.replace('/(tabs)');
+    router.replace('/walkthrough');
   }
 
   const isFormStep = FORM_STEPS.includes(step);
@@ -225,7 +225,7 @@ export default function OnboardingFlow() {
     onContinue = handleVerifyEmail;
     continueLabel = 'Verify Email';
   } else if (step === 'name') {
-    canContinue = firstName.trim().length > 0;
+    canContinue = firstName.trim().length > 0 && lastName.trim().length > 0;
     onContinue = () => go('profile');
   } else if (step === 'profile') {
     canContinue = handle.trim().length > 0;
@@ -427,7 +427,7 @@ function NameContent({ firstName, setFirstName, lastName, setLastName, onSubmit 
             autoCapitalize="words" autoFocus returnKeyType="next" />
         </View>
         <View style={c.fieldWrap}>
-          <Text style={c.label}>LAST NAME (OPTIONAL)</Text>
+          <Text style={c.label}>LAST NAME</Text>
           <TextInput style={c.input} value={lastName} onChangeText={setLastName}
             placeholder="Last name" placeholderTextColor={c.ph.color as string}
             autoCapitalize="words" returnKeyType="done" onSubmitEditing={onSubmit} />

@@ -11,12 +11,12 @@ interface Props {
 
 export function ProfileAvatar({ size = 36, onPress }: Props) {
   const [photo, setPhoto] = useState<string | null>(null);
-  const [initial, setInitial] = useState('?');
+  const [emoticon, setEmoticon] = useState(':)');
 
   useFocusEffect(useCallback(() => {
     getProfile().then(p => {
       setPhoto(p.profilePhotoUri ?? null);
-      setInitial((p.username || 'You').charAt(0).toUpperCase());
+      setEmoticon(p.avatarEmoticon || ':)');
     });
   }, []));
 
@@ -39,9 +39,9 @@ export function ProfileAvatar({ size = 36, onPress }: Props) {
   };
 
   const content = photo ? (
-    <Image source={{ uri: photo }} style={{ width: size, height: size }} resizeMode="cover" />
+    <Image key={photo} source={{ uri: photo, cache: 'reload' }} style={{ width: size, height: size }} resizeMode="cover" />
   ) : (
-    <Text style={[s.initial, { fontSize: size * 0.42 }]}>{initial}</Text>
+    <Text style={[s.emoticon, { fontSize: size * 0.35 }]}>{emoticon}</Text>
   );
 
   if (onPress) {
@@ -60,5 +60,5 @@ export function ProfileAvatar({ size = 36, onPress }: Props) {
 }
 
 const s = StyleSheet.create({
-  initial: { fontWeight: '700', color: '#A0523C' },
+  emoticon: { fontWeight: '600', color: '#A0523C', letterSpacing: 0 },
 });
