@@ -554,7 +554,7 @@ const s = StyleSheet.create({
 
   // Activity list
   cardsStack: { paddingHorizontal: 20, marginBottom: 18 },
-  activityRow: { paddingVertical: 14 },
+  activityRow: { paddingVertical: 10 },
   activityRowBorder: { borderBottomWidth: 1, borderBottomColor: BORDER },
   cardTop: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
@@ -575,11 +575,11 @@ const s = StyleSheet.create({
   ratingPillText: { fontSize: 12, fontWeight: '800' },
   noteText: {
     fontSize: 12, fontStyle: 'italic', color: NOTE_CLR,
-    lineHeight: 17, marginTop: 8, minHeight: 34,
+    lineHeight: 16, marginTop: 5, minHeight: 22,
   },
 
   // Action buttons
-  actionRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  actionRow: { flexDirection: 'row', gap: 8, marginTop: 7 },
   actionCircleBtn: {
     width: 30, height: 30, borderRadius: 15,
     borderWidth: 1, borderColor: BORDER,
