@@ -19,7 +19,7 @@ import { supabase } from '@/lib/supabase';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const BG       = '#FCF9F2';
+const BG       = '#FFFFFF';
 const CARD     = '#FFFFFF';
 const BORDER   = '#EDE8E0';
 const PRIMARY  = '#4B3621';
@@ -70,27 +70,14 @@ function timeAgo(iso: string): string {
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ id, name, photoUri, size }: { id: string; name: string; photoUri: string | null; size: number }) {
+function Avatar({ id, name, photoUri, emoticon, size }: { id: string; name: string; photoUri: string | null; emoticon?: string; size: number }) {
   const color = avatarColor(id);
   if (photoUri) {
     return <Image source={{ uri: photoUri }} style={{ width: size, height: size, borderRadius: size / 2 }} resizeMode="cover" />;
   }
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: size * 0.42, fontWeight: '700', color: '#fff', fontFamily: Fonts.serif }}>{initial(name)}</Text>
-    </View>
-  );
-}
-
-// ─── Rating pill ──────────────────────────────────────────────────────────────
-
-function RatingPill({ rating, large = false }: { rating: number; large?: boolean }) {
-  const color = ratingColor(rating);
-  return (
-    <View style={{ borderWidth: 1.5, borderColor: color, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 1 }}>
-      <Text style={{ fontSize: large ? 12 : 11, fontWeight: '700', color, fontFamily: Fonts.serif }}>
-        {rating.toFixed(1)}
-      </Text>
+      <Text style={{ fontSize: size * 0.42 }}>{emoticon || initial(name)}</Text>
     </View>
   );
 }
@@ -198,52 +185,55 @@ function AddFriendModal({ visible, onClose }: { visible: boolean; onClose: () =>
 function ActivityCard({ item }: { item: FriendActivityItem }) {
   const actLabel = ACTIVITY_LABEL[item.activityType] ?? item.activityType;
   const showRating = item.rating > 0;
+  const rColor = showRating ? ratingColor(item.rating) : null;
 
   return (
-    <View style={s.card}>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        {/* Avatar */}
-        <View style={{ flexShrink: 0 }}>
-          <Avatar id={item.friend.id} name={item.friend.username} photoUri={item.friend.profilePhotoUri} size={36} />
-        </View>
-
-        {/* Content */}
-        <View style={{ flex: 1 }}>
-          {/* Header row */}
-          <View style={s.cardHeaderRow}>
-            <Text style={s.cardSentence} numberOfLines={2}>
-              <Text style={s.cardWho}>{item.friend.username}</Text>
-              <Text style={s.cardVerb}>{' logged '}</Text>
-              <Text style={s.cardSpot}>{item.venueName}</Text>
-            </Text>
+    <Pressable style={s.card} onPress={() => router.push(`/spot/${item.visitId}` as any)}>
+      {/* Top: avatar + meta + rating pill */}
+      <View style={s.cardTop}>
+        <Avatar
+          id={item.friend.id}
+          name={item.friend.username}
+          photoUri={item.friend.profilePhotoUri}
+          emoticon={item.friend.avatarEmoticon}
+          size={36}
+        />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.cardSentence} numberOfLines={1}>
+            <Text style={s.cardWho}>{item.friend.username}</Text>
+            <Text style={s.cardVerb}>{' logged '}</Text>
+            <Text style={s.cardSpot}>{item.venueName}</Text>
+          </Text>
+          <View style={s.metaRow}>
+            <Text style={s.metaCat}>{actLabel}</Text>
             <Text style={s.cardTime}>{timeAgo(item.visitedAt)}</Text>
           </View>
-
-          {/* Meta row */}
-          <View style={s.metaRow}>
-            {showRating && <RatingPill rating={item.rating} />}
-            <Text style={s.metaCat}>{actLabel}</Text>
-          </View>
-
-          {/* Note */}
-          {!!item.notes && (
-            <Text style={s.noteText} numberOfLines={2}>"{item.notes}"</Text>
-          )}
-
-          {/* Action row */}
-          <View style={s.actionRow}>
-            <Pressable style={s.wantBtn}>
-              <Ionicons name="add" size={11} color={ACCENT} strokeWidth={1.6} />
-              <Text style={s.wantBtnText}>Want to go</Text>
-            </Pressable>
-            <Pressable style={s.reactBtn} onPress={() => router.push(`/spot/${item.visitId}`)}>
-              <Ionicons name="heart-outline" size={11} color={MUTED} />
-              <Text style={s.reactBtnText}>React</Text>
-            </Pressable>
-          </View>
         </View>
+        {/* Rating pill — top right, matches app-wide style */}
+        {showRating && rColor && (
+          <View style={[s.ratingPill, { borderColor: rColor }]}>
+            <Text style={[s.ratingPillText, { color: rColor }]}>{item.rating.toFixed(1)}</Text>
+          </View>
+        )}
       </View>
-    </View>
+
+      {/* Note — always reserve space so all cards are uniform height */}
+      <Text style={s.noteText} numberOfLines={2}>
+        {item.notes ? `"${item.notes}"` : ''}
+      </Text>
+
+      {/* Action row */}
+      <View style={s.actionRow}>
+        {/* Log button — circle + icon only */}
+        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
+          <Ionicons name="add" size={16} color={ACCENT} />
+        </Pressable>
+        {/* Save / want to go button — bookmark icon only */}
+        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
+          <Ionicons name="bookmark-outline" size={14} color={MUTED} />
+        </Pressable>
+      </View>
+    </Pressable>
   );
 }
 
@@ -273,7 +263,11 @@ function RecCard({ rec }: { rec: FriendRecommendation }) {
       {/* Top row */}
       <View style={s.recTopRow}>
         <Text style={s.recCat}>{actLabel}</Text>
-        <RatingPill rating={rec.avgRating} large />
+        {(() => { const c = ratingColor(rec.avgRating); return (
+          <View style={[s.ratingPill, { borderColor: c }]}>
+            <Text style={[s.ratingPillText, { color: c }]}>{rec.avgRating.toFixed(1)}</Text>
+          </View>
+        ); })()}
       </View>
 
       {/* Venue name */}
@@ -291,7 +285,7 @@ function RecCard({ rec }: { rec: FriendRecommendation }) {
                   <Text style={s.overflowText}>+{overflow + 1}</Text>
                 </View>
               ) : (
-                <Avatar id={f.username} name={f.username} photoUri={null} size={20} />
+                <Avatar id={f.username} name={f.username} photoUri={null} emoticon={f.avatarEmoticon} size={20} />
               )}
             </View>
           ))}
@@ -309,7 +303,7 @@ function RecCard({ rec }: { rec: FriendRecommendation }) {
 function FriendRow({ friend, isLast }: { friend: FriendWithStats; isLast: boolean }) {
   return (
     <Pressable style={[s.friendRow, !isLast && s.friendRowBorder]}>
-      <Avatar id={friend.id} name={friend.username} photoUri={friend.profilePhotoUri} size={40} />
+      <Avatar id={friend.id} name={friend.username} photoUri={friend.profilePhotoUri} emoticon={friend.avatarEmoticon} size={40} />
       <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
         <Text style={s.friendName} numberOfLines={1}>{friend.username}</Text>
         <Text style={s.friendSub}>
@@ -568,34 +562,35 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: BORDER,
     padding: 12,
   },
-  cardHeaderRow: {
-    flexDirection: 'row', alignItems: 'baseline',
-    justifyContent: 'space-between', gap: 8,
-    marginBottom: 6,
+  cardTop: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
   },
-  cardSentence: { flex: 1, fontSize: 13, lineHeight: 18, color: PRIMARY },
+  cardSentence: { fontSize: 13, lineHeight: 18, color: PRIMARY },
   cardWho:  { fontWeight: '600' },
   cardVerb: { color: MUTED, fontWeight: '400' },
   cardSpot: { fontWeight: '600' },
-  cardTime: { fontSize: 11, color: PLACEHOLDER_CLR, flexShrink: 0 },
-  metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 0 },
+  cardTime: { fontSize: 11, color: PLACEHOLDER_CLR },
+  metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   metaCat:  { fontSize: 11, color: MUTED },
-  noteText: { fontSize: 12, fontStyle: 'italic', color: NOTE_CLR, lineHeight: 17, marginTop: 6 },
+  // Rating pill — matches app-wide spots list style
+  ratingPill: {
+    borderWidth: 1.5, borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: 'transparent',
+  },
+  ratingPillText: { fontSize: 12, fontWeight: '800' },
+  noteText: {
+    fontSize: 12, fontStyle: 'italic', color: NOTE_CLR,
+    lineHeight: 17, marginTop: 8, minHeight: 34,
+  },
 
   // Action buttons
   actionRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  wantBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    height: 28, paddingHorizontal: 10, borderRadius: 14,
-    backgroundColor: 'rgba(231,111,81,0.08)',
-  },
-  wantBtnText: { fontSize: 11, fontWeight: '600', color: ACCENT },
-  reactBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    height: 28, paddingHorizontal: 10, borderRadius: 14,
+  actionCircleBtn: {
+    width: 30, height: 30, borderRadius: 15,
     borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
   },
-  reactBtnText: { fontSize: 11, fontWeight: '600', color: MUTED },
 
   // Activity empty state
   activityEmpty: {
