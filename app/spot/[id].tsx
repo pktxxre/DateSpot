@@ -20,6 +20,7 @@ import {
 import { uploadPhoto } from '@/lib/storage';
 import { getSeedSpotById, getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { supabase } from '@/lib/supabase';
+import { getReactionsForVisit, addReaction, removeReaction, Reaction } from '@/lib/reactions';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot } from '@/lib/future';
 import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
 import * as Crypto from 'expo-crypto';
@@ -51,6 +52,18 @@ function initDateState(dateStr?: string): { month: string; day: string; year: st
   return { month: MONTHS[_NOW.getMonth()], day: String(_NOW.getDate()), year: String(_NOW.getFullYear()) };
 }
 
+const ACTIVITY_COLORS: Record<string, string> = {
+  food:          '#B5614A',
+  bars:          '#6B6B9E',
+  cafes:         '#8B6B45',
+  outdoors:      '#5A8066',
+  indoors:       '#6B7B8D',
+  view:          '#6080A0',
+  entertainment: '#4B8080',
+  shopping:      '#9E6B80',
+  other:         '#8B7762',
+};
+
 function RankAgainModal({ visit, onClose, onDone }: {
   visit: Visit; onClose: () => void; onDone: (updated: Visit) => void;
 }) {
@@ -58,6 +71,15 @@ function RankAgainModal({ visit, onClose, onDone }: {
   const [cmpState, setCmpState] = useState<ComparisonState<Visit> | null>(
     () => startComparison(others, (v) => v.triage === visit.triage && v.occasion_type === visit.occasion_type)
   );
+  const thisScaleAnim = useRef(new Animated.Value(1)).current;
+  const thatScaleAnim = useRef(new Animated.Value(1)).current;
+
+  function animateTap(anim: Animated.Value) {
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1.06, duration: 80, useNativeDriver: true }),
+      Animated.spring(anim, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }),
+    ]).start();
+  }
 
   function handleResult(result: 'better' | 'worse') {
     const prev = cmpState!;
@@ -80,7 +102,13 @@ function RankAgainModal({ visit, onClose, onDone }: {
   }
 
   const opponent = cmpState ? currentComparison(cmpState) : null;
-  const oppColor = opponent ? ratingColor(opponent.rating) : T.muted;
+
+  const thisColor = ACTIVITY_COLORS[visit.activity_type] ?? T.muted;
+  const thatColor = opponent ? (ACTIVITY_COLORS[opponent.activity_type] ?? T.muted) : T.muted;
+  const thisLabel = ACTIVITY_TYPES.find(a => a.value === visit.activity_type)?.label ?? 'Spot';
+  const thatLabel = opponent ? (ACTIVITY_TYPES.find(a => a.value === opponent.activity_type)?.label ?? 'Spot') : 'Spot';
+  const thisRatingColor = ratingColor(visit.rating);
+  const thatRatingColor = opponent ? ratingColor(opponent.rating) : T.muted;
 
   const cardContent = others.length === 0 ? (
     <>
@@ -93,18 +121,39 @@ function RankAgainModal({ visit, onClose, onDone }: {
       <Text style={r.title}>Which was better?</Text>
       <Text style={r.subtitle}>Tap to rank</Text>
       <View style={r.compareRow}>
-        <Pressable style={[r.card, r.cardThis]} onPress={() => handleResult('better')}>
-          <Text style={r.cardName} numberOfLines={3}>{visit.venue_name}</Text>
-          <Text style={r.cardLabel}>This one</Text>
-        </Pressable>
-        <View style={r.vs}><Text style={r.vsText}>vs</Text></View>
-        <Pressable style={[r.card, r.cardThat]} onPress={() => handleResult('worse')}>
-          <View style={[r.scorePill, { backgroundColor: oppColor + '2E' }]}>
-            <Text style={[r.scoreText, { color: oppColor }]}>{formatRating(opponent.rating)}</Text>
-          </View>
-          <Text style={r.cardName} numberOfLines={3}>{opponent.venue_name}</Text>
-          <Text style={r.cardLabel}>That one</Text>
-        </Pressable>
+        <Animated.View style={[r.cardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
+          <Pressable style={[r.card, r.cardThis]} onPress={() => { animateTap(thisScaleAnim); handleResult('better'); }}>
+            <View style={[r.cardHeader, { backgroundColor: thisColor }]}>
+              <Text style={r.cardCategory}>{thisLabel.toUpperCase()}</Text>
+              {visit.rating > 0 && (
+                <View style={[r.cardRatingPill, { borderColor: thisRatingColor }]}>
+                  <Text style={[r.cardRatingText, { color: thisRatingColor }]}>{formatRating(visit.rating)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={r.cardBody}>
+              <Text style={r.cardName} numberOfLines={2}>{visit.venue_name}</Text>
+              <Text style={r.cardLabel}>This one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+        <View style={r.vs}><Text style={r.vsText}>VS</Text></View>
+        <Animated.View style={[r.cardWrap, { transform: [{ scale: thatScaleAnim }] }]}>
+          <Pressable style={[r.card, r.cardThat]} onPress={() => { animateTap(thatScaleAnim); handleResult('worse'); }}>
+            <View style={[r.cardHeader, { backgroundColor: thatColor }]}>
+              <Text style={r.cardCategory}>{thatLabel.toUpperCase()}</Text>
+              {opponent.rating > 0 && (
+                <View style={[r.cardRatingPill, { borderColor: thatRatingColor }]}>
+                  <Text style={[r.cardRatingText, { color: thatRatingColor }]}>{formatRating(opponent.rating)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={r.cardBody}>
+              <Text style={r.cardName} numberOfLines={2}>{opponent.venue_name}</Text>
+              <Text style={r.cardLabel}>That one</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
       </View>
       <Pressable style={r.tooHardBtn} onPress={handleTooHard}>
         <Text style={r.tooHardText}>Too hard to compare</Text>
@@ -137,19 +186,31 @@ const r = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular', textAlign: 'center', marginBottom: 4 },
   subtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 20 },
-  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  card: { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 8, minHeight: 110, justifyContent: 'center' },
-  cardThis: { backgroundColor: T.accentTint, borderWidth: 2, borderColor: T.accent },
-  cardThat: { backgroundColor: T.inputBg, borderWidth: 2, borderColor: T.border },
-  scorePill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  scoreText: { fontSize: 13, fontWeight: '800' },
-  cardName: { fontSize: 13, fontWeight: '700', color: T.primary, textAlign: 'center', lineHeight: 17 },
+  compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardWrap: { flex: 1, height: 140 },
+  card: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
+  cardThis: { borderColor: T.accent },
+  cardThat: { borderColor: T.border },
+  cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  cardRatingPill: {
+    backgroundColor: '#fff', borderWidth: 1.5,
+    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
+  },
+  cardRatingText: { fontSize: 12, fontWeight: '800' },
+  cardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
+  cardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
   cardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
-  vs: { width: 30, height: 30, borderRadius: 15, backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center' },
-  vsText: { fontSize: 11, fontWeight: '700', color: T.muted },
+  vs: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: T.bg, borderWidth: 2, borderColor: T.accent,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 10, marginHorizontal: -10,
+  },
+  vsText: { fontSize: 11, fontWeight: '700', color: T.accent },
   tooHardBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 8 },
   tooHardText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  secBtn: { backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  secBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
   secBtnText: { fontSize: 14, fontWeight: '500', color: T.muted },
 });
 
@@ -297,10 +358,170 @@ function MakeStackModal({ visit, onClose }: { visit: Visit; onClose: () => void 
   );
 }
 
+interface FriendVisit {
+  id: string;
+  userId: string;
+  venue_name: string;
+  lat: number;
+  lng: number;
+  address: string | null;
+  visited_at: string | null;
+  rating: number;
+  notes: string | null;
+  activity_type: string;
+  price: number;
+}
+
+const REACTION_EMOJIS = ['🔥', '❤️', '😍', '👏'];
+
+function ReactionsRow({ visitId, visitOwnerId }: { visitId: string; visitOwnerId: string }) {
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    supabase?.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null));
+    getReactionsForVisit(visitId).then(setReactions);
+  }, [visitId]);
+
+  const myReaction = reactions.find(r => r.userId === myUserId);
+
+  async function handleReact(emoji: string) {
+    if (!myUserId || loading) return;
+    setLoading(true);
+    if (myReaction?.emoji === emoji) {
+      await removeReaction(visitId);
+      setReactions(prev => prev.filter(r => r.userId !== myUserId));
+    } else {
+      await addReaction(visitId, visitOwnerId, emoji);
+      setReactions(prev => {
+        const without = prev.filter(r => r.userId !== myUserId);
+        return [...without, { id: 'tmp', visitId, userId: myUserId!, emoji, createdAt: new Date().toISOString() }];
+      });
+    }
+    setLoading(false);
+  }
+
+  const countsByEmoji: Record<string, number> = {};
+  for (const r of reactions) {
+    countsByEmoji[r.emoji] = (countsByEmoji[r.emoji] ?? 0) + 1;
+  }
+
+  return (
+    <View style={rx.wrap}>
+      <Text style={rx.label}>REACT</Text>
+      <View style={rx.emojiRow}>
+        {REACTION_EMOJIS.map(emoji => {
+          const count = countsByEmoji[emoji] ?? 0;
+          const isMine = myReaction?.emoji === emoji;
+          return (
+            <Pressable
+              key={emoji}
+              style={[rx.chip, isMine && rx.chipActive]}
+              onPress={() => handleReact(emoji)}
+            >
+              <Text style={rx.chipEmoji}>{emoji}</Text>
+              {count > 0 && <Text style={[rx.chipCount, isMine && rx.chipCountActive]}>{count}</Text>}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const rx = StyleSheet.create({
+  wrap: { paddingHorizontal: 20, paddingVertical: 16 },
+  label: { fontSize: 11, fontWeight: '700', color: T.muted, letterSpacing: 1.2, marginBottom: 10 },
+  emojiRow: { flexDirection: 'row', gap: 8 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, backgroundColor: T.inputBg,
+    borderWidth: 1.5, borderColor: 'transparent',
+  },
+  chipActive: { borderColor: T.accent, backgroundColor: T.accentTint },
+  chipEmoji: { fontSize: 18 },
+  chipCount: { fontSize: 13, fontWeight: '600', color: T.muted },
+  chipCountActive: { color: T.accent },
+});
+
+function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
+  const color = ratingColor(fv.rating);
+  const heroBg = ACTIVITY_COLORS_HERO[fv.activity_type] ?? ACTIVITY_COLORS_HERO.other;
+  const dateStr = fv.visited_at ? friendlyDate(fv.visited_at) : '';
+  const info = ACTIVITY_TYPES.find(a => a.value === fv.activity_type);
+  const priceLabel = PRICE_LABELS[fv.price as Price];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView style={sd.floatingHeader} edges={['top']}>
+        <View style={sd.floatingHeaderInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingBtn}>
+            <Ionicons name="chevron-back" size={20} color="#fff" />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={{ backgroundColor: heroBg }}>
+          <View style={sd.hero}>
+            <View style={sd.heroContent}>
+              <Text style={sd.heroMeta}>
+                {info?.label?.toUpperCase() ?? fv.activity_type.toUpperCase()}
+                {priceLabel ? ` · ${priceLabel}` : ''}
+                {dateStr ? ` · ${dateStr}` : ''}
+              </Text>
+              <Text style={sd.heroName}>{fv.venue_name}</Text>
+            </View>
+          </View>
+          <View style={sd.whiteCard}>
+            <View style={sd.badgeRow}>
+              <View />
+              <View style={[sd.ratingBadge, { borderColor: color }]}>
+                <Text style={[sd.ratingBadgeText, { color }]}>{fv.rating.toFixed(1)}</Text>
+              </View>
+            </View>
+            <View style={{ height: 20 }} />
+            {fv.notes ? (
+              <>
+                <Text style={sd.sectionLabel}>NOTES</Text>
+                <Text style={sd.notesText}>{fv.notes}</Text>
+                <View style={{ height: 16 }} />
+              </>
+            ) : null}
+            <Text style={sd.sectionLabel}>WHERE IT IS</Text>
+            <View style={sd.mapWrap}>
+              <MapView
+                style={StyleSheet.absoluteFill}
+                region={{ latitude: fv.lat, longitude: fv.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+                scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+                pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+                showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+              >
+                <Marker coordinate={{ latitude: fv.lat, longitude: fv.lng }}>
+                  <View style={[styles.pin, { borderColor: color }]}>
+                    <Text style={[styles.pinText, { color }]}>{fv.rating.toFixed(1)}</Text>
+                  </View>
+                </Marker>
+              </MapView>
+            </View>
+            {fv.address ? <Text style={sd.addressText}>{fv.address}</Text> : null}
+            <View style={sd.divider} />
+            <ReactionsRow visitId={fv.id} visitOwnerId={fv.userId} />
+            <View style={{ height: 40 }} />
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [visit, setVisit] = useState<Visit | null>(null);
   const [seedSpot, setSeedSpot] = useState<SeedSpot | null>(null);
+  const [friendVisit, setFriendVisit] = useState<FriendVisit | null>(null);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
   const [makingStack, setMakingStack] = useState(false);
@@ -311,14 +532,48 @@ export default function SpotDetailScreen() {
     if (local) {
       setVisit(local);
       setSeedSpot(null);
+      setFriendVisit(null);
     } else {
       setVisit(null);
-      getSeedSpotById(id).then(s => setSeedSpot(s));
+      getSeedSpotById(id).then(async s => {
+        if (s) {
+          setSeedSpot(s);
+          setFriendVisit(null);
+        } else if (supabase) {
+          // Supabase fallback for friends' visits
+          const { data } = await supabase
+            .from('visits')
+            .select('id, user_id, venue_name, lat, lng, address, visited_at, rating, notes, activity_type, price')
+            .eq('id', id)
+            .single();
+          if (data) {
+            setFriendVisit({
+              id: data.id,
+              userId: data.user_id,
+              venue_name: data.venue_name,
+              lat: data.lat,
+              lng: data.lng,
+              address: data.address ?? null,
+              visited_at: data.visited_at ?? null,
+              rating: data.rating ?? 0,
+              notes: data.notes ?? null,
+              activity_type: data.activity_type ?? 'other',
+              price: data.price ?? 0,
+            });
+          } else {
+            setFriendVisit(null);
+          }
+        }
+      });
     }
   }, [id]));
 
   if (!visit && seedSpot) {
     return <SeedSpotDetail spot={seedSpot} />;
+  }
+
+  if (!visit && friendVisit) {
+    return <FriendVisitDetail fv={friendVisit} />;
   }
 
   if (!visit) return null;
@@ -560,7 +815,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
 
   function handleLogVisit() {
     scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng);
-    router.push('/(tabs)/map');
+    router.dismissTo('/(tabs)/map');
   }
 
   const isEditorsPick = spotRank !== null && spotRank <= 10;

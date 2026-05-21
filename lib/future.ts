@@ -1,4 +1,5 @@
 import { getDb } from './db';
+import { syncFutureSpotToCloud, deleteFutureSpotFromCloud } from './sync';
 
 export interface FutureSpot {
   id: string;
@@ -20,14 +21,17 @@ export function insertFutureSpot(spot: FutureSpot): void {
     'INSERT INTO future_spots (id, venue_name, lat, lng, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     [spot.id, spot.venue_name, spot.lat, spot.lng, spot.notes ?? null, spot.created_at]
   );
+  syncFutureSpotToCloud(spot.id);
 }
 
 export function deleteFutureSpot(id: string): void {
   getDb().runSync('DELETE FROM future_spots WHERE id = ?', [id]);
+  deleteFutureSpotFromCloud(id);
 }
 
 export function updateFutureSpot(id: string, venue_name: string): void {
   getDb().runSync('UPDATE future_spots SET venue_name = ? WHERE id = ?', [venue_name, id]);
+  syncFutureSpotToCloud(id);
 }
 
 export function getFutureSpotById(id: string): FutureSpot | null {

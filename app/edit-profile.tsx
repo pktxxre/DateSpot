@@ -14,6 +14,8 @@ export default function EditProfileScreen() {
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [savedPhotoUri, setSavedPhotoUri] = useState<string | null>(null);
+  const [emoticon, setEmoticon] = useState('');
   const [saving, setSaving] = useState(false);
   const [pendingLocalUri, setPendingLocalUri] = useState<string | null>(null);
 
@@ -22,6 +24,8 @@ export default function EditProfileScreen() {
       setUsername(p.username);
       setBio(p.bio);
       setPhotoUri(p.profilePhotoUri);
+      setSavedPhotoUri(p.profilePhotoUri);
+      setEmoticon(p.avatarEmoticon || ':)');
     });
   }, []);
 
@@ -56,11 +60,12 @@ export default function EditProfileScreen() {
       return;
     }
     setSaving(true);
-    let finalPhotoUri = photoUri;
+    let finalPhotoUri = savedPhotoUri; // start from last known good remote URI
     if (pendingLocalUri) {
       const path = `profile/${Date.now()}.jpg`;
       const url = await uploadPhoto(pendingLocalUri, path);
-      if (url) finalPhotoUri = url;
+      // If upload fails, fall back to the local URI so the photo still shows this session
+      finalPhotoUri = url ?? pendingLocalUri;
     }
     await saveProfile({ username: username.trim(), bio: bio.trim(), profilePhotoUri: finalPhotoUri });
     setSaving(false);
@@ -102,10 +107,15 @@ export default function EditProfileScreen() {
               onPress={pickPhoto}
             >
               {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.avatar} />
+                <Image
+                  key={photoUri}
+                  source={{ uri: photoUri, cache: 'reload' }}
+                  style={styles.avatar}
+                  onError={() => setPhotoUri(null)}
+                />
               ) : (
                 <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Ionicons name="person" size={46} color="#B0A090" />
+                  <Text style={styles.avatarEmoticon}>{emoticon}</Text>
                 </View>
               )}
               <View style={styles.cameraOverlay}>
@@ -177,8 +187,11 @@ const styles = StyleSheet.create({
   avatarWrap: { position: 'relative' },
   avatar: { width: 96, height: 96, borderRadius: 48 },
   avatarPlaceholder: {
-    backgroundColor: T.placeholder,
+    backgroundColor: T.inputBg,
     alignItems: 'center', justifyContent: 'center',
+  },
+  avatarEmoticon: {
+    fontSize: 20, fontWeight: '600', color: T.primary, letterSpacing: 0,
   },
   cameraOverlay: {
     position: 'absolute', bottom: 2, right: 2,

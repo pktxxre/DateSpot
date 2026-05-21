@@ -1,5 +1,8 @@
 -- DateSpot Supabase Schema
 -- Run this in the Supabase SQL Editor: https://supabase.com/dashboard/project/qlqcuuxhzdozjfboxeud/sql
+--
+-- MIGRATION (run once if tables already exist):
+-- See the "MIGRATION" section at the bottom of this file.
 
 -- ─────────────────────────────────────────────
 -- 1. visits
@@ -200,5 +203,251 @@ set search_path = public
 as $$
 begin
   delete from auth.users where id = auth.uid();
+end;
+$$;
+
+-- ─────────────────────────────────────────────
+-- 8. stacks — user-created collections of visits
+-- ─────────────────────────────────────────────
+create table if not exists public.stacks (
+  id          text primary key,
+  user_id     uuid references auth.users(id) on delete cascade,
+  name        text not null,
+  rating      float8 not null default 0,
+  rank_order  float8 not null default 0,
+  tier        text,
+  tier_note   text,
+  cover_photo text,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.stacks enable row level security;
+
+create policy "read own stacks"
+  on public.stacks for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+create policy "insert own stacks"
+  on public.stacks for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+create policy "update own stacks"
+  on public.stacks for update
+  to authenticated
+  using (auth.uid() = user_id);
+
+create policy "delete own stacks"
+  on public.stacks for delete
+  to authenticated
+  using (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────
+-- 9. stack_visits — junction: which visits belong to which stack
+-- ─────────────────────────────────────────────
+create table if not exists public.stack_visits (
+  stack_id text    not null references public.stacks(id) on delete cascade,
+  visit_id text    not null references public.visits(id) on delete cascade,
+  position integer not null default 0,
+  primary key (stack_id, visit_id)
+);
+
+alter table public.stack_visits enable row level security;
+
+create policy "read own stack_visits"
+  on public.stack_visits for select
+  to authenticated
+  using (exists (
+    select 1 from public.stacks where id = stack_id and user_id = auth.uid()
+  ));
+
+create policy "insert own stack_visits"
+  on public.stack_visits for insert
+  to authenticated
+  with check (exists (
+    select 1 from public.stacks where id = stack_id and user_id = auth.uid()
+  ));
+
+create policy "update own stack_visits"
+  on public.stack_visits for update
+  to authenticated
+  using (exists (
+    select 1 from public.stacks where id = stack_id and user_id = auth.uid()
+  ));
+
+create policy "delete own stack_visits"
+  on public.stack_visits for delete
+  to authenticated
+  using (exists (
+    select 1 from public.stacks where id = stack_id and user_id = auth.uid()
+  ));
+
+-- ─────────────────────────────────────────────
+-- 10. profiles — user display info (name, handle, bio, city)
+-- ─────────────────────────────────────────────
+create table if not exists public.profiles (
+  id                uuid primary key references auth.users(id) on delete cascade,
+  username          text not null default '',
+  handle            text not null default '',
+  bio               text not null default '',
+  profile_photo_uri text,
+  avatar_emoticon   text not null default '',
+  email             text not null default '',
+  phone             text not null default '',
+  city              text not null default '',
+  city_lat          float8,
+  city_lng          float8,
+  updated_at        timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+create policy "read own profile"
+  on public.profiles for select
+  to authenticated
+  using (auth.uid() = id);
+
+create policy "insert own profile"
+  on public.profiles for insert
+  to authenticated
+  with check (auth.uid() = id);
+
+create policy "update own profile"
+  on public.profiles for update
+  to authenticated
+  using (auth.uid() = id);
+
+create policy "delete own profile"
+  on public.profiles for delete
+  to authenticated
+  using (auth.uid() = id);
+
+-- ─────────────────────────────────────────────
+-- MIGRATION — run this block if the tables above already exist
+-- Adds columns that were only stored locally before cloud sync was added.
+-- ─────────────────────────────────────────────
+
+-- visits: add columns missing from original cloud schema
+alter table public.visits add column if not exists occasion_type    text not null default 'romantic';
+alter table public.visits add column if not exists address          text;
+alter table public.visits add column if not exists canonical_place_id text;
+alter table public.visits add column if not exists canonical_name   text;
+alter table public.visits add column if not exists canonical_lat    float8;
+alter table public.visits add column if not exists canonical_lng    float8;
+alter table public.visits add column if not exists resolution_status text not null default 'pending';
+alter table public.visits add column if not exists rank_order       float8 not null default 0;
+
+-- future_spots: add canonical resolution columns
+alter table public.future_spots add column if not exists canonical_place_id  text;
+alter table public.future_spots add column if not exists canonical_name      text;
+alter table public.future_spots add column if not exists canonical_lat       float8;
+alter table public.future_spots add column if not exists canonical_lng       float8;
+alter table public.future_spots add column if not exists resolution_status   text not null default 'pending';
+
+-- ─────────────────────────────────────────────
+-- 11. friends — friend requests + accepted friendships
+-- ─────────────────────────────────────────────
+
+-- Allow all authenticated users to read any profile (needed for friend search)
+drop policy if exists "read own profile" on public.profiles;
+create policy "read any profile"
+  on public.profiles for select
+  to authenticated
+  using (true);
+
+create table if not exists public.friends (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  friend_id  uuid not null references auth.users(id) on delete cascade,
+  status     text not null default 'pending', -- 'pending' | 'accepted'
+  created_at timestamptz not null default now(),
+  unique(user_id, friend_id)
+);
+
+alter table public.friends enable row level security;
+
+create policy "read own friendships"
+  on public.friends for select
+  to authenticated
+  using (auth.uid() = user_id or auth.uid() = friend_id);
+
+create policy "insert own friend request"
+  on public.friends for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+create policy "update received request"
+  on public.friends for update
+  to authenticated
+  using (auth.uid() = friend_id);
+
+create policy "delete own friendship"
+  on public.friends for delete
+  to authenticated
+  using (auth.uid() = user_id or auth.uid() = friend_id);
+
+-- Allow users to read visits belonging to their accepted friends
+create policy "read friends visits"
+  on public.visits for select
+  using (
+    auth.uid() = user_id
+    or exists (
+      select 1 from public.friends f
+      where f.status = 'accepted'
+        and (
+          (f.user_id = auth.uid() and f.friend_id = public.visits.user_id)
+          or (f.friend_id = auth.uid() and f.user_id = public.visits.user_id)
+        )
+    )
+  );
+
+-- Emoji reactions on visits (visit_id is text to match visits.id PK type)
+create table if not exists public.reactions (
+  id          uuid primary key default gen_random_uuid(),
+  visit_id    text not null references public.visits(id) on delete cascade,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  emoji       text not null,
+  created_at  timestamptz not null default now(),
+  unique(visit_id, user_id)
+);
+
+alter table public.reactions enable row level security;
+create policy "read reactions" on public.reactions for select using (true);
+create policy "insert own reaction" on public.reactions for insert with check (auth.uid() = user_id);
+create policy "delete own reaction" on public.reactions for delete using (auth.uid() = user_id);
+
+-- Notification inbox (ref_id is text to hold both visits.id and friends.id::text)
+create table if not exists public.notifications (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  actor_id    uuid not null references auth.users(id) on delete cascade,
+  type        text not null,  -- 'friend_request' | 'reaction'
+  ref_id      text,
+  read_at     timestamptz,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.notifications enable row level security;
+create policy "read own notifications" on public.notifications
+  for select using (auth.uid() = user_id);
+create policy "insert own notification" on public.notifications
+  for insert with check (auth.uid() = actor_id);
+create policy "update own notification" on public.notifications
+  for update using (auth.uid() = user_id);
+
+-- Security-definer RPC for accepting a friend request
+-- (bypasses RLS so the acceptor can insert the reverse row)
+create or replace function public.accept_friend_request(request_id uuid)
+returns void language plpgsql security definer as $$
+declare
+  req record;
+begin
+  select * into req from public.friends where id = request_id;
+  if req is null then raise exception 'request not found'; end if;
+  update public.friends set status = 'accepted' where id = request_id;
+  insert into public.friends (user_id, friend_id, status)
+  values (req.friend_id, req.user_id, 'accepted')
+  on conflict (user_id, friend_id) do update set status = 'accepted';
 end;
 $$;

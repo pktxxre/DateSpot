@@ -681,41 +681,42 @@ export default function RankedScreen() {
       {/* ── Date Nights Tab ── */}
       {activeTab === 'date-nights' && (
         <View style={{ flex: 1 }}>
-          {/* New Stack button */}
-          <View style={s.dateNightsToolbar}>
-            <Text style={s.dnCount}>{stacks.length} stack{stacks.length !== 1 ? 's' : ''}</Text>
-            <Pressable style={s.newStackBtn} onPress={handleNewStackFromDateNights}>
-              <Ionicons name="add" size={16} color={T.accent} />
-              <Text style={s.newStackBtnText}>New Stack</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView
-            ref={dateNightsScrollRef}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={s.listContent}
-          >
-            {stacks.length === 0 && (
-              <View style={s.emptyInvite}>
-                <Ionicons name="layers-outline" size={36} color={T.muted} style={{ marginBottom: 12 }} />
-                <Text style={s.emptyTitle}>No stacks yet</Text>
-                <Text style={s.emptySubtitle}>
-                  Group spots from the same date night into a single story.
-                </Text>
-                <Pressable style={s.tryItBtn} onPress={handleNewStackFromDateNights}>
-                  <Text style={s.tryItBtnText}>Try it</Text>
+          {stacks.length === 0 ? (
+            <View style={s.emptyDateNights}>
+              <Ionicons name="layers-outline" size={36} color={T.muted} style={{ marginBottom: 12 }} />
+              <Text style={s.emptyTitle}>No stacks yet</Text>
+              <Text style={s.emptySubtitle}>
+                Group spots from the same date night into a single story.
+              </Text>
+              <Pressable style={s.tryItBtn} onPress={handleNewStackFromDateNights}>
+                <Text style={s.tryItBtnText}>Try it</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <View style={s.dateNightsToolbar}>
+                <Text style={s.dnCount}>{stacks.length} stack{stacks.length !== 1 ? 's' : ''}</Text>
+                <Pressable style={s.newStackBtn} onPress={handleNewStackFromDateNights}>
+                  <Ionicons name="add" size={16} color={T.accent} />
+                  <Text style={s.newStackBtnText}>New Stack</Text>
                 </Pressable>
               </View>
-            )}
-            {TIER_ORDER.map(tier => (
-              <TierRow
-                key={tier}
-                tier={tier}
-                stacks={stacksByTier[tier]}
-                bounce={bounceTier === tier}
-              />
-            ))}
-          </ScrollView>
+              <ScrollView
+                ref={dateNightsScrollRef}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={s.listContent}
+              >
+                {TIER_ORDER.map(tier => (
+                  <TierRow
+                    key={tier}
+                    tier={tier}
+                    stacks={stacksByTier[tier]}
+                    bounce={bounceTier === tier}
+                  />
+                ))}
+              </ScrollView>
+            </>
+          )}
         </View>
       )}
 
@@ -1009,6 +1010,12 @@ const s = StyleSheet.create({
     gap: 12,
   },
   emptyInvite: { alignItems: 'center' },
+  emptyDateNights: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
   emptyTitle: {
     fontSize: 16, fontWeight: '700', color: T.primary,
     fontFamily: 'InstrumentSerif-Regular', textAlign: 'center',

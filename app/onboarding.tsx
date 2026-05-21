@@ -36,7 +36,7 @@ const STEP_META: Record<Step, { emoji: string; title: string; subtitle: string; 
   bio: {
     emoji: '🌟',
     title: 'Tell us about yourself',
-    subtitle: 'A short bio shown on your profile. Optional.',
+    subtitle: 'A short bio shown on your profile.',
     placeholder: 'Brunch fanatic, always hunting for the perfect ramen…',
   },
 };
@@ -62,8 +62,8 @@ export default function OnboardingScreen() {
   };
 
   const currentValue = valueMap[step];
-  const canSkip = step === 'bio';
-  const canContinue = canSkip || currentValue.trim().length > 0;
+  const canSkip = false;
+  const canContinue = currentValue.trim().length > 0;
 
   function goBack() {
     if (stepIndex === 0) router.back();
@@ -86,7 +86,7 @@ export default function OnboardingScreen() {
       email,
     });
     setLoading(false);
-    router.replace('/(tabs)');
+    router.replace('/walkthrough');
   }
 
   return (
