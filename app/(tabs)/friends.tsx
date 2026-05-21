@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const BG       = '#FFFFFF';
-const CARD     = '#FFFFFF';
+const CARD     = '#FCF9F2';
 const BORDER   = '#EDE8E0';
 const PRIMARY  = '#4B3621';
 const MUTED    = '#8B7762';
@@ -231,6 +231,10 @@ function ActivityCard({ item }: { item: FriendActivityItem }) {
         {/* Save / want to go button — bookmark icon only */}
         <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
           <Ionicons name="bookmark-outline" size={14} color={MUTED} />
+        </Pressable>
+        {/* React button */}
+        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
+          <Ionicons name="heart-outline" size={14} color={MUTED} />
         </Pressable>
       </View>
     </Pressable>
