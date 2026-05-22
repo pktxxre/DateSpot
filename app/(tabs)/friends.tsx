@@ -1,9 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet, View, Text, Pressable, Share, Modal,
   TextInput, FlatList, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Image, ScrollView,
+  Platform, Image, ScrollView, useWindowDimensions,
+  Animated as RNAnimated,
 } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,8 +19,13 @@ import {
   FriendProfile, FriendWithStats, FriendActivityItem, FriendRecommendation,
 } from '@/lib/friends';
 import { getUnreadCount } from '@/lib/notifications';
-import { ratingColor } from '@/lib/visits';
+import { ratingColor, getAllVisits } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
+import { TabSlideWrapper } from '@/components/TabSlideWrapper';
+import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
+import { insertFutureSpot, deleteFutureSpotsByVenueName, getAllFutureSpots } from '@/lib/future';
+import { isActivityLiked, likeActivity, unlikeActivity } from '@/lib/friendLikes';
+import * as Crypto from 'expo-crypto';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -175,13 +184,119 @@ function AddFriendModal({ visible, onClose }: { visible: boolean; onClose: () =>
 
 // ─── Activity card ────────────────────────────────────────────────────────────
 
-function ActivityCard({ item, isLast }: { item: FriendActivityItem; isLast: boolean }) {
+const LOG_CLR  = '#E76F51';
+const SAVE_CLR = '#5856d6';
+const LIKE_CLR = '#E8637A';
+
+function FloatingHeart({ onDone }: { onDone: () => void }) {
+  const translateY = useRef(new RNAnimated.Value(0)).current;
+  const opacity    = useRef(new RNAnimated.Value(1)).current;
+
+  useEffect(() => {
+    RNAnimated.parallel([
+      RNAnimated.timing(translateY, { toValue: -28, duration: 500, useNativeDriver: true }),
+      RNAnimated.sequence([
+        RNAnimated.delay(180),
+        RNAnimated.timing(opacity, { toValue: 0, duration: 370, useNativeDriver: true }),
+      ]),
+    ]).start(({ finished }) => { if (finished) onDone(); });
+  }, []);
+
+  return (
+    <RNAnimated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: 6,
+        left: 6,
+        transform: [{ translateY }],
+        opacity,
+      }}
+    >
+      <Ionicons name="heart" size={18} color={LIKE_CLR} />
+    </RNAnimated.View>
+  );
+}
+
+function ActivityCard({ item, isLast, alreadyVisited }: {
+  item: FriendActivityItem;
+  isLast: boolean;
+  alreadyVisited: boolean;
+}) {
   const actLabel = ACTIVITY_LABEL[item.activityType] ?? item.activityType;
   const showRating = item.rating > 0;
   const rColor = showRating ? ratingColor(item.rating) : null;
 
+  const [liked, setLiked] = useState(() => isActivityLiked(item.visitId));
+  const [saved, setSaved] = useState(() => {
+    const key = item.venueName.toLowerCase().trim();
+    return getAllFutureSpots().some(f => f.venue_name.toLowerCase().trim() === key);
+  });
+  const [toast, setToast] = useState<string | null>(null);
+  const [floatingHearts, setFloatingHearts] = useState<number[]>([]);
+  const heartIdRef = useRef(0);
+
+  const heartScale = useRef(new RNAnimated.Value(1)).current;
+  const saveScale  = useRef(new RNAnimated.Value(1)).current;
+  const toastOpacity = useRef(new RNAnimated.Value(0)).current;
+
+  function pop(anim: RNAnimated.Value, peak = 1.4) {
+    RNAnimated.sequence([
+      RNAnimated.timing(anim, { toValue: peak, duration: 120, useNativeDriver: true }),
+      RNAnimated.spring(anim, { toValue: 1, friction: 4, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function showToast(msg: string) {
+    setToast(msg);
+    toastOpacity.setValue(0);
+    RNAnimated.sequence([
+      RNAnimated.timing(toastOpacity, { toValue: 1, duration: 120, useNativeDriver: true }),
+      RNAnimated.delay(700),
+      RNAnimated.timing(toastOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]).start(() => setToast(null));
+  }
+
+  function handleLog() {
+    scheduleOpenLogWithLocation(item.venueName, item.lat, item.lng);
+    router.navigate('/(tabs)/map');
+  }
+
+  function handleSave() {
+    pop(saveScale, 1.2);
+    if (saved) {
+      deleteFutureSpotsByVenueName(item.venueName);
+      setSaved(false);
+    } else {
+      insertFutureSpot({
+        id: Crypto.randomUUID(),
+        venue_name: item.venueName,
+        lat: item.lat,
+        lng: item.lng,
+        activity_type: item.activityType,
+        occasion_type: item.occasionType,
+        created_at: new Date().toISOString(),
+      });
+      setSaved(true);
+      showToast('Saved');
+    }
+  }
+
+  function handleLike() {
+    pop(heartScale);
+    const next = !liked;
+    setLiked(next);
+    if (next) {
+      likeActivity(item.visitId);
+      const id = ++heartIdRef.current;
+      setFloatingHearts(h => [...h, id]);
+    } else {
+      unlikeActivity(item.visitId);
+    }
+  }
+
   return (
-    <Pressable style={[s.activityRow, !isLast && s.activityRowBorder]} onPress={() => router.push(`/spot/${item.visitId}` as any)}>
+    <View style={[s.activityRow, !isLast && s.activityRowBorder, { overflow: 'hidden' }]}>
       {/* Top: avatar + meta + rating pill */}
       <View style={s.cardTop}>
         <Avatar
@@ -202,7 +317,6 @@ function ActivityCard({ item, isLast }: { item: FriendActivityItem; isLast: bool
             <Text style={s.cardTime}>{timeAgo(item.visitedAt)}</Text>
           </View>
         </View>
-        {/* Rating pill — top right, matches app-wide style */}
         {showRating && rColor && (
           <View style={[s.ratingPill, { borderColor: rColor }]}>
             <Text style={[s.ratingPillText, { color: rColor }]}>{item.rating.toFixed(1)}</Text>
@@ -217,20 +331,58 @@ function ActivityCard({ item, isLast }: { item: FriendActivityItem; isLast: bool
 
       {/* Action row */}
       <View style={s.actionRow}>
-        {/* Log button — circle + icon only */}
-        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
-          <Ionicons name="add" size={16} color={ACCENT} />
-        </Pressable>
-        {/* Save / want to go button — bookmark icon only */}
-        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
-          <Ionicons name="bookmark-outline" size={14} color={MUTED} />
-        </Pressable>
-        {/* React button */}
-        <Pressable style={s.actionCircleBtn} onPress={(e) => { e.stopPropagation(); }}>
-          <Ionicons name="heart-outline" size={14} color={MUTED} />
-        </Pressable>
+        {/* Like — left side */}
+        <View>
+          <Pressable
+            style={[
+              s.actionCircleBtn,
+              liked && { backgroundColor: `${LIKE_CLR}18`, borderColor: LIKE_CLR },
+            ]}
+            onPress={handleLike}
+          >
+            <RNAnimated.View style={{ transform: [{ scale: heartScale }] }}>
+              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={14} color={liked ? LIKE_CLR : MUTED} />
+            </RNAnimated.View>
+          </Pressable>
+          {floatingHearts.map(id => (
+            <FloatingHeart key={id} onDone={() => setFloatingHearts(h => h.filter(x => x !== id))} />
+          ))}
+        </View>
+
+        {toast && (
+          <RNAnimated.View style={[s.microToast, { opacity: toastOpacity }]}>
+            <Text style={s.microToastText}>{toast}</Text>
+          </RNAnimated.View>
+        )}
+
+        {/* Log + Save — pinned to far right */}
+        <View style={s.actionRight}>
+          <Pressable
+            style={[s.actionCircleBtn, {
+              backgroundColor: alreadyVisited ? LOG_CLR : `${LOG_CLR}18`,
+              borderColor: LOG_CLR,
+            }]}
+            onPress={alreadyVisited ? undefined : handleLog}
+            disabled={alreadyVisited}
+          >
+            <Ionicons name={alreadyVisited ? 'checkmark' : 'add'} size={16} color={alreadyVisited ? '#fff' : LOG_CLR} />
+          </Pressable>
+
+          <Pressable
+            style={[s.actionCircleBtn, {
+              backgroundColor: saved ? SAVE_CLR : `${SAVE_CLR}18`,
+              borderColor: SAVE_CLR,
+            }]}
+            onPress={handleSave}
+          >
+            <RNAnimated.View style={{ transform: [{ scale: saveScale }] }}>
+              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={14} color={saved ? '#fff' : SAVE_CLR} />
+            </RNAnimated.View>
+          </Pressable>
+        </View>
       </View>
-    </Pressable>
+
+    </View>
   );
 }
 
@@ -326,6 +478,73 @@ function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: 
   );
 }
 
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+const SK_BASE = '#EAE4D9';
+const SK_LIGHT = '#F8F4EC';
+
+function SkBox({
+  shimmer, w, h, r = 4, style, screenW,
+}: {
+  shimmer: ReturnType<typeof useAnimatedStyle>;
+  w: number | `${number}%`; h: number; r?: number; style?: object; screenW: number;
+}) {
+  return (
+    <View style={[{ width: w, height: h, backgroundColor: SK_BASE, overflow: 'hidden', borderRadius: r }, style]}>
+      <Animated.View style={[
+        { position: 'absolute', top: 0, left: 0, bottom: 0, width: screenW * 0.6, backgroundColor: SK_LIGHT, opacity: 0.95 },
+        shimmer,
+      ]} />
+    </View>
+  );
+}
+
+function FriendsSkeleton() {
+  const { width: screenW } = useWindowDimensions();
+  const offset = useSharedValue(-screenW * 0.65);
+
+  useEffect(() => {
+    offset.value = withRepeat(
+      withTiming(screenW, { duration: 1800, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, [screenW]);
+
+  const shimmer = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} w={w} h={h} r={r} style={style} screenW={screenW} />
+  );
+
+  return (
+    <View style={{ backgroundColor: BG }}>
+      {/* Section header: Recent activity */}
+      <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 10 }}>
+        {sk(130, 17, 4)}
+      </View>
+      {/* One activity card */}
+      <View style={{ paddingHorizontal: 20 }}>
+        <View style={{ paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+            {sk(36, 36, 18)}
+            <View style={{ flex: 1, gap: 5 }}>
+              {sk('72%', 13, 3)}
+              {sk('44%', 11, 3)}
+            </View>
+            {sk(42, 26, 10)}
+          </View>
+          {sk('58%', 12, 3, { marginTop: 7 })}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 9 }}>
+            {sk(30, 30, 15)}
+            {sk(30, 30, 15)}
+            {sk(30, 30, 15)}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function FriendsScreen() {
@@ -336,20 +555,23 @@ export default function FriendsScreen() {
   const [recommendations, setRecommendations] = useState<FriendRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [myVisitedNames, setMyVisitedNames] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [fr, act, recs, count] = await Promise.all([
+    const [fr, act, recs, count, myVisits] = await Promise.all([
       getFriendsWithStats(),
       getFriendActivity(),
       getFriendRecommendations(),
       getUnreadCount(),
+      getAllVisits(),
     ]);
     // Sort friends alphabetically
     setFriends(fr.sort((a, b) => a.username.localeCompare(b.username)));
     setActivity(act);
     setRecommendations(recs);
     setUnreadCount(count);
+    setMyVisitedNames(new Set(myVisits.map(v => v.venue_name.toLowerCase().trim())));
     setLoading(false);
   }, []);
 
@@ -368,6 +590,7 @@ export default function FriendsScreen() {
   const isSearching = q.length > 0;
 
   return (
+    <TabSlideWrapper myIndex={4}>
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Header */}
       <View style={s.header}>
@@ -391,29 +614,30 @@ export default function FriendsScreen() {
         </View>
       </View>
 
+      {/* Search field */}
+      <View style={s.searchWrap}>
+        <Ionicons name="search-outline" size={16} color={MUTED} style={{ marginRight: 8 }} />
+        <TextInput
+          style={s.searchInput}
+          placeholder="Find friends by name or @handle"
+          placeholderTextColor={PLACEHOLDER_CLR}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {searchQuery.length > 0 && (
+          <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+            <Ionicons name="close-circle" size={15} color={MUTED} />
+          </Pressable>
+        )}
+      </View>
+
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 60 }} color={ACCENT} />
+        <FriendsSkeleton />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {/* Search field */}
-          <View style={s.searchWrap}>
-            <Ionicons name="search-outline" size={16} color={MUTED} style={{ marginRight: 8 }} />
-            <TextInput
-              style={s.searchInput}
-              placeholder="Find friends by name or @handle"
-              placeholderTextColor={PLACEHOLDER_CLR}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={15} color={MUTED} />
-              </Pressable>
-            )}
-          </View>
 
           {/* Search mode: show filtered friends only */}
           {isSearching ? (
@@ -457,8 +681,13 @@ export default function FriendsScreen() {
                   </View>
                 ) : (
                   <View style={s.cardsStack}>
-                    {activity.slice(0, 10).map((item, i, arr) => (
-                      <ActivityCard key={item.visitId} item={item} isLast={i === arr.length - 1} />
+                    {activity.slice(0, 20).map((item, i, arr) => (
+                      <ActivityCard
+                        key={item.visitId}
+                        item={item}
+                        isLast={i === arr.length - 1}
+                        alreadyVisited={myVisitedNames.has(item.venueName.toLowerCase().trim())}
+                      />
                     ))}
                   </View>
                 )}
@@ -502,6 +731,7 @@ export default function FriendsScreen() {
 
       <AddFriendModal visible={addModalOpen} onClose={() => setAddModalOpen(false)} />
     </SafeAreaView>
+    </TabSlideWrapper>
   );
 }
 
@@ -579,12 +809,19 @@ const s = StyleSheet.create({
   },
 
   // Action buttons
-  actionRow: { flexDirection: 'row', gap: 8, marginTop: 7 },
+  actionRow: { flexDirection: 'row', marginTop: 7, alignItems: 'center', justifyContent: 'space-between' },
+  actionRight: { flexDirection: 'row', gap: 8 },
   actionCircleBtn: {
     width: 30, height: 30, borderRadius: 15,
     borderWidth: 1, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center',
   },
+  microToast: {
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 10, backgroundColor: '#3A2E24EE',
+    marginLeft: 4,
+  },
+  microToastText: { fontSize: 11, fontWeight: '600', color: '#fff' },
 
   // Activity empty state
   activityEmpty: {

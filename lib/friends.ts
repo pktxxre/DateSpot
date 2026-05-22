@@ -102,9 +102,12 @@ export interface AcceptedFriend {
 export interface FriendActivityItem {
   visitId: string;
   venueName: string;
+  lat: number;
+  lng: number;
   visitedAt: string;
   triage: string;
   activityType: string;
+  occasionType: string | null;
   rating: number;
   notes: string | null;
   friend: AcceptedFriend;
@@ -175,7 +178,7 @@ export async function getFriendActivity(): Promise<FriendActivityItem[]> {
 
   const { data: visits } = await supabase
     .from('visits')
-    .select('id, venue_name, visited_at, triage, activity_type, rating, notes, user_id')
+    .select('id, venue_name, lat, lng, visited_at, triage, activity_type, occasion_type, rating, notes, user_id')
     .in('user_id', friendIds)
     .eq('is_seed', false)
     .order('visited_at', { ascending: false })
@@ -188,9 +191,12 @@ export async function getFriendActivity(): Promise<FriendActivityItem[]> {
     return {
       visitId: v.id,
       venueName: v.venue_name,
+      lat: v.lat ?? 0,
+      lng: v.lng ?? 0,
       visitedAt: v.visited_at,
       triage: v.triage,
       activityType: v.activity_type,
+      occasionType: v.occasion_type ?? null,
       rating: v.rating ?? 0,
       notes: v.notes ?? null,
       friend: {
