@@ -524,7 +524,6 @@ export default function SpotDetailScreen() {
   const [friendVisit, setFriendVisit] = useState<FriendVisit | null>(null);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
-  const [makingStack, setMakingStack] = useState(false);
 
   useFocusEffect(useCallback(() => {
     if (!id) return;
@@ -583,6 +582,8 @@ export default function SpotDetailScreen() {
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const heroBg = ACTIVITY_COLORS_HERO[visit.activity_type] ?? ACTIVITY_COLORS_HERO.other;
   const priceLabel = PRICE_LABELS[visit.price as Price];
+  const allSorted = getAllVisits().sort((a, b) => b.rating - a.rating);
+  const rank = allSorted.findIndex(v => v.id === visit.id) + 1;
 
   async function handleShare() {
     try {
@@ -634,12 +635,17 @@ export default function SpotDetailScreen() {
         <View style={{ backgroundColor: heroBg }}>
           {/* Colored hero */}
           <View style={sd.hero}>
-            <View style={sd.heroContent}>
-              <Text style={sd.heroMeta}>
-                {(info?.label ?? '').toUpperCase()}{priceLabel ? ` · ${priceLabel}` : ''}
-              </Text>
-              <Text style={sd.heroName}>{visit.venue_name}</Text>
-              <Text style={sd.heroCity}>{dateStr}</Text>
+            <View style={[sd.heroContent, { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }]}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={sd.heroMeta}>
+                  {(info?.label ?? '').toUpperCase()}{priceLabel ? ` · ${priceLabel}` : ''}
+                </Text>
+                <Text style={sd.heroName}>{visit.venue_name}</Text>
+                <Text style={sd.heroCity}>{dateStr}</Text>
+              </View>
+              {rank > 0 && (
+                <Text style={sd.heroRank}>#{rank}</Text>
+              )}
             </View>
           </View>
 
@@ -651,10 +657,6 @@ export default function SpotDetailScreen() {
                 <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
                   <Ionicons name="git-compare-outline" size={13} color={T.accent} />
                   <Text style={styles.rankAgainText}>Rank again</Text>
-                </Pressable>
-                <Pressable style={styles.rankAgainBtn} onPress={() => setMakingStack(true)}>
-                  <Ionicons name="layers-outline" size={13} color={T.accent} />
-                  <Text style={styles.rankAgainText}>Make a Stack</Text>
                 </Pressable>
               </View>
               <View style={[sd.ratingBadge, { borderColor: color }]}>
@@ -694,6 +696,9 @@ export default function SpotDetailScreen() {
                 <Text style={styles.mapHintText}>View on map</Text>
               </View>
             </Pressable>
+            {visit.address ? visit.address.split('\n').map((line, i) => (
+              <Text key={i} style={styles.mapAddress}>{line}</Text>
+            )) : null}
 
             <View style={{ height: 20 }} />
 
@@ -730,9 +735,6 @@ export default function SpotDetailScreen() {
           onClose={() => setRankingAgain(false)}
           onDone={(updated) => { setVisit(updated); setRankingAgain(false); }}
         />
-      )}
-      {makingStack && (
-        <MakeStackModal visit={visit} onClose={() => setMakingStack(false)} />
       )}
     </View>
   );
@@ -806,6 +808,9 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         venue_name: spot.venue_name,
         lat: spot.lat,
         lng: spot.lng,
+        address: spot.address ?? null,
+        activity_type: spot.activity_type ?? null,
+        occasion_type: spot.occasion_type ?? null,
         created_at: new Date().toISOString(),
       });
       setSavedFutureId(newId);
@@ -814,7 +819,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
   }
 
   function handleLogVisit() {
-    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng);
+    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng, spot.activity_type, spot.occasion_type);
     router.dismissTo('/(tabs)/map');
   }
 
@@ -1035,6 +1040,12 @@ const sd = StyleSheet.create({
   heroCity: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
+  },
+  heroRank: {
+    fontSize: 32,
+    fontWeight: '200',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: -1,
   },
   whiteCard: {
     backgroundColor: '#fff',
@@ -1378,6 +1389,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9, paddingVertical: 4,
   },
   mapHintText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  mapAddress: { fontSize: 12, color: T.muted, marginTop: 8, paddingHorizontal: 2 },
 
   pin: {
     minWidth: 34, height: 22, borderRadius: 11, paddingHorizontal: 6,
