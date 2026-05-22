@@ -281,19 +281,32 @@ export function recomputeRatings(): void {
         [triage, occasionType]
       );
       if (pool.length === 0) continue;
-      const n = pool.length;
-      pool.forEach((v, i) => {
-        let rating: number;
-        if (n === 1) {
-          rating = max;
-        } else if (n <= 10) {
-          const step = (max - min) * 10 / (9 * n);
-          rating = Math.max(min, max - (n - 1 - i) * step);
+      // Group items with identical rank_order — they form a tie and share one rating.
+      const groups: { rank_order: number; ids: string[] }[] = [];
+      for (const v of pool) {
+        const last = groups[groups.length - 1];
+        if (last && last.rank_order === v.rank_order) {
+          last.ids.push(v.id);
         } else {
-          const pct = i / (n - 1);
+          groups.push({ rank_order: v.rank_order, ids: [v.id] });
+        }
+      }
+      const ng = groups.length;
+      groups.forEach((g, gi) => {
+        let rating: number;
+        if (ng === 1) {
+          rating = max;
+        } else if (ng <= 10) {
+          const step = (max - min) * 10 / (9 * ng);
+          rating = Math.max(min, max - (ng - 1 - gi) * step);
+        } else {
+          const pct = gi / (ng - 1);
           rating = min + pct * (max - min);
         }
-        db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [Math.round(rating * 10) / 10, v.id]);
+        const rounded = Math.round(rating * 10) / 10;
+        for (const id of g.ids) {
+          db.runSync('UPDATE visits SET rating = ? WHERE id = ?', [rounded, id]);
+        }
       });
     }
   }
