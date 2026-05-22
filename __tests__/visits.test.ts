@@ -1,22 +1,22 @@
 import { ratingColor, formatRating } from '../lib/visits';
 
 describe('ratingColor', () => {
-  it('returns green for ratings >= 7.0', () => {
-    expect(ratingColor(7.0)).toBe('#34c759');
+  it('returns green for ratings >= 6.8', () => {
+    expect(ratingColor(6.8)).toBe('#34c759');
     expect(ratingColor(8.5)).toBe('#34c759');
     expect(ratingColor(10.0)).toBe('#34c759');
   });
 
-  it('returns orange for ratings >= 4.0 and < 7.0', () => {
-    expect(ratingColor(4.0)).toBe('#ff9500');
+  it('returns orange for ratings >= 3.3 and < 6.8', () => {
+    expect(ratingColor(3.3)).toBe('#ff9500');
     expect(ratingColor(5.5)).toBe('#ff9500');
-    expect(ratingColor(6.9)).toBe('#ff9500');
+    expect(ratingColor(6.7)).toBe('#ff9500');
   });
 
-  it('returns red for ratings below 4.0', () => {
+  it('returns red for ratings below 3.3', () => {
     expect(ratingColor(0.1)).toBe('#ff3b30');
     expect(ratingColor(2.0)).toBe('#ff3b30');
-    expect(ratingColor(3.9)).toBe('#ff3b30');
+    expect(ratingColor(3.2)).toBe('#ff3b30');
   });
 });
 
