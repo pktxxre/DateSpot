@@ -11,7 +11,7 @@ export interface FriendProfile {
 
 export async function searchProfiles(query: string): Promise<FriendProfile[]> {
   if (!supabase || !query.trim()) return [];
-  const q = query.trim();
+  const q = query.trim().replace(/[%,()]/g, '');
   const { data, error } = await supabase
     .from('profiles')
     .select('id, username, handle, avatar_emoticon, profile_photo_uri, city')
@@ -224,15 +224,15 @@ export async function getFriendsWithStats(): Promise<FriendWithStats[]> {
     .select('id, username, handle, avatar_emoticon, profile_photo_uri')
     .in('id', friendIds);
 
-  const counts = await Promise.all(friendIds.map(async (id) => {
-    const { count } = await supabase!
-      .from('visits')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', id)
-      .eq('is_seed', false);
-    return { id, count: count ?? 0 };
-  }));
-  const countMap = new Map(counts.map(r => [r.id, r.count]));
+  const { data: visitRows } = await supabase!
+    .from('visits')
+    .select('user_id')
+    .in('user_id', friendIds)
+    .eq('is_seed', false);
+  const countMap = new Map<string, number>();
+  for (const r of visitRows ?? []) {
+    countMap.set(r.user_id, (countMap.get(r.user_id) ?? 0) + 1);
+  }
 
   return (profiles ?? []).map((p: any) => ({
     id: p.id,

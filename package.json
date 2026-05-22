@@ -1,7 +1,7 @@
 {
   "name": "datespot-app",
   "main": "expo-router/entry",
-  "version": "0.1.4.1",
+  "version": "0.2.0.0",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -18,7 +18,10 @@
     ],
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg)"
-    ]
+    ],
+    "moduleNameMapper": {
+      "@react-native-async-storage/async-storage": "@react-native-async-storage/async-storage/jest/async-storage-mock"
+    }
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

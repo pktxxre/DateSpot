@@ -2,6 +2,42 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.2.0.0] - 2026-05-22
+
+### Added
+- **Inbox** — new notifications screen shows friend requests, accepted friends, and emoji reactions on visits; bell icon in the friends tab header with an unread badge
+- **Emoji reactions** — tap 🔥 ❤️ 😍 👏 on any visit detail to react; reactions are shown with per-emoji counts and a highlighted own-reaction state
+- **Cloud sync** — visits, future spots, stacks, and profile data now sync to Supabase; new devices restore all data automatically on login (`lib/sync.ts`)
+- **Walkthrough screen** — onboarding flow introduces DateSpot's core concept before the main app loads
+- **Occasion type** — visits and future spots now track the occasion (Romantic, Friend Group, Solo); ranking is computed per-occasion so Date Night and Friend spots maintain separate ordered lists
+- **Activity type expansion** — new categories: Bars, Cafes, Indoors, Shopping; legacy "drinks" data migrated to "bars"
+- **Tier rating system for stacks** — S/A/B/C/F tier labels with optional notes and cover photo
+- **Future spot detail screen** — full edit screen for want-to-visit spots with occasion and activity type pickers
+- **Tier browse screen** — dedicated screen listing all visits in a given tier
+- `updateFutureSpotTypes` — update occasion/activity type on a saved future spot
+- Friends profile lookup now shows real visit counts (batched single query, not N+1)
+
+### Changed
+- Ranking now handles ties correctly — spots with the same score share a `rank_order` value and display the same rating
+- Map screen UI overhauled with improved pin labels, category filters, and detail sheet layout
+- Spot detail screen redesigned with reaction row and improved layout
+- Friends tab redesigned with sliding pills (Friends / Activity), activity feed cards, and FriendsSheet modal
+- `recomputeRatings` now partitions by `occasion_type` so ratings are computed per occasion dimension
+- `friendlyDate` correctly parses ISO timestamps (split on `T` before `-`)
+
+### Fixed
+- `accept_friend_request` RPC now verifies `auth.uid()` matches the intended recipient — prevents unauthorized acceptance
+- Reactions table restricted to authenticated users (was publicly readable by anonymous users)
+- Duplicate reaction notifications prevented — upsert replaces repeat inserts
+- Ghost stacks in cloud: deleting a visit that auto-removes a 1-member stack now deletes the stack from the cloud too
+- Cloud restore now preserves `activity_type`, `occasion_type`, and `address` for future spots
+- SQLite migrations wrapped in a transaction — crash mid-migration no longer leaves schema partially applied
+- Inbox unknown notification types no longer fall through to ReactionRow (rendered as null instead)
+- `searchProfiles` sanitizes query input to prevent PostgREST filter injection
+- `syncFutureSpotToCloud` now syncs `address`, `activity_type`, and `occasion_type` fields
+- Category pill no longer overflows on comparison cards
+- Friends tab empty state no longer shows skeleton when user has no friends
+
 ## [0.1.4.1] - 2026-05-21
 
 ### Fixed

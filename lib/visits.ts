@@ -1,6 +1,7 @@
 import { getDb } from './db';
 import { supabase } from './supabase';
-import { syncVisitToCloud, deleteVisitFromCloud } from './sync';
+import { syncVisitToCloud, deleteVisitFromCloud, deleteStackFromCloud } from './sync';
+import { deleteFutureSpotsByVenueName } from './future';
 
 export type Rating = number;
 export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
@@ -154,6 +155,7 @@ export function insertVisit(v: NewVisit, city?: string, skipResolution = false):
     [v.id, v.venue_name, v.lat, v.lng, v.address ?? null, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.occasion_type, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? []), skipResolution ? 'failed' : 'pending']
   );
   recomputeRatings();
+  deleteFutureSpotsByVenueName(v.venue_name);
   syncVisitToCloud(v.id);
   if (!skipResolution) {
     resolveCanonicalPlace(v.id, v.venue_name, v.lat, v.lng, city ?? '', v.activity_type);
@@ -173,6 +175,7 @@ export function deleteVisit(id: string): void {
       );
       if ((count?.n ?? 0) < 2) {
         db.runSync('DELETE FROM stacks WHERE id = ?', [stack_id]);
+        deleteStackFromCloud(stack_id);
       }
     }
     db.runSync('DELETE FROM visits WHERE id = ?', [id]);

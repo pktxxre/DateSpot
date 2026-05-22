@@ -222,7 +222,10 @@ export default function InboxScreen() {
             if (item.type === 'friend_accepted') {
               return <FriendAcceptedRow notification={item} />;
             }
-            return <ReactionRow notification={item} />;
+            if (item.type === 'reaction') {
+              return <ReactionRow notification={item} />;
+            }
+            return null;
           }}
         />
       )}

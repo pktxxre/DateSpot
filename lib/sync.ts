@@ -75,6 +75,9 @@ export async function syncFutureSpotToCloud(spotId: string): Promise<void> {
     canonical_lat: row.canonical_lat ?? null,
     canonical_lng: row.canonical_lng ?? null,
     resolution_status: row.resolution_status ?? 'pending',
+    address: row.address ?? null,
+    activity_type: row.activity_type ?? null,
+    occasion_type: row.occasion_type ?? null,
   });
   if (error) console.warn('[sync] future_spot upsert:', error.message);
 }
@@ -234,13 +237,15 @@ export async function restoreFromCloud(userId: string): Promise<void> {
       db.runSync(
         `INSERT OR IGNORE INTO future_spots (
           id, venue_name, lat, lng, notes, created_at,
-          canonical_place_id, canonical_name, canonical_lat, canonical_lng, resolution_status
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          canonical_place_id, canonical_name, canonical_lat, canonical_lng, resolution_status,
+          activity_type, occasion_type, address
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id, s.venue_name, s.lat, s.lng, s.notes ?? null, s.created_at,
           s.canonical_place_id ?? null, s.canonical_name ?? null,
           s.canonical_lat ?? null, s.canonical_lng ?? null,
           s.resolution_status ?? 'pending',
+          s.activity_type ?? null, s.occasion_type ?? null, s.address ?? null,
         ]
       );
     }

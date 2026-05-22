@@ -13,10 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 // Direct callbacks allow immediate response when map tab is already focused.
 let _openLogCallback: (() => void) | null = null;
 let _openFutureCallback: (() => void) | null = null;
-let _openLogWithLocationCallback: ((name: string, lat: number, lng: number) => void) | null = null;
+let _openLogWithLocationCallback: ((name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) => void) | null = null;
 let _pendingOpenLog = false;
 let _pendingOpenFuture = false;
-let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number } | null = null;
+let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number; activityType?: string | null; occasionType?: string | null } | null = null;
 let _skipNextResumePrompt = false;
 
 export function scheduleOpenLog() {
@@ -27,11 +27,9 @@ export function scheduleOpenFutureDate() {
   if (_openFutureCallback) { _openFutureCallback(); }
   else { _pendingOpenFuture = true; }
 }
-export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number) {
-  // Always use pending; useFocusEffect fires reliably on focus gain regardless of mount state.
-  // The direct callback path is unreliable when called from a root-stack screen (spot/[id])
-  // because the map tab is in the background and its state update may not survive navigation.
-  _pendingOpenLogWithLocation = { name, lat, lng };
+export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) {
+  if (_openLogWithLocationCallback) { _openLogWithLocationCallback(name, lat, lng, activityType, occasionType); }
+  else { _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType }; }
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -51,6 +49,17 @@ import { T } from '@/lib/theme';
 import { SlidingPills } from '@/components/SlidingPills';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 
+interface NominatimAddress {
+  house_number?: string;
+  road?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  county?: string;
+  state?: string;
+  postcode?: string;
+}
+
 interface NominatimResult {
   place_id: number;
   display_name: string;
@@ -59,6 +68,16 @@ interface NominatimResult {
   name: string;
   type: string;
   category: string;
+  address?: NominatimAddress;
+}
+
+function buildAddressString(a?: NominatimAddress): string {
+  if (!a) return '';
+  const street = [a.house_number, a.road].filter(Boolean).join(' ');
+  const city = a.city || a.town || a.village || a.county || '';
+  const region = [city, a.state].filter(Boolean).join(', ');
+  const line2 = a.postcode ? `${region} ${a.postcode}` : region;
+  return [street, line2].filter(Boolean).join('\n');
 }
 
 
@@ -109,11 +128,12 @@ interface DraftVisit {
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
       { headers: { 'User-Agent': 'DateSpotApp/1.0' } }
     );
     const data = await res.json();
-    return data.name || null;
+    const formatted = buildAddressString(data.address);
+    return formatted || data.name || null;
   } catch {
     return null;
   }
@@ -160,10 +180,10 @@ export default function MapScreen() {
       setStep('future-pin');
       sheetRef.current?.snapToIndex(1);
     };
-    _openLogWithLocationCallback = (name: string, lat: number, lng: number) => {
+    _openLogWithLocationCallback = (name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) => {
       _skipNextResumePrompt = true;
       setSelectedVisit(null);
-      setDraft({ venue_name: name, lat, lng });
+      setDraft({ venue_name: name, lat, lng, ...(activityType ? { activity_type: activityType as ActivityType } : {}), ...(occasionType ? { occasion_type: occasionType as OccasionType } : {}) });
       toModalRef.current = true;
       setStep('details');
     };
@@ -193,11 +213,11 @@ export default function MapScreen() {
         sheetRef.current?.snapToIndex(1);
       }
       if (_pendingOpenLogWithLocation) {
-        const { name, lat, lng } = _pendingOpenLogWithLocation;
+        const { name, lat, lng, activityType, occasionType } = _pendingOpenLogWithLocation;
         _pendingOpenLogWithLocation = null;
         _skipNextResumePrompt = true;
         setSelectedVisit(null);
-        setDraft({ venue_name: name, lat, lng });
+        setDraft({ venue_name: name, lat, lng, ...(activityType ? { activity_type: activityType as ActivityType } : {}), ...(occasionType ? { occasion_type: occasionType as OccasionType } : {}) });
         toModalRef.current = true;
         setStep('details');
       }
@@ -332,6 +352,7 @@ export default function MapScreen() {
       venue_name: draft.venue_name.trim(),
       lat,
       lng,
+      address: draft.address || null,
       notes: draft.notes?.trim() || undefined,
       activity_type: draft.activity_type ?? null,
       occasion_type: draft.occasion_type ?? null,
@@ -972,7 +993,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const preview = visit.notes?.trim().slice(0, 70) ?? null;
   return (
-    <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${visit.id}`)}>
+    <View style={styles.visitBanner}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -992,7 +1013,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
           <Ionicons name="close" size={18} color={T.muted} />
         </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -1038,7 +1059,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
       onSaved();
     } else {
       const newId = Crypto.randomUUID();
-      insertFutureSpot({ id: newId, venue_name: spot.venue_name, lat: spot.lat, lng: spot.lng, created_at: new Date().toISOString() });
+      insertFutureSpot({ id: newId, venue_name: spot.venue_name, lat: spot.lat, lng: spot.lng, address: spot.address ?? null, activity_type: spot.activity_type ?? null, created_at: new Date().toISOString() });
       setSavedFutureId(newId);
       onSaved();
       showSavedToast();
@@ -1057,7 +1078,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
         <Ionicons name="bookmark" size={13} color="#5856d6" />
         <Text style={styles.savedToastText}>Saved!</Text>
       </Animated.View>
-      <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${spot.id}`)}>
+      <View style={styles.visitBanner}>
         <View style={styles.visitBannerInner}>
           <View style={styles.visitBannerBody}>
             <View style={styles.visitBannerTop}>
@@ -1087,7 +1108,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
             </Pressable>
           </View>
         </View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -1166,7 +1187,7 @@ function SearchResultsList({ results, loading, query, onSelect }: {
           <Pressable
             key={r.place_id}
             style={styles.searchResult}
-            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon), r.display_name)}
+            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon), buildAddressString(r.address))}
           >
             <Ionicons name="location-outline" size={16} color={T.muted} style={{ marginTop: 2 }} />
             <View style={{ flex: 1 }}>
@@ -1396,14 +1417,14 @@ function FutureDetail({ spot, onClose, onDelete }: {
   spot: FutureSpot; onClose: () => void; onDelete: () => void;
 }) {
   function handleLog() {
-    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng);
+    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng, spot.activity_type, spot.occasion_type);
     onClose();
   }
 
   return (
     <View style={styles.visitBanner}>
       <View style={styles.visitBannerInner}>
-        <Pressable style={styles.visitBannerBody} onPress={() => router.push(`/future/${spot.id}` as any)}>
+        <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
             <Text style={styles.visitBannerName} numberOfLines={1}>{spot.venue_name}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -1412,7 +1433,7 @@ function FutureDetail({ spot, onClose, onDelete }: {
             </View>
           </View>
           <Text style={styles.visitBannerMeta}>Added {friendlyDate(spot.created_at)}</Text>
-        </Pressable>
+        </View>
         <View style={styles.visitBannerActions}>
           <Pressable onPress={handleLog} hitSlop={8} style={styles.visitBannerActionBtn}>
             <Ionicons name="add" size={20} color={T.accent} />

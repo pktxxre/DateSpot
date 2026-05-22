@@ -6,6 +6,7 @@ export interface FutureSpot {
   venue_name: string;
   lat: number;
   lng: number;
+  address?: string | null;
   notes?: string;
   created_at: string;
   occasion_type?: string | null;
@@ -20,8 +21,8 @@ export function getAllFutureSpots(): FutureSpot[] {
 
 export function insertFutureSpot(spot: FutureSpot): void {
   getDb().runSync(
-    'INSERT INTO future_spots (id, venue_name, lat, lng, notes, created_at, occasion_type, activity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [spot.id, spot.venue_name, spot.lat, spot.lng, spot.notes ?? null, spot.created_at, spot.occasion_type ?? null, spot.activity_type ?? null]
+    'INSERT INTO future_spots (id, venue_name, lat, lng, address, notes, created_at, occasion_type, activity_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [spot.id, spot.venue_name, spot.lat, spot.lng, spot.address ?? null, spot.notes ?? null, spot.created_at, spot.occasion_type ?? null, spot.activity_type ?? null]
   );
   syncFutureSpotToCloud(spot.id);
 }
@@ -44,6 +45,11 @@ export function deleteFutureSpotsByVenueName(venueName: string): void {
 
 export function updateFutureSpot(id: string, venue_name: string): void {
   getDb().runSync('UPDATE future_spots SET venue_name = ? WHERE id = ?', [venue_name, id]);
+  syncFutureSpotToCloud(id);
+}
+
+export function updateFutureSpotTypes(id: string, activity_type: string | null, occasion_type: string | null): void {
+  getDb().runSync('UPDATE future_spots SET activity_type = ?, occasion_type = ? WHERE id = ?', [activity_type, occasion_type, id]);
   syncFutureSpotToCloud(id);
 }
 

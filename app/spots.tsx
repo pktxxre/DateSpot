@@ -253,7 +253,6 @@ export default function SpotsScreen() {
                   onPress={() => router.push(`/spot/${item.id}` as any)}
                 >
                   <View style={[s.accentBar, { backgroundColor: color }]} />
-                  <Text style={s.spotRank}>{index + 1}</Text>
                   <View style={s.spotInfo}>
                     <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{item.venue_name}</Text>
                     <Text style={s.spotMeta}>

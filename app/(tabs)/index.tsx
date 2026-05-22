@@ -643,6 +643,7 @@ const s = StyleSheet.create({
   // Category card
   categoryCard: {
     borderRadius: 16, overflow: 'hidden', backgroundColor: T.card,
+    borderWidth: 1, borderColor: T.border,
     shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.10, shadowRadius: 10,
   },
@@ -660,9 +661,9 @@ const s = StyleSheet.create({
 
   // Spot row inside category card
   spotRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 },
-  spotRank: { width: 24, fontSize: 13, fontWeight: '500', color: T.muted, marginRight: 8 },
+  spotRank: { width: 24, fontSize: 13, fontWeight: '300', color: T.muted, marginRight: 8 },
   spotInfo: { flex: 1, marginRight: 10 },
-  spotName: { fontSize: 14, fontWeight: '600', color: T.primary },
+  spotName: { fontSize: 14, fontWeight: '300', color: T.primary },
   spotPrice: { fontSize: 12, color: T.muted, marginTop: 1 },
   spotMeta: { fontSize: 12, color: T.muted },
   rowDivider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 46 },
