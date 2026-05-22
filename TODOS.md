@@ -10,6 +10,16 @@ Deferred items from planning and review sessions. Each item has context on why i
 
 ---
 
+## Cloud Sync (added v0.2.0.0, 2026-05-22)
+
+- [ ] **P2: restoreFromCloud concurrent-call guard** — If `SIGNED_IN` fires twice on login, both calls pass the `COUNT = 0` guard before either writes rows. Add a module-level `_restoring` boolean to early-return if a restore is in progress. Low risk (INSERT OR IGNORE prevents duplication), but causes double `recomputeRatings()` call.
+
+- [ ] **P2: syncStackToCloud atomic delete+insert** — `syncStackToCloud` deletes then re-inserts `stack_visits`. A network drop between the two leaves the cloud stack with no members. Wrap in a Supabase RPC or add retry logic.
+
+## Testing (added v0.2.0.0, 2026-05-22)
+
+- [ ] **P2: Unit test coverage for lib/sync.ts and lib/friends.ts** — Both are new files (267 and 295 lines) with 0% test coverage. Requires Supabase mock setup. Current coverage: ~27% of changed units.
+
 ## Canonical Place Resolution (deferred from autoplan review, 2026-05-15)
 
 - [ ] **Friend-graph visit attribution** — Sync user visits to Supabase with `user_id` attached. Enables "3 of your friends visited this place" in Top Spots — the actual moat vs. Yelp. Requires: new `user_visits` Supabase table, RLS so users only see their own, opt-in consent UX, and changes to `getTopSpots()` to filter by friend graph. Bigger scope than current feature.
