@@ -55,6 +55,10 @@ export async function initDb(): Promise<void> {
       position   INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (stack_id, visit_id)
     );
+
+    CREATE TABLE IF NOT EXISTS friend_activity_likes (
+      visit_id TEXT PRIMARY KEY
+    );
   `);
 
   // Migrate stacks table
@@ -143,6 +147,12 @@ export async function initDb(): Promise<void> {
   }
   if (!futureColNames.includes('resolution_status')) {
     db.runSync(`ALTER TABLE future_spots ADD COLUMN resolution_status TEXT NOT NULL DEFAULT 'pending'`);
+  }
+  if (!futureColNames.includes('occasion_type')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN occasion_type TEXT`);
+  }
+  if (!futureColNames.includes('activity_type')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN activity_type TEXT`);
   }
 }
 
