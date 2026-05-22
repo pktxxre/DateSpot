@@ -4,6 +4,12 @@ Deferred items from planning and review sessions. Each item has context on why i
 
 ---
 
+## Testing
+
+- [ ] **P0: AsyncStorage Jest mock** — `visits.test.ts` suite fails because `@react-native-async-storage/async-storage` is not mocked in the Jest config. Fix: add `moduleNameMapper` entry in `jest.config` or add a `__mocks__/@react-native-async-storage/async-storage.js` file. Noticed on branch `pktxxre/new-york-v4` (2026-05-21).
+
+---
+
 ## Canonical Place Resolution (deferred from autoplan review, 2026-05-15)
 
 - [ ] **Friend-graph visit attribution** — Sync user visits to Supabase with `user_id` attached. Enables "3 of your friends visited this place" in Top Spots — the actual moat vs. Yelp. Requires: new `user_visits` Supabase table, RLS so users only see their own, opt-in consent UX, and changes to `getTopSpots()` to filter by friend graph. Bigger scope than current feature.
