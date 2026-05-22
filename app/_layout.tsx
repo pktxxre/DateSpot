@@ -113,6 +113,7 @@ export default function RootLayout() {
         <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="inbox" options={{ headerShown: false }} />
+        <Stack.Screen name="friends" options={{ headerShown: false }} />
       </Stack>
     </GestureHandlerRootView>
   );

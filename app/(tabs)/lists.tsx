@@ -19,9 +19,15 @@ import {
 import { useSelectionMode } from '@/lib/useSelectionMode';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { T } from '@/lib/theme';
+import { SlidingPills } from '@/components/SlidingPills';
+import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 
-type TabOption = 'spots' | 'date-nights';
+type TabOption = 'spots' | 'future' | 'date-nights';
 type SortOption = 'best' | 'mid' | 'worst' | 'newest' | 'oldest';
+type CategoryFilter = string | null; // occasion_type value
+
+const FUTURE_BLUE = '#5856d6';
+const FUTURE_BLUE_TINT = `${'#5856d6'}18`;
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'best',   label: 'Best' },
@@ -30,7 +36,6 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'newest', label: 'Newest' },
   { value: 'oldest', label: 'Oldest' },
 ];
-type CategoryFilter = string | null; // occasion_type value or 'future'
 
 function sortVisits(visits: Visit[], sort: SortOption): Visit[] {
   const copy = [...visits];
@@ -352,22 +357,28 @@ function SpotRow({ visit, rank, selectionMode, isSelected, onSelect, onLongPress
 // ─── Future Spot Row ──────────────────────────────────────────────────────────
 
 function FutureSpotRow({ spot }: { spot: FutureSpot }) {
+  const categoryInfo = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
+  const occasionInfo = OCCASION_TYPES.find(a => a.value === spot.occasion_type);
+  const dateStr = friendlyDate(spot.created_at);
+  const metaParts = [categoryInfo?.label, occasionInfo?.label, dateStr].filter(Boolean);
+
   return (
-    <View style={s.row}>
-      <View style={[s.rowLeftBar, { backgroundColor: T.muted }]} />
+    <Pressable
+      style={({ pressed }) => [s.row, pressed && { opacity: 0.75 }]}
+      onPress={() => router.push(`/future/${spot.id}` as any)}
+    >
+      <View style={[s.rowLeftBar, { backgroundColor: FUTURE_BLUE }]} />
       <View style={s.rowMain}>
         <View style={s.rowTop}>
           <Text style={s.rowName} numberOfLines={1}>{spot.venue_name}</Text>
-          <View style={s.futureBadge}>
-            <Ionicons name="bookmark-outline" size={11} color={T.muted} />
-            <Text style={s.futureBadgeText}>Want to go</Text>
-          </View>
         </View>
-        {spot.notes ? (
-          <Text style={s.note} numberOfLines={1}>"{spot.notes}"</Text>
-        ) : null}
+        <Text style={s.rowMeta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
       </View>
-    </View>
+      <View style={s.futureBadge}>
+        <Ionicons name="bookmark-outline" size={11} color={T.muted} />
+        <Text style={s.futureBadgeText}>Want to go</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -383,6 +394,9 @@ export default function RankedScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showSortPicker, setShowSortPicker] = useState(false);
   const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
+  const [futureOccasion, setFutureOccasion] = useState<string | null>(null);
+  const [futureActivityFilter, setFutureActivityFilter] = useState<ActivityType | null>(null);
+  const [showFutureCategoryPicker, setShowFutureCategoryPicker] = useState(false);
   const [search, setSearch] = useState('');
   const [naming, setNaming] = useState(false);
   const [flyData, setFlyData] = useState<FlyData | null>(null);
@@ -404,7 +418,6 @@ export default function RankedScreen() {
     }, [tab])
   );
 
-  // Also refresh stacks when tab changes
   function handleTabChange(tab: TabOption) {
     setActiveTab(tab);
     if (tab === 'date-nights') setStacks(getAllStacks());
@@ -425,7 +438,7 @@ export default function RankedScreen() {
   }, [stacks]);
 
   const filtered = useMemo(() => {
-    let list = (category && category !== 'future') ? visits.filter(v => v.occasion_type === category) : visits;
+    let list = category ? visits.filter(v => v.occasion_type === category) : visits;
     if (activityFilter) list = list.filter(v => v.activity_type === activityFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -436,16 +449,26 @@ export default function RankedScreen() {
     }
     return list;
   }, [visits, category, activityFilter, search]);
+  const sorted = sortVisits(filtered, sort);
 
   const filteredFuture = useMemo(() => {
-    if (!search.trim()) return futureSpots;
-    const q = search.trim().toLowerCase();
-    return futureSpots.filter(f =>
-      f.venue_name.toLowerCase().includes(q) ||
-      (f.notes ?? '').toLowerCase().includes(q)
-    );
-  }, [futureSpots, search]);
-  const sorted = sortVisits(filtered, sort);
+    let list = futureOccasion
+      ? futureSpots.filter(f => f.occasion_type === futureOccasion)
+      : futureSpots;
+    if (futureActivityFilter) list = list.filter(f => f.activity_type === futureActivityFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(f => f.venue_name.toLowerCase().includes(q));
+    }
+    return list;
+  }, [futureSpots, futureOccasion, futureActivityFilter, search]);
+
+  const futureOccasionCounts: Record<string, number> = {};
+  for (const f of futureSpots) {
+    if (f.occasion_type) {
+      futureOccasionCounts[f.occasion_type] = (futureOccasionCounts[f.occasion_type] ?? 0) + 1;
+    }
+  }
 
   function handleStackConfirm(name: string, tier: TierKey, note: string, coverPhoto: string | null) {
     const visitIds = Array.from(selectedIds);
@@ -465,6 +488,7 @@ export default function RankedScreen() {
   }
 
   return (
+    <TabSlideWrapper myIndex={1}>
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Header */}
       <View style={s.header}>
@@ -472,6 +496,8 @@ export default function RankedScreen() {
           <Text style={s.statLabel}>
             {activeTab === 'spots'
               ? `${visits.length} SPOTS LOGGED`
+              : activeTab === 'future'
+              ? `${futureSpots.length} SAVED`
               : `${stacks.length} DATE NIGHTS`}
           </Text>
           <Text style={s.statNum}>Your list</Text>
@@ -481,18 +507,15 @@ export default function RankedScreen() {
 
       {/* Tab toggle */}
       <View style={s.tabRow}>
-        <Pressable
-          style={[s.tabPill, activeTab === 'spots' && s.tabPillActive]}
-          onPress={() => handleTabChange('spots')}
-        >
-          <Text style={[s.tabPillText, activeTab === 'spots' && s.tabPillTextActive]}>Spots</Text>
-        </Pressable>
-        <Pressable
-          style={[s.tabPill, activeTab === 'date-nights' && s.tabPillActive]}
-          onPress={() => handleTabChange('date-nights')}
-        >
-          <Text style={[s.tabPillText, activeTab === 'date-nights' && s.tabPillTextActive]}>Date Nights</Text>
-        </Pressable>
+        <SlidingPills
+          options={[
+            { label: 'Spots', value: 'spots' },
+            { label: 'Future', value: 'future' },
+            { label: 'Date Nights', value: 'date-nights' },
+          ]}
+          value={activeTab}
+          onChange={v => handleTabChange(v as TabOption)}
+        />
       </View>
 
       {/* ── Spots Tab ── */}
@@ -523,20 +546,9 @@ export default function RankedScreen() {
                   style={[s.chip, category === null && s.chipActive]}
                   onPress={() => setCategory(null)}
                 >
-                  <Text style={[s.chipText, category === null && s.chipTextActive]}>
-                    All {visits.length}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[s.chip, category === 'future' && s.chipFuture]}
-                  onPress={() => setCategory(category === 'future' ? null : 'future')}
-                >
-                  <Text style={[s.chipText, category === 'future' && s.chipTextFuture]}>
-                    Future{futureSpots.length > 0 ? ` ${futureSpots.length}` : ''}
-                  </Text>
+                  <Text style={[s.chipText, category === null && s.chipTextActive]}>All</Text>
                 </Pressable>
                 {OCCASION_TYPES.map(a => {
-                  const count = categoryCounts[a.value] ?? 0;
                   const active = category === a.value;
                   return (
                     <Pressable
@@ -544,9 +556,7 @@ export default function RankedScreen() {
                       style={[s.chip, active && s.chipActive]}
                       onPress={() => setCategory(active ? null : a.value)}
                     >
-                      <Text style={[s.chipText, active && s.chipTextActive]}>
-                        {a.label}{count > 0 ? ` ${count}` : ''}
-                      </Text>
+                      <Text style={[s.chipText, active && s.chipTextActive]}>{a.label}</Text>
                     </Pressable>
                   );
                 })}
@@ -581,47 +591,26 @@ export default function RankedScreen() {
               {!selectionMode && (
                 <View style={s.sortRow}>
                   <Text style={s.countLabel}>
-                    {category === 'future'
-                      ? `${filteredFuture.length} want to go`
-                      : `${sorted.length} spot${sorted.length !== 1 ? 's' : ''}`}
+                    {sorted.length} spot{sorted.length !== 1 ? 's' : ''}
                   </Text>
                   <View style={s.sortButtons}>
-                    {category !== 'future' && (
-                      <Pressable style={s.sortToggle} onPress={() => setShowCategoryPicker(true)}>
-                        <Text style={[s.sortToggleText, activityFilter && s.sortToggleActive]}>
-                          {activityFilter
-                            ? (ACTIVITY_TYPES.find(a => a.value === activityFilter)?.label ?? 'Category')
-                            : 'Category'} ↓
-                        </Text>
-                      </Pressable>
-                    )}
-                    {category !== 'future' && (
-                      <Pressable style={s.sortToggle} onPress={() => setShowSortPicker(true)}>
-                        <Text style={s.sortToggleText}>
-                          {SORT_OPTIONS.find(o => o.value === sort)?.label ?? 'Best'} ↓
-                        </Text>
-                      </Pressable>
-                    )}
+                    <Pressable style={s.sortToggle} onPress={() => setShowSortPicker(true)}>
+                      <Text style={s.sortToggleText}>
+                        {SORT_OPTIONS.find(o => o.value === sort)?.label ?? 'Best'} ↓
+                      </Text>
+                    </Pressable>
+                    <Pressable style={s.sortToggle} onPress={() => setShowCategoryPicker(true)}>
+                      <Text style={[s.sortToggleText, activityFilter && s.sortToggleActive]}>
+                        {activityFilter
+                          ? (ACTIVITY_TYPES.find(a => a.value === activityFilter)?.label ?? 'Category')
+                          : 'Category'} ↓
+                      </Text>
+                    </Pressable>
                   </View>
                 </View>
               )}
 
-              {category === 'future' ? (
-                filteredFuture.length === 0 ? (
-                  <View style={s.empty}>
-                    <Text style={s.emptyTitle}>No want-to-go spots yet</Text>
-                    <Text style={s.emptyHint}>Save spots from the map or Discover tab</Text>
-                  </View>
-                ) : (
-                  <FlatList
-                    data={filteredFuture}
-                    keyExtractor={f => f.id}
-                    renderItem={({ item }) => <FutureSpotRow spot={item} />}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={s.listContent}
-                  />
-                )
-              ) : sorted.length === 0 ? (
+              {sorted.length === 0 ? (
                 <View style={s.empty}>
                   <Text style={s.emptyTitle}>
                     {activityFilter
@@ -674,6 +663,86 @@ export default function RankedScreen() {
                 </Text>
               </Pressable>
             </View>
+          )}
+        </View>
+      )}
+
+      {/* ── Future Tab ── */}
+      {activeTab === 'future' && (
+        <View style={{ flex: 1 }}>
+          <View style={s.searchBar}>
+            <Ionicons name="search-outline" size={16} color={T.placeholder} style={{ marginRight: 8 }} />
+            <TextInput
+              style={s.searchInput}
+              placeholder="Search future spots"
+              placeholderTextColor={T.placeholder}
+              value={search}
+              onChangeText={setSearch}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={s.chipScroll}
+            contentContainerStyle={s.chipRow}
+          >
+            <Pressable
+              style={[s.chip, futureOccasion === null && s.chipFutureActive]}
+              onPress={() => setFutureOccasion(null)}
+            >
+              <Text style={[s.chipText, futureOccasion === null && s.chipTextFutureActive]}>All</Text>
+            </Pressable>
+            {OCCASION_TYPES.map(oc => {
+              const active = futureOccasion === oc.value;
+              return (
+                <Pressable
+                  key={oc.value}
+                  style={[s.chip, active && s.chipFutureActive]}
+                  onPress={() => setFutureOccasion(active ? null : oc.value)}
+                >
+                  <Text style={[s.chipText, active && s.chipTextFutureActive]}>{oc.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={s.sortRow}>
+            <Text style={s.countLabel}>
+              {filteredFuture.length} spot{filteredFuture.length !== 1 ? 's' : ''}
+            </Text>
+            <Pressable style={s.sortToggle} onPress={() => setShowFutureCategoryPicker(true)}>
+              <Text style={[s.sortToggleText, futureActivityFilter && s.sortToggleActive]}>
+                {futureActivityFilter
+                  ? (ACTIVITY_TYPES.find(a => a.value === futureActivityFilter)?.label ?? 'Category')
+                  : 'Category'} ↓
+              </Text>
+            </Pressable>
+          </View>
+
+          {futureSpots.length === 0 ? (
+            <View style={s.empty}>
+              <Ionicons name="bookmark-outline" size={36} color={T.muted} style={{ marginBottom: 12 }} />
+              <Text style={s.emptyTitle}>No future spots yet</Text>
+              <Text style={s.emptyHint}>Save spots from the map or Discover tab</Text>
+            </View>
+          ) : filteredFuture.length === 0 ? (
+            <View style={s.empty}>
+              <Text style={s.emptyTitle}>No spots match this filter</Text>
+              <Pressable onPress={() => { setFutureOccasion(null); setFutureActivityFilter(null); }}>
+                <Text style={[s.clearFilter, { color: FUTURE_BLUE }]}>Clear filters</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredFuture}
+              keyExtractor={f => f.id}
+              renderItem={({ item }) => <FutureSpotRow spot={item} />}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={s.listContent}
+            />
           )}
         </View>
       )}
@@ -774,6 +843,33 @@ export default function RankedScreen() {
         </Modal>
       )}
 
+      {showFutureCategoryPicker && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setShowFutureCategoryPicker(false)}>
+          <Pressable style={cp.backdrop} onPress={() => setShowFutureCategoryPicker(false)}>
+            <Pressable style={cp.card} onPress={() => {}}>
+              <Text style={cp.title}>Filter by category</Text>
+              <Pressable
+                style={[cp.option, futureActivityFilter === null && cp.optionActive]}
+                onPress={() => { setFutureActivityFilter(null); setShowFutureCategoryPicker(false); }}
+              >
+                <Text style={[cp.optionText, futureActivityFilter === null && cp.optionTextActive]}>All categories</Text>
+                {futureActivityFilter === null && <Ionicons name="checkmark" size={16} color={T.accent} />}
+              </Pressable>
+              {ACTIVITY_TYPES.map(a => (
+                <Pressable
+                  key={a.value}
+                  style={[cp.option, futureActivityFilter === a.value && cp.optionActive]}
+                  onPress={() => { setFutureActivityFilter(a.value as ActivityType); setShowFutureCategoryPicker(false); }}
+                >
+                  <Text style={[cp.optionText, futureActivityFilter === a.value && cp.optionTextActive]}>{a.label}</Text>
+                  {futureActivityFilter === a.value && <Ionicons name="checkmark" size={16} color={T.accent} />}
+                </Pressable>
+              ))}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       {flyData && (
         <StackFlyAnimation
           data={flyData}
@@ -787,6 +883,7 @@ export default function RankedScreen() {
         />
       )}
     </SafeAreaView>
+    </TabSlideWrapper>
   );
 }
 
@@ -834,25 +931,13 @@ const s = StyleSheet.create({
   },
 
   tabRow: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    gap: 8,
     backgroundColor: T.bg,
+    alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: T.border,
   },
-  tabPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: T.inputBg,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  tabPillActive: { backgroundColor: T.primary, borderColor: T.primary },
-  tabPillText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  tabPillTextActive: { color: '#fff' },
 
   chipScroll: { flexShrink: 0, flexGrow: 0 },
   chipRow: {
@@ -871,9 +956,9 @@ const s = StyleSheet.create({
     borderColor: T.border,
     alignSelf: 'center',
   },
-  chipActive: { backgroundColor: T.primary, borderColor: T.primary },
-  chipText: { fontSize: 13, fontWeight: '500', color: T.muted },
-  chipTextActive: { color: '#fff', fontWeight: '600' },
+  chipActive: { backgroundColor: 'rgba(231,111,81,0.12)', borderColor: '#E76F51' },
+  chipText: { fontSize: 13, fontWeight: '600', color: T.muted },
+  chipTextActive: { color: '#E76F51' },
 
   sortRow: {
     flexDirection: 'row',
@@ -1033,18 +1118,20 @@ const s = StyleSheet.create({
   emptyHintRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' },
   emptyHint: { fontSize: 14, color: T.muted, textAlign: 'center' },
 
-  chipFuture: { backgroundColor: '#4A6741', borderColor: '#4A6741' },
-  chipTextFuture: { color: '#fff', fontWeight: '600' },
-
-  sortButtons: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  sortToggleActive: { color: T.accent },
+  chipFutureActive: { backgroundColor: FUTURE_BLUE_TINT, borderColor: FUTURE_BLUE },
+  chipTextFutureActive: { color: FUTURE_BLUE },
 
   futureBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 8, paddingVertical: 3,
     borderRadius: 10, borderWidth: 1, borderColor: T.border,
+    alignSelf: 'center', marginRight: 12,
   },
   futureBadgeText: { fontSize: 11, fontWeight: '600', color: T.muted },
+
+  sortButtons: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sortToggleActive: { color: T.accent },
+
   plusCircle: {
     width: 20, height: 20, borderRadius: 10, backgroundColor: '#E76F51',
     borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center',

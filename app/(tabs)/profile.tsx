@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable, Image,
   Share, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import { getAllVisits, Visit, ACTIVITY_TYPES, friendlyDate } from '@/lib/visits'
 import { getProfile, UserProfile } from '@/lib/profile';
 import { getFriends } from '@/lib/friends';
 import { T } from '@/lib/theme';
+import { FriendsSheet } from '@/components/FriendsSheet';
 
 type ActivityItem = {
   id: string;
@@ -38,16 +40,29 @@ function buildActivity(visits: Visit[]): ActivityItem[] {
     });
 }
 
+const FRIEND_COUNT_KEY = 'profile_friend_count';
+
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [friendCount, setFriendCount] = useState(0);
+  const [friendCount, setFriendCount] = useState<number | null>(null);
+  const [sheetVisible, setSheetVisible] = useState(false);
+
+  // Pre-load cached count before the network resolves
+  useEffect(() => {
+    AsyncStorage.getItem(FRIEND_COUNT_KEY).then(val => {
+      if (val !== null) setFriendCount(parseInt(val, 10));
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       getProfile().then(setProfile);
       setVisits(getAllVisits());
-      getFriends().then(friends => setFriendCount(friends.length));
+      getFriends().then(friends => {
+        setFriendCount(friends.length);
+        AsyncStorage.setItem(FRIEND_COUNT_KEY, String(friends.length));
+      });
     }, [])
   );
 
@@ -101,12 +116,10 @@ export default function ProfileScreen() {
         <View style={styles.statsRow}>
           <StatBox value={visits.length} label="Logs" />
           <View style={styles.statDivider} />
-          <Pressable style={styles.statBox} onPress={() => router.push('/friends' as any)}>
-            <Text style={styles.statValue}>{friendCount}</Text>
+          <Pressable style={styles.statBox} onPress={() => setSheetVisible(true)}>
+            <Text style={styles.statValue}>{friendCount ?? '—'}</Text>
             <Text style={styles.statLabel}>Friends</Text>
           </Pressable>
-          <View style={styles.statDivider} />
-          <StatBox value={0} label="Following" />
         </View>
 
         {/* Action buttons */}
@@ -141,6 +154,12 @@ export default function ProfileScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <FriendsSheet
+        visible={sheetVisible}
+        username={profile?.handle ? `@${profile.handle}` : (profile?.username ?? '')}
+        onClose={() => setSheetVisible(false)}
+      />
     </SafeAreaView>
   );
 }
