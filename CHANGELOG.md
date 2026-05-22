@@ -2,6 +2,26 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.1.4.0] - 2026-05-21
+
+### Added
+- Friends tab now shows a full activity feed with unified cards — consistent height, rating pill, emoticon avatar, Like and "Add to list" action buttons per card
+- Like friend activity: tap the heart on any friend's card to save it to your likes (persisted in SQLite, survives restart)
+- FriendsSheet component: open any friend's profile from their activity card — shows their visit history and top spots
+- SlidingPills component replaces static segment controls across Friends, Lists, and other tabs — animated pill slides to the selected item
+- TabSlideWrapper drives directional slide animation when switching between sub-views within a tab
+- Recommended spots section in Friends tab surfaces places your friends have liked that you haven't visited yet
+
+### Changed
+- Friends tab redesigned with design-spec tokens — consistent spacing, cream card backgrounds, hairline dividers between rows, no card borders
+- Lists tab updated to use SlidingPills for the "My Lists / Friends' Lists" toggle with slide-in animation
+- Map tab and Spots screen layout updated with tab slide transitions
+- `ratingColor` is now app-wide — imported from `lib/visits` instead of duplicated per screen
+
+### Fixed
+- Activity card row height standardized — previously inconsistent heights caused visual jitter when scrolling
+- Card backgrounds unified to cream — mixed whites and off-whites resolved
+
 ## [0.1.3.0] - 2026-05-20
 
 ### Added
