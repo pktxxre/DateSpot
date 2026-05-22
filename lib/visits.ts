@@ -1,6 +1,6 @@
 import { getDb } from './db';
 import { supabase } from './supabase';
-import { syncVisitToCloud, deleteVisitFromCloud } from './sync';
+import { syncVisitToCloud, deleteVisitFromCloud, deleteStackFromCloud } from './sync';
 
 export type Rating = number;
 export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
@@ -173,6 +173,7 @@ export function deleteVisit(id: string): void {
       );
       if ((count?.n ?? 0) < 2) {
         db.runSync('DELETE FROM stacks WHERE id = ?', [stack_id]);
+        deleteStackFromCloud(stack_id);
       }
     }
     db.runSync('DELETE FROM visits WHERE id = ?', [id]);

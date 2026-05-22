@@ -76,7 +76,9 @@ export async function initDb(): Promise<void> {
     db.runSync(`ALTER TABLE stacks ADD COLUMN cover_photo TEXT`);
   }
 
-  // Migrate existing installs that are missing columns
+  // Migrate existing installs that are missing columns (wrapped in a transaction so a
+  // mid-migration crash doesn't leave the schema partially applied)
+  db.withTransactionSync(() => {
   const cols = db.getAllSync<{ name: string }>(
     `PRAGMA table_info(visits)`
   ).map((r) => r.name);
@@ -160,6 +162,7 @@ export async function initDb(): Promise<void> {
   if (!futureColNames.includes('address')) {
     db.runSync(`ALTER TABLE future_spots ADD COLUMN address TEXT`);
   }
+  }); // end withTransactionSync
 }
 
 export async function clearUserData(): Promise<void> {

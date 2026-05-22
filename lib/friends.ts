@@ -11,7 +11,7 @@ export interface FriendProfile {
 
 export async function searchProfiles(query: string): Promise<FriendProfile[]> {
   if (!supabase || !query.trim()) return [];
-  const q = query.trim();
+  const q = query.trim().replace(/[%,()]/g, '');
   const { data, error } = await supabase
     .from('profiles')
     .select('id, username, handle, avatar_emoticon, profile_photo_uri, city')

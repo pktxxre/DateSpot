@@ -237,13 +237,15 @@ export async function restoreFromCloud(userId: string): Promise<void> {
       db.runSync(
         `INSERT OR IGNORE INTO future_spots (
           id, venue_name, lat, lng, notes, created_at,
-          canonical_place_id, canonical_name, canonical_lat, canonical_lng, resolution_status
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          canonical_place_id, canonical_name, canonical_lat, canonical_lng, resolution_status,
+          activity_type, occasion_type, address
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id, s.venue_name, s.lat, s.lng, s.notes ?? null, s.created_at,
           s.canonical_place_id ?? null, s.canonical_name ?? null,
           s.canonical_lat ?? null, s.canonical_lng ?? null,
           s.resolution_status ?? 'pending',
+          s.activity_type ?? null, s.occasion_type ?? null, s.address ?? null,
         ]
       );
     }
