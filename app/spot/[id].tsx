@@ -92,7 +92,7 @@ function RankAgainModal({ visit, onClose, onDone }: {
     }
   }
 
-  function handleTooHard() { saveRank(resolveAtMid(cmpState!, others)); }
+  function handleTooHard() { saveRank(cmpState!.sorted[cmpState!.mid].rank_order); }
 
   function saveRank(rank_order: number) {
     updateRankOrder(visit.id, rank_order);
@@ -124,7 +124,7 @@ function RankAgainModal({ visit, onClose, onDone }: {
         <Animated.View style={[r.cardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
           <Pressable style={[r.card, r.cardThis]} onPress={() => { animateTap(thisScaleAnim); handleResult('better'); }}>
             <View style={[r.cardHeader, { backgroundColor: thisColor }]}>
-              <Text style={r.cardCategory}>{thisLabel.toUpperCase()}</Text>
+              <Text style={r.cardCategory} numberOfLines={1}>{thisLabel.toUpperCase()}</Text>
               {visit.rating > 0 && (
                 <View style={[r.cardRatingPill, { borderColor: thisRatingColor }]}>
                   <Text style={[r.cardRatingText, { color: thisRatingColor }]}>{formatRating(visit.rating)}</Text>
@@ -141,7 +141,7 @@ function RankAgainModal({ visit, onClose, onDone }: {
         <Animated.View style={[r.cardWrap, { transform: [{ scale: thatScaleAnim }] }]}>
           <Pressable style={[r.card, r.cardThat]} onPress={() => { animateTap(thatScaleAnim); handleResult('worse'); }}>
             <View style={[r.cardHeader, { backgroundColor: thatColor }]}>
-              <Text style={r.cardCategory}>{thatLabel.toUpperCase()}</Text>
+              <Text style={r.cardCategory} numberOfLines={1}>{thatLabel.toUpperCase()}</Text>
               {opponent.rating > 0 && (
                 <View style={[r.cardRatingPill, { borderColor: thatRatingColor }]}>
                   <Text style={[r.cardRatingText, { color: thatRatingColor }]}>{formatRating(opponent.rating)}</Text>
@@ -192,7 +192,7 @@ const r = StyleSheet.create({
   cardThis: { borderColor: T.accent },
   cardThat: { borderColor: T.border },
   cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8, flexShrink: 1 },
   cardRatingPill: {
     backgroundColor: '#fff', borderWidth: 1.5,
     borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,

@@ -634,7 +634,7 @@ export default function FriendsScreen() {
         )}
       </View>
 
-      {loading ? (
+      {loading && friends.length > 0 ? (
         <FriendsSkeleton />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">

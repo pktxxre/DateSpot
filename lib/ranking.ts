@@ -67,7 +67,9 @@ export function resolveAtMid<T extends { rank_order: number; id: string }>(
   state: ComparisonState<T>,
   _existing: T[]
 ): number {
-  return rankOrderAt(state.sorted, state.mid);
+  // Tie with the current comparison target — recomputeRatings groups identical
+  // rank_orders together so they always receive the same rating.
+  return state.sorted[state.mid].rank_order;
 }
 
 function rankOrderAt<T extends { rank_order: number }>(sorted: T[], insertAt: number): number {

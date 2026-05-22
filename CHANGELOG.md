@@ -2,6 +2,13 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.1.4.1] - 2026-05-21
+
+### Fixed
+- "Too hard to compare" now correctly ties both spots at the same score — items with identical `rank_order` are grouped and assigned a shared rating, so neither place drops when the user can't decide
+- Category pill (e.g. "ENTERTAINMENT") no longer pushes the rating badge off the comparison card — label now shrinks instead of overflowing
+- Friends tab no longer shows the loading skeleton when the user has no friends — the empty state appears immediately instead
+
 ## [0.1.4.0] - 2026-05-21
 
 ### Added

@@ -54,9 +54,7 @@ function RankStackModal({ stack, onClose, onDone }: {
     }
   }
 
-  function handleTooHard() {
-    saveRank(resolveAtMid(cmpState!, others));
-  }
+  function handleTooHard() { saveRank(cmpState!.sorted[cmpState!.mid].rank_order); }
 
   function saveRank(rank_order: number) {
     updateStackRankOrder(stack.id, rank_order);
@@ -516,7 +514,7 @@ const rm = StyleSheet.create({
   cardThis: { borderColor: T.accent },
   cardThat: { borderColor: T.border },
   cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8, flexShrink: 1 },
   cardRatingPill: {
     backgroundColor: '#fff', borderWidth: 1.5,
     borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
