@@ -42,12 +42,13 @@ export async function addReaction(
 
   // Write notification to visit owner (skip if reacting to own visit)
   if (visitOwnerId !== myUserId) {
-    await supabase.from('notifications').insert({
+    const { error: notifError } = await supabase.from('notifications').upsert({
       user_id: visitOwnerId,
       actor_id: myUserId,
       type: 'reaction',
       ref_id: visitId,
-    });
+    }, { onConflict: 'user_id,actor_id,type,ref_id', ignoreDuplicates: true });
+    if (notifError) console.warn('[reactions] notification insert:', notifError.message);
   }
 
   return {};

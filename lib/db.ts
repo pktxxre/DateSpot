@@ -128,6 +128,9 @@ export async function initDb(): Promise<void> {
     db.runSync(`UPDATE visits SET occasion_type = 'romantic' WHERE occasion_type IS NULL`);
   }
 
+  // Rename legacy 'drinks' activity_type → 'bars' (idempotent)
+  db.runSync(`UPDATE visits SET activity_type = 'bars' WHERE activity_type = 'drinks'`);
+
   // Migrate future_spots canonical columns
   const futureColNames = db.getAllSync<{ name: string }>(
     `PRAGMA table_info(future_spots)`
@@ -153,6 +156,9 @@ export async function initDb(): Promise<void> {
   }
   if (!futureColNames.includes('activity_type')) {
     db.runSync(`ALTER TABLE future_spots ADD COLUMN activity_type TEXT`);
+  }
+  if (!futureColNames.includes('address')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN address TEXT`);
   }
 }
 

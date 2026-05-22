@@ -75,6 +75,9 @@ export async function syncFutureSpotToCloud(spotId: string): Promise<void> {
     canonical_lat: row.canonical_lat ?? null,
     canonical_lng: row.canonical_lng ?? null,
     resolution_status: row.resolution_status ?? 'pending',
+    address: row.address ?? null,
+    activity_type: row.activity_type ?? null,
+    occasion_type: row.occasion_type ?? null,
   });
   if (error) console.warn('[sync] future_spot upsert:', error.message);
 }

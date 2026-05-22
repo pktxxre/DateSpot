@@ -413,7 +413,7 @@ create table if not exists public.reactions (
 );
 
 alter table public.reactions enable row level security;
-create policy "read reactions" on public.reactions for select using (true);
+create policy "read reactions" on public.reactions for select to authenticated using (true);
 create policy "insert own reaction" on public.reactions for insert with check (auth.uid() = user_id);
 create policy "delete own reaction" on public.reactions for delete using (auth.uid() = user_id);
 
@@ -445,6 +445,7 @@ declare
 begin
   select * into req from public.friends where id = request_id;
   if req is null then raise exception 'request not found'; end if;
+  if req.friend_id is distinct from auth.uid() then raise exception 'not authorized'; end if;
   update public.friends set status = 'accepted' where id = request_id;
   insert into public.friends (user_id, friend_id, status)
   values (req.friend_id, req.user_id, 'accepted')
