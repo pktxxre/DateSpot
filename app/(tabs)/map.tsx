@@ -993,7 +993,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const preview = visit.notes?.trim().slice(0, 70) ?? null;
   return (
-    <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${visit.id}`)}>
+    <View style={styles.visitBanner}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -1013,7 +1013,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
           <Ionicons name="close" size={18} color={T.muted} />
         </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -1078,7 +1078,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
         <Ionicons name="bookmark" size={13} color="#5856d6" />
         <Text style={styles.savedToastText}>Saved!</Text>
       </Animated.View>
-      <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${spot.id}`)}>
+      <View style={styles.visitBanner}>
         <View style={styles.visitBannerInner}>
           <View style={styles.visitBannerBody}>
             <View style={styles.visitBannerTop}>
@@ -1108,7 +1108,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
             </Pressable>
           </View>
         </View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -1424,7 +1424,7 @@ function FutureDetail({ spot, onClose, onDelete }: {
   return (
     <View style={styles.visitBanner}>
       <View style={styles.visitBannerInner}>
-        <Pressable style={styles.visitBannerBody} onPress={() => router.push(`/future/${spot.id}` as any)}>
+        <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
             <Text style={styles.visitBannerName} numberOfLines={1}>{spot.venue_name}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -1433,7 +1433,7 @@ function FutureDetail({ spot, onClose, onDelete }: {
             </View>
           </View>
           <Text style={styles.visitBannerMeta}>Added {friendlyDate(spot.created_at)}</Text>
-        </Pressable>
+        </View>
         <View style={styles.visitBannerActions}>
           <Pressable onPress={handleLog} hitSlop={8} style={styles.visitBannerActionBtn}>
             <Ionicons name="add" size={20} color={T.accent} />

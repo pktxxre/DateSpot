@@ -11,6 +11,7 @@ import {
 } from '@/lib/future';
 import { friendlyDate, ACTIVITY_TYPES, OCCASION_TYPES } from '@/lib/visits';
 import { T } from '@/lib/theme';
+import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
 
 const H_PAD = 20;
 
@@ -20,7 +21,6 @@ export default function FutureSpotDetailScreen() {
   const [spot, setSpot] = useState<FutureSpot | null>(() =>
     id ? getFutureSpotById(id as string) : null
   );
-  const [mapExpanded, setMapExpanded] = useState(false);
   const [editingTypes, setEditingTypes] = useState(false);
   const [draftActivity, setDraftActivity] = useState<string | null>(null);
   const [draftOccasion, setDraftOccasion] = useState<string | null>(null);
@@ -49,6 +49,11 @@ export default function FutureSpotDetailScreen() {
     updateFutureSpotTypes(spot!.id, draftActivity, draftOccasion);
     setSpot(s => s ? { ...s, activity_type: draftActivity, occasion_type: draftOccasion } : s);
     setEditingTypes(false);
+  }
+
+  function handleLog() {
+    scheduleOpenLogWithLocation(spot!.venue_name, spot!.lat, spot!.lng, spot!.activity_type, spot!.occasion_type);
+    router.back();
   }
 
   function handleDelete() {
@@ -92,11 +97,15 @@ export default function FutureSpotDetailScreen() {
           <Text style={styles.venueName}>{spot.venue_name}</Text>
           <Text style={styles.dateStr}>Added {dateStr}</Text>
 
-          <View style={styles.tags}>
+          <View style={styles.tagsRow}>
             <View style={styles.tag}>
               <Ionicons name="bookmark" size={13} color="#5856d6" style={{ marginRight: 4 }} />
               <Text style={[styles.tagText, { color: '#5856d6' }]}>Want to go</Text>
             </View>
+            <Pressable style={styles.logBtn} onPress={handleLog} hitSlop={8}>
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.logBtnText}>Log</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -136,7 +145,7 @@ export default function FutureSpotDetailScreen() {
         {/* Map */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Location</Text>
-          <Pressable style={styles.mapCard} onPress={() => setMapExpanded(true)}>
+          <View style={styles.mapCard}>
             <MapView
               style={StyleSheet.absoluteFill}
               region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
@@ -150,11 +159,7 @@ export default function FutureSpotDetailScreen() {
                 </View>
               </Marker>
             </MapView>
-            <View style={styles.mapHint}>
-              <Ionicons name="expand-outline" size={12} color="#fff" />
-              <Text style={styles.mapHintText}>Expand</Text>
-            </View>
-          </Pressable>
+          </View>
           {spot.address ? spot.address.split('\n').map((line, i) => (
             <Text key={i} style={styles.mapAddress}>{line}</Text>
           )) : null}
@@ -211,33 +216,6 @@ export default function FutureSpotDetailScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Full-screen map modal */}
-      <Modal visible={mapExpanded} animationType="slide">
-        <View style={styles.fullMap}>
-          <MapView
-            style={StyleSheet.absoluteFill}
-            initialRegion={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
-            showsUserLocation={false} showsPointsOfInterest={false} mapType="standard"
-          >
-            <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-              <View style={styles.pin}>
-                <Ionicons name="bookmark" size={14} color="#fff" />
-              </View>
-            </Marker>
-          </MapView>
-          <SafeAreaView style={styles.modalOverlay} edges={['top']} pointerEvents="box-none">
-            <View style={styles.modalHeader} pointerEvents="auto">
-              <Pressable onPress={() => setMapExpanded(false)} hitSlop={16} style={styles.modalBackBtn}>
-                <Ionicons name="chevron-back" size={22} color="#1c1c1e" />
-              </Pressable>
-              <View style={styles.modalPill}>
-                <Text style={styles.modalPillText} numberOfLines={1}>{spot.venue_name}</Text>
-              </View>
-              <View style={{ width: 44 }} />
-            </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -261,6 +239,7 @@ const styles = StyleSheet.create({
   },
   dateStr: { fontSize: 14, color: T.muted, fontWeight: '500', marginBottom: 14 },
 
+  tagsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
     flexDirection: 'row', alignItems: 'center',
@@ -268,6 +247,12 @@ const styles = StyleSheet.create({
     borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
   },
   tagText: { fontSize: 13, fontWeight: '600' },
+  logBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: T.accent, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 6,
+  },
+  logBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
   section: { paddingHorizontal: H_PAD, marginTop: 22 },
   sectionLabel: {
@@ -283,14 +268,6 @@ const styles = StyleSheet.create({
   notesText: { fontSize: 15, color: T.primary, lineHeight: 23 },
 
   mapCard: { height: 140, borderRadius: 14, overflow: 'hidden', backgroundColor: '#e8e8ed' },
-  mapHint: {
-    position: 'absolute', bottom: 10, right: 10,
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20,
-    paddingHorizontal: 9, paddingVertical: 4,
-  },
-  mapHintText: { fontSize: 11, fontWeight: '600', color: '#fff' },
-
   pin: {
     width: 38, height: 38, borderRadius: 19,
     alignItems: 'center', justifyContent: 'center',
@@ -336,18 +313,4 @@ const styles = StyleSheet.create({
   btnSecondary: { flex: 1, backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },
 
-  fullMap: { flex: 1 },
-  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, gap: 8 },
-  modalBackBtn: {
-    width: 44, height: 44, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 6,
-  },
-  modalPill: {
-    flex: 1, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 22,
-    paddingHorizontal: 14, paddingVertical: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6,
-  },
-  modalPillText: { fontSize: 15, fontWeight: '600', color: '#1c1c1e', textAlign: 'center' },
 });
