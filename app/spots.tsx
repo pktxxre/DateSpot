@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable,
   FlatList, useWindowDimensions,
@@ -15,8 +15,8 @@ import { T } from '@/lib/theme';
 
 type PriceFilter = 0 | 1 | 2 | 3 | null;
 
-const SK_BASE = '#E8DDD0';
-const SK_LIGHT = '#F6F1E8';
+const SK_BASE = '#EAE4D9';
+const SK_LIGHT = '#F8F4EC';
 
 function SkBox({
   shimmer,
@@ -37,7 +37,7 @@ function SkBox({
     <View style={[{ width: w, height: h, backgroundColor: SK_BASE, overflow: 'hidden', borderRadius: r }, style]}>
       <Animated.View
         style={[
-          { position: 'absolute', top: 0, left: 0, bottom: 0, width: screenW * 0.45, backgroundColor: SK_LIGHT, opacity: 0.85 },
+          { position: 'absolute', top: 0, left: 0, bottom: 0, width: screenW * 0.6, backgroundColor: SK_LIGHT, opacity: 0.95 },
           shimmer,
         ]}
       />
@@ -47,11 +47,11 @@ function SkBox({
 
 function SpotsSkeleton() {
   const { width: screenW } = useWindowDimensions();
-  const offset = useSharedValue(-screenW);
+  const offset = useSharedValue(-screenW * 0.65);
 
   useEffect(() => {
     offset.value = withRepeat(
-      withTiming(screenW, { duration: 1100, easing: Easing.linear }),
+      withTiming(screenW, { duration: 1800, easing: Easing.linear }),
       -1,
       false,
     );
@@ -66,21 +66,6 @@ function SpotsSkeleton() {
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      {/* Category chips */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, paddingBottom: 12, gap: 8 }}>
-        {[68, 54, 88, 78, 106, 56].map((w, i) => (
-          <SkBox key={i} shimmer={shimmer} w={w} h={32} r={20} screenW={screenW} />
-        ))}
-      </View>
-
-      {/* Price filter */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, paddingBottom: 12, gap: 10, marginBottom: 8 }}>
-        {sk(38, 10, 2)}
-        {[38, 28, 34, 46].map((w, i) => (
-          <SkBox key={i} shimmer={shimmer} w={w} h={32} r={20} screenW={screenW} />
-        ))}
-      </View>
-
       {/* Spot rows */}
       <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
         {Array.from({ length: ROWS }).map((_, i) => (
@@ -139,21 +124,15 @@ export default function SpotsScreen() {
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [priceFilter, setPriceFilter] = useState<PriceFilter>(null);
+  const listRef = useRef<FlatList>(null);
+  function selectCategory(value: string | null) {
+    setCategoryFilter(value);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }
 
   useEffect(() => {
     getSeedSpotsRaw().then(data => {
-      // Cap at top 50 per category by rating
-      const byCategory = new Map<string, SeedSpot[]>();
-      for (const spot of data) {
-        if (!byCategory.has(spot.activity_type)) byCategory.set(spot.activity_type, []);
-        byCategory.get(spot.activity_type)!.push(spot);
-      }
-      const capped: SeedSpot[] = [];
-      for (const spots of byCategory.values()) {
-        const sorted = [...spots].sort((a, b) => b.rating - a.rating);
-        capped.push(...sorted.slice(0, 50));
-      }
-      setSeeds(capped);
+      setSeeds(data);
       setLoading(false);
     });
   }, []);
@@ -169,7 +148,8 @@ export default function SpotsScreen() {
       if (priceFilter !== null && s.price !== priceFilter) return false;
       return true;
     })
-    .sort((a, b) => b.rating - a.rating);
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, 50);
 
   return (
     <>
@@ -189,58 +169,57 @@ export default function SpotsScreen() {
         </View>
 
         {/* Category filter chips */}
-        {!loading && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={s.chipScroll}
-            contentContainerStyle={s.chipRow}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={s.catScroll}
+          contentContainerStyle={s.catRow}
+        >
+          <Pressable
+            style={[s.catChip, categoryFilter === null && s.catChipActive]}
+            onPress={() => selectCategory(null)}
           >
-            <Pressable
-              style={[s.chip, categoryFilter === null && s.chipActive]}
-              onPress={() => setCategoryFilter(null)}
-            >
-              <Text style={[s.chipText, categoryFilter === null && s.chipTextActive]}>
-                All {seeds.length > 0 ? seeds.length : ''}
-              </Text>
-            </Pressable>
-            {SEED_VENUE_TYPES.map(a => {
-              const count = categoryCounts[a.value] ?? 0;
-              if (count === 0) return null;
-              const active = categoryFilter === a.value;
-              return (
-                <Pressable
-                  key={a.value}
-                  style={[s.chip, active && s.chipActive]}
-                  onPress={() => setCategoryFilter(active ? null : a.value)}
-                >
-                  <Text style={[s.chipText, active && s.chipTextActive]}>
-                    {CATEGORY_LABELS[a.value] ?? a.label} {count}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
+            <Text style={[s.catText, categoryFilter === null && s.catTextActive]}>All</Text>
+          </Pressable>
+          {SEED_VENUE_TYPES.map(a => {
+            const active = categoryFilter === a.value;
+            return (
+              <Pressable
+                key={a.value}
+                style={[s.catChip, active && s.catChipActive]}
+                onPress={() => selectCategory(active ? null : a.value)}
+              >
+                <Text style={[s.catText, active && s.catTextActive]}>
+                  {CATEGORY_LABELS[a.value] ?? a.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {/* Price filter row */}
+        <View style={s.priceRow}>
+          <Text style={s.priceLabel}>PRICE</Text>
+          {([1, 2, 3, 0] as Price[]).map(p => {
+            const active = priceFilter === p;
+            const label = PRICE_LABELS[p];
+            return (
+              <Pressable
+                key={p}
+                style={[s.chip, active && s.chipActiveSub]}
+                onPress={() => setPriceFilter(active ? null : p as PriceFilter)}
+              >
+                <Text style={[s.chipText, active && s.chipTextActiveSub]}>{label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Section header */}
         {!loading && (
-          <View style={s.priceRow}>
-            <Text style={s.priceLabel}>PRICE</Text>
-            {([1, 2, 3, 0] as Price[]).map(p => {
-              const active = priceFilter === p;
-              const label = PRICE_LABELS[p];
-              return (
-                <Pressable
-                  key={p}
-                  style={[s.chip, active && s.chipActive]}
-                  onPress={() => setPriceFilter(active ? null : p as PriceFilter)}
-                >
-                  <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <Text style={s.listHeader}>
+            Top 50 spots{categoryFilter ? <Text style={s.listHeaderCategory}> · {CATEGORY_LABELS[categoryFilter] ?? categoryFilter}</Text> : ''}
+          </Text>
         )}
 
         {/* Spot list */}
@@ -249,12 +228,13 @@ export default function SpotsScreen() {
         ) : filtered.length === 0 ? (
           <View style={s.emptyWrap}>
             <Text style={s.emptyText}>No spots match</Text>
-            <Pressable onPress={() => { setCategoryFilter(null); setPriceFilter(null); }}>
+            <Pressable onPress={() => { selectCategory(null); setPriceFilter(null); }}>
               <Text style={s.emptyLink}>Clear filters</Text>
             </Pressable>
           </View>
         ) : (
           <FlatList
+            ref={listRef}
             data={filtered}
             keyExtractor={item => item.id}
             showsVerticalScrollIndicator={false}
@@ -320,14 +300,26 @@ const s = StyleSheet.create({
   },
   headerSpacer: { width: 36 },
 
-  chipScroll: { flexGrow: 0, flexShrink: 0 },
-  chipRow: {
+  catScroll: { flexGrow: 0, flexShrink: 0 },
+  catRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    paddingBottom: 12,
+    paddingVertical: 8,
+    paddingBottom: 10,
     gap: 8,
   },
+  catChip: {
+    paddingHorizontal: 20,
+    paddingVertical: 9,
+    borderRadius: 50,
+    backgroundColor: T.bg,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  catChipActive: { backgroundColor: '#E76F51', borderColor: '#E76F51' },
+  catText: { fontSize: 14, fontWeight: '600', color: T.muted },
+  catTextActive: { color: '#fff' },
+
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
@@ -336,9 +328,12 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: T.border,
   },
-  chipActive: { backgroundColor: '#4B3621', borderColor: '#4B3621' },
-  chipText: { fontSize: 13, fontWeight: '500', color: T.muted },
-  chipTextActive: { color: '#fff', fontWeight: '600' },
+  chipActive: { backgroundColor: '#E76F51', borderColor: '#E76F51' },
+  chipText: { fontSize: 13, fontWeight: '600', color: T.muted },
+  chipTextActive: { color: '#fff' },
+
+  chipActiveSub: { backgroundColor: 'rgba(231,111,81,0.12)', borderColor: '#E76F51' },
+  chipTextActiveSub: { color: '#E76F51' },
 
   priceRow: {
     flexDirection: 'row',
@@ -355,6 +350,20 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: T.muted,
     letterSpacing: 1.2,
+  },
+
+  listHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 10,
+    fontSize: 18,
+    fontWeight: '700',
+    color: T.primary,
+    fontFamily: 'InstrumentSerif-Regular',
+  },
+  listHeaderCategory: {
+    color: T.muted,
+    fontWeight: '400',
   },
 
   listContent: {

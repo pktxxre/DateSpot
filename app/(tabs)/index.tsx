@@ -12,6 +12,7 @@ import { getAllStacks, StackSummary } from '@/lib/stacks';
 import { getProfile } from '@/lib/profile';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { T } from '@/lib/theme';
+import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_W = SCREEN_W - 40;
@@ -151,6 +152,7 @@ export default function HomeScreen() {
   const isSearching = search.trim().length > 0;
 
   return (
+    <TabSlideWrapper myIndex={0}>
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Header */}
       <View style={s.header}>
@@ -337,6 +339,7 @@ export default function HomeScreen() {
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
+    </TabSlideWrapper>
   );
 }
 

@@ -48,6 +48,8 @@ import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } fro
 import { getProfile, saveProfile } from '@/lib/profile';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
+import { SlidingPills } from '@/components/SlidingPills';
+import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 
 interface NominatimResult {
   place_id: number;
@@ -74,7 +76,7 @@ const CITY_REGIONS: Record<string, Region> = {
   'Seattle, WA': SEATTLE_REGION,
 };
 
-type Step = 'mode-select' | 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name';
+type Step = 'mode-select' | 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name' | 'future-details';
 type MapFilter = 'been' | 'want' | 'spots';
 type SpotsCategory = string;
 
@@ -234,7 +236,7 @@ export default function MapScreen() {
   );
 
   useEffect(() => {
-    if (step === null || step === 'mode-select' || step === 'location' || step === 'future-pin' || step === 'future-name') return;
+    if (step === null || step === 'mode-select' || step === 'location' || step === 'future-pin' || step === 'future-name' || step === 'future-details') return;
     saveDraft({ ...draft, step, savedAt: new Date().toISOString() });
   }, [step, draft]);
 
@@ -330,6 +332,9 @@ export default function MapScreen() {
       venue_name: draft.venue_name.trim(),
       lat,
       lng,
+      notes: draft.notes?.trim() || undefined,
+      activity_type: draft.activity_type ?? null,
+      occasion_type: draft.occasion_type ?? null,
       created_at: new Date().toISOString(),
     });
     setFutureSpots(getAllFutureSpots());
@@ -379,8 +384,9 @@ export default function MapScreen() {
       { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
       500
     );
-    setStep('future-name');
-    sheetRef.current?.snapToIndex(1);
+    toModalRef.current = true;
+    setStep('future-details');
+    sheetRef.current?.close();
   }
 
   function handleDropPin() {
@@ -405,8 +411,9 @@ export default function MapScreen() {
       setGeocodeLoading(false);
     });
     if (step === 'future-pin' || mapFilter === 'want') {
-      setStep('future-name');
-      sheetRef.current?.snapToIndex(1);
+      toModalRef.current = true;
+      setStep('future-details');
+      sheetRef.current?.close();
     } else {
       setDraft((d) => ({ ...d, isPinOnly: true }));
       toModalRef.current = true;
@@ -626,6 +633,7 @@ export default function MapScreen() {
   const snapPoints = ['12%', '68%', '95%'];
 
   return (
+    <TabSlideWrapper myIndex={3}>
     <View style={styles.container}>
       <MapView
         ref={mapRef}
@@ -758,25 +766,23 @@ export default function MapScreen() {
       {/* Filter toggle */}
       {step === null && (
         <View style={styles.filterRow} pointerEvents="box-none">
-          <View style={styles.filterPills} pointerEvents="auto">
-            <Pressable
-              style={[styles.filterPill, mapFilter === 'been' && styles.filterPillActive]}
-              onPress={() => { setMapFilter('been'); setSelectedFuture(null); setSelectedVisit(null); setSelectedSeedSpot(null); }}
-            >
-              <Text style={[styles.filterPillText, mapFilter === 'been' && styles.filterPillTextActive]}>Been To</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.filterPill, mapFilter === 'want' && styles.filterPillActive]}
-              onPress={() => { setMapFilter('want'); setSelectedVisit(null); setSelectedFuture(null); setSelectedSeedSpot(null); }}
-            >
-              <Text style={[styles.filterPillText, mapFilter === 'want' && styles.filterPillTextActive]}>Want to Go</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.filterPill, mapFilter === 'spots' && styles.filterPillActive]}
-              onPress={() => { setMapFilter('spots'); setSelectedVisit(null); setSelectedFuture(null); setSpotsCategory('all'); }}
-            >
-              <Text style={[styles.filterPillText, mapFilter === 'spots' && styles.filterPillTextActive]}>Top Spots</Text>
-            </Pressable>
+          <View pointerEvents="auto">
+            <SlidingPills
+              options={[
+                { label: 'Been To', value: 'been' },
+                { label: 'Want to Go', value: 'want' },
+                { label: 'Top Spots', value: 'spots' },
+              ]}
+              value={mapFilter}
+              onChange={v => {
+                setMapFilter(v as typeof mapFilter);
+                setSelectedFuture(null);
+                setSelectedVisit(null);
+                setSelectedSeedSpot(null);
+                if (v === 'spots') setSpotsCategory('all');
+              }}
+              style={styles.filterPillsShadow}
+            />
           </View>
           {mapFilter === 'spots' && (
             <ScrollView
@@ -865,14 +871,24 @@ export default function MapScreen() {
 
       {/* Modal overlay for steps 2-5 */}
       <Modal
-        visible={['details', 'triage', 'compare', 'done'].includes(step ?? '')}
+        visible={['details', 'triage', 'compare', 'done', 'future-details'].includes(step ?? '')}
         transparent
         animationType="fade"
         statusBarTranslucent
       >
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalOverlay}>
-            {step === 'details' ? (
+            {step === 'future-details' ? (
+              <View style={styles.modalCardCompact}>
+                <FutureDetailsStep
+                  draft={draft}
+                  onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
+                  onSave={saveFutureSpot}
+                  onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
+                  geocodeLoading={geocodeLoading}
+                />
+              </View>
+            ) : step === 'details' ? (
               <View style={styles.modalCard}>
                 <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: stepAnim }] }]}>
                   <DetailsStep
@@ -946,6 +962,7 @@ export default function MapScreen() {
         />
       )}
     </View>
+    </TabSlideWrapper>
   );
 }
 
@@ -1229,6 +1246,62 @@ function LocationStep({ onDropPin, onSelect, onBack, region }: {
         </Pressable>
         <Pressable onPress={onBack}>
           <Text style={[styles.pinFallbackText, { color: T.muted }]}>Back</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading }: {
+  draft: Partial<DraftVisit>;
+  onChange: (key: string, val: any) => void;
+  onSave: () => void;
+  onBack: () => void;
+  geocodeLoading: boolean;
+}) {
+  return (
+    <View style={styles.stepContainer}>
+      <Text style={styles.stepTitle}>Save for later</Text>
+      <Text style={styles.stepSubtitle}>{draft.venue_name || (geocodeLoading ? 'Looking up…' : '')}</Text>
+
+      <Text style={styles.sectionLabel}>Category</Text>
+      <View style={styles.chipWrap}>
+        {ACTIVITY_TYPES.map((a) => {
+          const selected = draft.activity_type === a.value;
+          return (
+            <Pressable
+              key={a.value}
+              style={[styles.chip, selected && styles.chipSelected]}
+              onPress={() => onChange('activity_type', selected ? null : a.value)}
+            >
+              <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={styles.sectionLabel}>What kind of date?</Text>
+      <View style={styles.occasionRow}>
+        {OCCASION_TYPES.map((a) => {
+          const selected = draft.occasion_type === a.value;
+          return (
+            <Pressable
+              key={a.value}
+              style={[styles.occasionBtn, selected && styles.occasionBtnSelected]}
+              onPress={() => onChange('occasion_type', selected ? null : a.value)}
+            >
+              <Text style={[styles.occasionLabel, selected && styles.occasionLabelSelected]}>{a.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={[styles.btnRow, { marginTop: 20 }]}>
+        <Pressable style={styles.btnSecondary} onPress={onBack}>
+          <Text style={styles.btnSecondaryText}>Back</Text>
+        </Pressable>
+        <Pressable style={styles.btnPrimary} onPress={onSave}>
+          <Text style={styles.btnPrimaryText}>Save</Text>
         </Pressable>
       </View>
     </View>
@@ -1884,19 +1957,10 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 56, left: 0, right: 0,
     alignItems: 'center', gap: 8,
   },
-  filterPills: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderRadius: 20, padding: 3,
+  filterPillsShadow: {
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12, shadowRadius: 6,
   },
-  filterPill: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 17,
-  },
-  filterPillActive: { backgroundColor: T.accent },
-  filterPillText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  filterPillTextActive: { color: '#fff' },
 
   categoryRow: { maxHeight: 40 },
   categoryRowContent: {
@@ -1905,12 +1969,16 @@ const styles = StyleSheet.create({
   categoryPill: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.92)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08, shadowRadius: 3,
   },
-  categoryPillActive: { backgroundColor: '#F5A623' },
+  categoryPillActive: {
+    backgroundColor: 'rgba(231,111,81,0.12)',
+    borderColor: '#E76F51',
+  },
   categoryPillText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  categoryPillTextActive: { color: '#fff' },
+  categoryPillTextActive: { color: '#E76F51' },
 
 
   pinHint: {

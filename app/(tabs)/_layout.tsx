@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Tabs, router } from 'expo-router';
+import { tabNav } from '@/lib/tabTransition';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleOpenLog } from './map';
@@ -138,6 +139,7 @@ export default function TabLayout() {
             <Ionicons name="home-outline" size={size} color={color} />
           ),
         }}
+        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 0; } }}
       />
       <Tabs.Screen
         name="lists"
@@ -147,6 +149,7 @@ export default function TabLayout() {
             <Ionicons name="list" size={size} color={color} />
           ),
         }}
+        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 1; } }}
       />
       <Tabs.Screen
         name="add"
@@ -164,6 +167,7 @@ export default function TabLayout() {
             <Ionicons name="map" size={size} color={color} />
           ),
         }}
+        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 3; } }}
       />
       <Tabs.Screen
         name="friends"
@@ -173,6 +177,7 @@ export default function TabLayout() {
             <Ionicons name="people-outline" size={size} color={color} />
           ),
         }}
+        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 4; } }}
       />
       <Tabs.Screen
         name="profile"

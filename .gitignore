@@ -19,3 +19,6 @@ android/build/
 web-build/
 .env
 .env.local
+.DS_Store
+.Rhistory
+supabase/.temp/
