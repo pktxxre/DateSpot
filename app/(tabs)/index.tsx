@@ -368,10 +368,30 @@ export default function HomeScreen() {
 
 function HomeCategorySkeleton() {
   const { shimmer, screenW } = useShimmer();
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} screenW={screenW} w={w} h={h} r={r ?? 4} style={style} />
+  );
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 12, paddingVertical: 4 }} scrollEnabled={false}>
-      {[140, 160, 140, 155].map((w, i) => (
-        <SkBox key={i} shimmer={shimmer} screenW={screenW} w={w} h={180} r={16} />
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 16, paddingRight: 16, gap: 12, paddingVertical: 4 }} scrollEnabled={false}>
+      {[0, 1].map(i => (
+        <View key={i} style={{ width: CARD_W, borderRadius: 16, overflow: 'hidden', backgroundColor: T.card, borderWidth: 1, borderColor: T.border }}>
+          {/* Hero — exact height of categoryHero */}
+          {sk(CARD_W, 130, 0)}
+          {/* 3 spot rows — matches spotRow padding + text heights */}
+          {[0, 1, 2].map(j => (
+            <View key={j}>
+              {j > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border }} />}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, gap: 8 }}>
+                {sk(16, 17, 2)}
+                <View style={{ flex: 1, gap: 4 }}>
+                  {sk('60%', 20, 3)}
+                  {sk('30%', 13, 3)}
+                </View>
+                {sk(36, 22, 10)}
+              </View>
+            </View>
+          ))}
+        </View>
       ))}
     </ScrollView>
   );

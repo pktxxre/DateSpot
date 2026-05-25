@@ -540,9 +540,9 @@ function SpotDetailSkeleton() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={{ backgroundColor: '#8B7B6B', paddingTop: 96, paddingBottom: 10 }}>
         <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-          {sk(100, 11, 3, { marginBottom: 6 })}
-          {sk(200, 26, 4, { marginBottom: 4 })}
-          {sk(80, 13, 3)}
+          {sk(100, 15, 3, { marginBottom: 6 })}
+          {sk(200, 30, 4, { marginBottom: 4 })}
+          {sk(80, 17, 3)}
         </View>
       </View>
       <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, flex: 1 }}>
