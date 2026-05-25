@@ -391,7 +391,7 @@ function ImpressionBox({ label, color, selected }: { label: string; color: strin
       shadowColor: color, shadowOffset: { width: 0, height: 8 }, shadowRadius: 14, shadowOpacity: selected ? 0.38 : 0, elevation: selected ? 4 : 0,
       transform: [{ scale: selected ? 1.04 : 1 }],
     }}>
-      <Text style={{ fontFamily: Fonts.serif, fontWeight: '800', fontSize: 17, color, letterSpacing: -0.3 }}>{label}</Text>
+      <Text style={{ fontFamily: Fonts.serif, fontWeight: '400', fontSize: 17, color, letterSpacing: -0.3 }}>{label}</Text>
     </View>
   );
 }
@@ -504,7 +504,7 @@ function SpotListRow({ spot, selected }: { spot: typeof SAMPLE_SPOTS[0]; selecte
         {selected && <Ionicons name="checkmark" size={13} color="#fff" />}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: Fonts.serif, fontSize: 14, color: WT.primary, fontWeight: '500', lineHeight: 16 }} numberOfLines={1}>{spot.name}</Text>
+        <Text style={{ fontFamily: Fonts.serif, fontSize: 14, color: WT.primary, fontWeight: '400', lineHeight: 16 }} numberOfLines={1}>{spot.name}</Text>
         <Text style={{ fontSize: 10.5, color: WT.muted, marginTop: 2, letterSpacing: 0.2 }}>
           {spot.cat[0].toUpperCase() + spot.cat.slice(1)} · {spot.price} · Today
         </Text>
@@ -543,7 +543,7 @@ function TierSquare({ letter, highlight }: { letter: string; highlight?: boolean
       transform: [{ scale: highlight ? 1.06 : 1 }],
     }}>
       <View style={{ aspectRatio: 1, backgroundColor: tier.c, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 24, fontWeight: '700', letterSpacing: -0.5 }}>{letter}</Text>
+        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 24, fontWeight: '400', letterSpacing: -0.5 }}>{letter}</Text>
       </View>
     </View>
   );
@@ -570,14 +570,14 @@ function TierResultRow({ letter, stacks }: { letter: string; stacks: number }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: tier.wash, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, minHeight: 40 }}>
       <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: tier.c, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 18, fontWeight: '700' }}>{letter}</Text>
+        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 18, fontWeight: '400' }}>{letter}</Text>
       </View>
       <Text style={{ fontSize: 8.5, fontWeight: '700', letterSpacing: 0.9, color: WT.muted, textTransform: 'uppercase' }}>
         {stacks} STACK{stacks !== 1 ? 'S' : ''}
       </Text>
       {stacks > 0 && (
         <View style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 1.5, borderColor: WT.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}>
-          <Text style={{ fontFamily: Fonts.serif, fontWeight: '700', fontSize: 12, color: WT.accent }}>O</Text>
+          <Text style={{ fontFamily: Fonts.serif, fontWeight: '400', fontSize: 12, color: WT.accent }}>O</Text>
         </View>
       )}
     </View>
@@ -649,7 +649,7 @@ function CompareShowcase({ active }: { active: boolean }) {
     <Card bg={WT.card}>
       {/* Title — matches real app exactly */}
       <View style={{ alignItems: 'center', paddingTop: 22, paddingBottom: 0 }}>
-        <Text style={{ fontFamily: Fonts.serif, fontSize: 22, color: WT.primary, fontWeight: '500', letterSpacing: -0.4 }}>
+        <Text style={{ fontFamily: Fonts.serif, fontSize: 22, color: WT.primary, fontWeight: '400', letterSpacing: -0.4 }}>
           Which was better?
         </Text>
         <Text style={{ fontSize: 12, color: WT.muted, marginTop: 6 }}>Step 4 of 5</Text>
@@ -766,7 +766,7 @@ const s = StyleSheet.create({
   caption: { paddingHorizontal: 30, marginTop: 24 },
   eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 12 },
   pageTitle: {
-    fontFamily: Fonts.serif, fontWeight: '500',
+    fontFamily: Fonts.serif, fontWeight: '400',
     fontSize: 30, lineHeight: 33, letterSpacing: -0.8, color: WT.primary,
   },
   pageBody: { marginTop: 14, fontSize: 15.5, lineHeight: 24, color: WT.muted },

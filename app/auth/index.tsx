@@ -655,7 +655,7 @@ const c = StyleSheet.create({
 
   welcomeWrap: { flex: 1, padding: 24, justifyContent: 'space-between' },
   welcomeHero: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  logo: { fontSize: 40, fontFamily: 'InstrumentSerif-Regular', fontWeight: '700', color: '#fff', letterSpacing: -1 },
+  logo: { fontSize: 40, fontFamily: 'Fraunces-Regular', fontWeight: '400', color: '#fff', letterSpacing: -1 },
   logoSub: { fontSize: 16, color: 'rgba(255,255,255,0.72)', textAlign: 'center', lineHeight: 24 },
   welcomeActions: { gap: 10 },
   ghostBtn: { borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
@@ -663,7 +663,7 @@ const c = StyleSheet.create({
 
   formWrap: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16 },
   stepTitle: {
-    fontSize: 23, fontFamily: 'InstrumentSerif-Regular', fontWeight: '700',
+    fontSize: 23, fontFamily: 'Fraunces-Regular', fontWeight: '400',
     color: '#fff', letterSpacing: -0.3, marginBottom: 6, lineHeight: 30,
   },
   stepSub: { fontSize: 15, color: 'rgba(255,255,255,0.65)', lineHeight: 22 },

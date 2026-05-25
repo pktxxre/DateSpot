@@ -28,8 +28,7 @@ export function scheduleOpenFutureDate() {
   else { _pendingOpenFuture = true; }
 }
 export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) {
-  if (_openLogWithLocationCallback) { _openLogWithLocationCallback(name, lat, lng, activityType, occasionType); }
-  else { _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType }; }
+  _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType };
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -48,6 +47,7 @@ import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
 import { SlidingPills } from '@/components/SlidingPills';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
+import { scheduleNewStack } from '@/lib/stackCreation';
 
 interface NominatimAddress {
   house_number?: string;
@@ -71,13 +71,46 @@ interface NominatimResult {
   address?: NominatimAddress;
 }
 
+const STATE_ABBREV: Record<string, string> = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+  'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+  'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
+  'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
+  'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+  'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+  'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+  'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+  'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+  'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
+  'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
+};
+
 function buildAddressString(a?: NominatimAddress): string {
   if (!a) return '';
   const street = [a.house_number, a.road].filter(Boolean).join(' ');
-  const city = a.city || a.town || a.village || a.county || '';
-  const region = [city, a.state].filter(Boolean).join(', ');
+  const city = a.city || a.town || a.village || '';
+  const state = STATE_ABBREV[a.state ?? ''] ?? a.state ?? '';
+  const region = [city, state].filter(Boolean).join(', ');
   const line2 = a.postcode ? `${region} ${a.postcode}` : region;
   return [street, line2].filter(Boolean).join('\n');
+}
+
+export function cleanAddress(addr: string): string {
+  return addr
+    .split('\n')
+    .map(line => {
+      let l = line.trim();
+      // Abbreviate full state names
+      for (const [full, abbr] of Object.entries(STATE_ABBREV)) {
+        l = l.replace(new RegExp(`\\b${full}\\b`, 'g'), abbr);
+      }
+      return l;
+    })
+    .filter(line => !/^United States$/i.test(line))
+    .filter(line => !/^[A-Za-z\s]+County$/.test(line.trim()))
+    .join('\n');
 }
 
 
@@ -144,7 +177,7 @@ export default function MapScreen() {
   const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
   const [seedSpots, setSeedSpots] = useState<SeedSpot[]>([]);
   const [mapFilter, setMapFilter] = useState<MapFilter>('been');
-  const [spotsCategory, setSpotsCategory] = useState<SpotsCategory>('all');
+  const [spotsCategories, setSpotsCategories] = useState<string[]>([]);
   const [selectedSeedSpot, setSelectedSeedSpot] = useState<SeedSpot | null>(null);
   const [region, setRegion] = useState<Region>(SEATTLE_REGION);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
@@ -196,6 +229,7 @@ export default function MapScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setMapFilter('been');
       setVisits(getAllVisits());
       setFutureSpots(getAllFutureSpots());
       getSeedSpotsRaw().then(setSeedSpots);
@@ -220,6 +254,8 @@ export default function MapScreen() {
         setDraft({ venue_name: name, lat, lng, ...(activityType ? { activity_type: activityType as ActivityType } : {}), ...(occasionType ? { occasion_type: occasionType as OccasionType } : {}) });
         toModalRef.current = true;
         setStep('details');
+        sheetRef.current?.close();
+        return;
       }
       if (_skipNextResumePrompt) {
         _skipNextResumePrompt = false;
@@ -564,9 +600,9 @@ export default function MapScreen() {
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
-  const displayedSeedSpots = spotsCategory === 'all'
+  const displayedSeedSpots = spotsCategories.length === 0
     ? seedSpots.slice(0, 100)
-    : seedSpots.filter(s => s.activity_type === spotsCategory);
+    : seedSpots.filter(s => spotsCategories.includes(s.activity_type ?? ''));
 
   type ClusterItem =
     | { kind: 'spot'; spot: SeedSpot }
@@ -713,12 +749,14 @@ export default function MapScreen() {
         {mapFilter === 'want' && futureSpots.map((s) => {
           const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
           const labelSide = wantLabelSides.get(s.id) ?? 'right';
+          const isSelected = selectedFuture?.id === s.id;
           return (
             <Marker
-              key={s.id}
+              key={isSelected ? `sel-${s.id}` : s.id}
               coordinate={{ latitude: s.lat, longitude: s.lng }}
               tracksViewChanges={false}
               anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={isSelected ? 9999 : 1}
               onPress={() => {
                 if (step === null) {
                   lastPinPressAt.current = Date.now();
@@ -727,8 +765,8 @@ export default function MapScreen() {
               }}
             >
               <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                <View style={styles.futurePinBadge}>
-                  <Ionicons name="bookmark" size={13} color="#fff" />
+                <View style={[styles.futurePinBadge, isSelected && styles.futurePinBadgeSelected]}>
+                  <Ionicons name={isSelected ? 'bookmark' : 'bookmark-outline'} size={11} color={isSelected ? '#fff' : '#5856d6'} />
                 </View>
                 {showLabel && (
                   <Text
@@ -800,7 +838,7 @@ export default function MapScreen() {
                 setSelectedFuture(null);
                 setSelectedVisit(null);
                 setSelectedSeedSpot(null);
-                if (v === 'spots') setSpotsCategory('all');
+                if (v === 'spots') setSpotsCategories([]);
               }}
               style={styles.filterPillsShadow}
             />
@@ -814,22 +852,30 @@ export default function MapScreen() {
               pointerEvents="auto"
             >
               <Pressable
-                style={[styles.categoryPill, spotsCategory === 'all' && styles.categoryPillActive]}
-                onPress={() => { setSpotsCategory('all'); setSelectedSeedSpot(null); }}
+                style={[styles.categoryPill, spotsCategories.length === 0 && styles.categoryPillActive]}
+                onPress={() => { setSpotsCategories([]); setSelectedSeedSpot(null); }}
               >
-                <Text style={[styles.categoryPillText, spotsCategory === 'all' && styles.categoryPillTextActive]}>All</Text>
+                <Text style={[styles.categoryPillText, spotsCategories.length === 0 && styles.categoryPillTextActive]}>All</Text>
               </Pressable>
-              {SEED_VENUE_TYPES.map(a => (
-                <Pressable
-                  key={a.value}
-                  style={[styles.categoryPill, spotsCategory === a.value && styles.categoryPillActive]}
-                  onPress={() => { setSpotsCategory(a.value); setSelectedSeedSpot(null); }}
-                >
-                  <Text style={[styles.categoryPillText, spotsCategory === a.value && styles.categoryPillTextActive]}>
-                    {a.label}
-                  </Text>
-                </Pressable>
-              ))}
+              {SEED_VENUE_TYPES.map(a => {
+                const isActive = spotsCategories.includes(a.value);
+                return (
+                  <Pressable
+                    key={a.value}
+                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                    onPress={() => {
+                      setSpotsCategories(prev =>
+                        prev.includes(a.value) ? prev.filter(c => c !== a.value) : [...prev, a.value]
+                      );
+                      setSelectedSeedSpot(null);
+                    }}
+                  >
+                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                      {a.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           )}
         </View>
@@ -858,6 +904,12 @@ export default function MapScreen() {
             <ModeSelectStep
               onBeenTo={() => setStep('location')}
               onWantToGo={() => { setMapFilter('want'); setStep('future-pin'); }}
+              onCreateStack={() => {
+                scheduleNewStack();
+                resetFlow();
+                sheetRef.current?.close();
+                router.push('/(tabs)/lists?tab=been' as any);
+              }}
             />
           )}
           {step === 'location' && (
@@ -907,6 +959,7 @@ export default function MapScreen() {
                   onSave={saveFutureSpot}
                   onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
                   geocodeLoading={geocodeLoading}
+                  suggestion={geocodeSuggestion}
                 />
               </View>
             ) : step === 'details' ? (
@@ -993,7 +1046,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const preview = visit.notes?.trim().slice(0, 70) ?? null;
   return (
-    <View style={styles.visitBanner}>
+    <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${visit.id}` as any)}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -1009,11 +1062,11 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
             <Text style={styles.visitBannerPreview} numberOfLines={1}>{preview}</Text>
           ) : null}
         </View>
-        <Pressable onPress={onClose} hitSlop={12} style={styles.visitBannerClose}>
+        <Pressable onPress={(e) => { e.stopPropagation?.(); onClose(); }} hitSlop={12} style={styles.visitBannerClose}>
           <Ionicons name="close" size={18} color={T.muted} />
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1026,6 +1079,9 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
     );
     return existing?.id ?? null;
   });
+  const [alreadyLogged, setAlreadyLogged] = useState(() =>
+    getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim())
+  );
   const toastAnimRef = useRef(new Animated.Value(0));
   const toastAnim = toastAnimRef.current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1035,6 +1091,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
       f => f.venue_name === spot.venue_name && Math.abs(f.lat - spot.lat) < 0.001
     );
     setSavedFutureId(existing?.id ?? null);
+    setAlreadyLogged(getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim()));
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastAnim.setValue(0);
   }, [spot.id]);
@@ -1078,7 +1135,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
         <Ionicons name="bookmark" size={13} color="#5856d6" />
         <Text style={styles.savedToastText}>Saved!</Text>
       </Animated.View>
-      <View style={styles.visitBanner}>
+      <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${spot.id}` as any)}>
         <View style={styles.visitBannerInner}>
           <View style={styles.visitBannerBody}>
             <View style={styles.visitBannerTop}>
@@ -1096,19 +1153,24 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
           </View>
           <View style={styles.visitBannerActions}>
             <View style={styles.visitBannerActionGroup}>
-              <Pressable onPress={handleLog} hitSlop={8} style={styles.visitBannerActionBtn}>
-                <Ionicons name="add" size={20} color={T.accent} />
+              <Pressable
+                onPress={(e) => { e.stopPropagation?.(); alreadyLogged ? undefined : handleLog(); }}
+                hitSlop={8}
+                style={[styles.visitBannerActionBtn, alreadyLogged && { backgroundColor: T.accent }]}
+                disabled={alreadyLogged}
+              >
+                <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={20} color={alreadyLogged ? '#fff' : T.accent} />
               </Pressable>
-              <Pressable onPress={toggleSave} hitSlop={8} style={styles.visitBannerActionBtn}>
+              <Pressable onPress={(e) => { e.stopPropagation?.(); toggleSave(); }} hitSlop={8} style={styles.visitBannerActionBtn}>
                 <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={17} color="#5856d6" />
               </Pressable>
             </View>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.visitBannerClose}>
+            <Pressable onPress={(e) => { e.stopPropagation?.(); onClose(); }} hitSlop={12} style={styles.visitBannerClose}>
               <Ionicons name="close" size={18} color={T.muted} />
             </Pressable>
           </View>
         </View>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -1201,9 +1263,10 @@ function SearchResultsList({ results, loading, query, onSelect }: {
   );
 }
 
-function ModeSelectStep({ onBeenTo, onWantToGo }: {
+function ModeSelectStep({ onBeenTo, onWantToGo, onCreateStack }: {
   onBeenTo: () => void;
   onWantToGo: () => void;
+  onCreateStack: () => void;
 }) {
   return (
     <View style={styles.stepContainer}>
@@ -1229,6 +1292,17 @@ function ModeSelectStep({ onBeenTo, onWantToGo }: {
           <View style={{ flex: 1 }}>
             <Text style={styles.modeCardTitle}>Want to Go</Text>
             <Text style={styles.modeCardSub}>Save a place for later</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={T.muted} />
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.modeCard, { opacity: pressed ? 0.85 : 1 }]}
+          onPress={onCreateStack}
+        >
+          <Ionicons name="layers-outline" size={28} color="#FF9F0A" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modeCardTitle}>Create a Stack</Text>
+            <Text style={styles.modeCardSub}>Group spots into a date night story</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={T.muted} />
         </Pressable>
@@ -1273,17 +1347,34 @@ function LocationStep({ onDropPin, onSelect, onBack, region }: {
   );
 }
 
-function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading }: {
+function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading, suggestion }: {
   draft: Partial<DraftVisit>;
   onChange: (key: string, val: any) => void;
   onSave: () => void;
   onBack: () => void;
   geocodeLoading: boolean;
+  suggestion: string | null;
 }) {
+  const autofilled = useRef(false);
+  useEffect(() => {
+    if (suggestion && !draft.venue_name && !autofilled.current) {
+      autofilled.current = true;
+      onChange('venue_name', suggestion);
+    }
+  }, [suggestion]);
+
   return (
     <View style={styles.stepContainer}>
       <Text style={styles.stepTitle}>Save for later</Text>
-      <Text style={styles.stepSubtitle}>{draft.venue_name || (geocodeLoading ? 'Looking up…' : '')}</Text>
+      <Text style={styles.stepSubtitle}>{geocodeLoading && !draft.venue_name ? 'Looking up location…' : 'Where do you want to go?'}</Text>
+      <TextInput
+        style={[styles.input, { marginBottom: 16 }]}
+        value={draft.venue_name || ''}
+        onChangeText={(v) => onChange('venue_name', v)}
+        placeholder={geocodeLoading ? 'Looking up the spot…' : 'Name this spot'}
+        placeholderTextColor="#c7c7cc"
+        returnKeyType="done"
+      />
 
       <Text style={styles.sectionLabel}>Category</Text>
       <View style={styles.chipWrap}>
@@ -1422,7 +1513,7 @@ function FutureDetail({ spot, onClose, onDelete }: {
   }
 
   return (
-    <View style={styles.visitBanner}>
+    <Pressable style={styles.visitBanner} onPress={() => router.push(`/future/${spot.id}` as any)}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -1435,15 +1526,15 @@ function FutureDetail({ spot, onClose, onDelete }: {
           <Text style={styles.visitBannerMeta}>Added {friendlyDate(spot.created_at)}</Text>
         </View>
         <View style={styles.visitBannerActions}>
-          <Pressable onPress={handleLog} hitSlop={8} style={styles.visitBannerActionBtn}>
+          <Pressable onPress={(e) => { e.stopPropagation?.(); handleLog(); }} hitSlop={8} style={styles.visitBannerActionBtn}>
             <Ionicons name="add" size={20} color={T.accent} />
           </Pressable>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.visitBannerClose}>
+          <Pressable onPress={(e) => { e.stopPropagation?.(); onClose(); }} hitSlop={12} style={styles.visitBannerClose}>
             <Ionicons name="close" size={18} color={T.muted} />
           </Pressable>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1948,11 +2039,15 @@ const styles = StyleSheet.create({
   pinLabelLeft: { right: '100%', marginRight: 5 },
 
   futurePinBadge: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#5856d6',
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(88,86,214,0.12)',
+    borderWidth: 2, borderColor: '#5856d6',
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#5856d6', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4, shadowRadius: 4,
+    shadowColor: '#5856d6', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25, shadowRadius: 3,
+  },
+  futurePinBadgeSelected: {
+    backgroundColor: '#5856d6',
   },
 
   seedPinBadge: {
@@ -1989,17 +2084,17 @@ const styles = StyleSheet.create({
   },
   categoryPill: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: '#ffffff',
+    borderWidth: 1, borderColor: '#ffffff',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08, shadowRadius: 3,
   },
   categoryPillActive: {
-    backgroundColor: 'rgba(231,111,81,0.12)',
+    backgroundColor: '#E76F51',
     borderColor: '#E76F51',
   },
   categoryPillText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  categoryPillTextActive: { color: '#E76F51' },
+  categoryPillTextActive: { color: '#fff' },
 
 
   pinHint: {
@@ -2084,7 +2179,7 @@ const styles = StyleSheet.create({
 
   detailsScroll: { flex: 1 },
   stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
-  stepTitle: { fontSize: 18, fontWeight: '700', color: T.primary, textAlign: 'center', fontFamily: 'InstrumentSerif-Regular' },
+  stepTitle: { fontSize: 18, fontWeight: '400', color: T.primary, textAlign: 'center', fontFamily: 'Fraunces-Regular', },
   stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 28 },
 
   modeCard: {

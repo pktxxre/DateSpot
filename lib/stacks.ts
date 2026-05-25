@@ -43,6 +43,7 @@ export interface StackSummary extends Stack {
   first_spot: string | null;
   last_spot: string | null;
   cover_photo: string | null;
+  activity_types: string[];
 }
 
 export interface StackVisitRow {
@@ -91,7 +92,7 @@ export function createStack(
 
 export function getAllStacks(): StackSummary[] {
   const db = getDb();
-  const rows = db.getAllSync<Omit<StackSummary, 'cover_photo'> & { cover_photo_raw: string | null; stack_cover_photo: string | null }>(`
+  const rows = db.getAllSync<Omit<StackSummary, 'cover_photo' | 'activity_types'> & { cover_photo_raw: string | null; stack_cover_photo: string | null; activity_types_raw: string | null }>(`
     SELECT
       s.id, s.name, s.rating, s.rank_order, s.created_at, s.tier, s.tier_note,
       s.cover_photo AS stack_cover_photo,
@@ -103,7 +104,8 @@ export function getAllStacks(): StackSummary[] {
       (SELECT v2.photos FROM stack_visits sv2
        JOIN visits v2 ON v2.id = sv2.visit_id
        WHERE sv2.stack_id = s.id AND v2.photos IS NOT NULL AND v2.photos != '[]'
-       ORDER BY sv2.position LIMIT 1) AS cover_photo_raw
+       ORDER BY sv2.position LIMIT 1) AS cover_photo_raw,
+      GROUP_CONCAT(DISTINCT v.activity_type) AS activity_types_raw
     FROM stacks s
     LEFT JOIN stack_visits sv ON sv.stack_id = s.id
     LEFT JOIN visits v ON v.id = sv.visit_id
@@ -118,8 +120,9 @@ export function getAllStacks(): StackSummary[] {
         cover_photo = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
       } catch { /* ignore */ }
     }
-    const { cover_photo_raw, stack_cover_photo, ...rest } = r;
-    return { ...rest, cover_photo };
+    const activity_types = r.activity_types_raw ? r.activity_types_raw.split(',').filter(Boolean) : [];
+    const { cover_photo_raw, stack_cover_photo, activity_types_raw, ...rest } = r;
+    return { ...rest, cover_photo, activity_types };
   });
 }
 

@@ -182,8 +182,8 @@ const s = StyleSheet.create({
   },
   headerTitle: {
     flex: 1, textAlign: 'center',
-    fontSize: 17, fontWeight: '600', color: PRIMARY,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontSize: 17, fontWeight: '400', color: PRIMARY,
+    fontFamily: 'Fraunces-Variable',
   },
   closeBtn: {
     position: 'absolute', right: 20,

@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable,
-  FlatList, useWindowDimensions,
+  FlatList, useWindowDimensions, Modal, Animated,
 } from 'react-native';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
+import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
 } from 'react-native-reanimated';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
-import { PRICE_LABELS, ratingColor, formatRating, Price } from '@/lib/visits';
+import { PRICE_LABELS, ratingColor, Price } from '@/lib/visits';
 import { T } from '@/lib/theme';
 
-type PriceFilter = 0 | 1 | 2 | 3 | null;
+const HERO_BG = '#1F1208';
+const LIMIT_OPTIONS = [50, 100, 150, 200] as const;
+type Limit = typeof LIMIT_OPTIONS[number];
 
 const SK_BASE = '#EAE4D9';
 const SK_LIGHT = '#F8F4EC';
@@ -35,7 +37,7 @@ function SkBox({
 }) {
   return (
     <View style={[{ width: w, height: h, backgroundColor: SK_BASE, overflow: 'hidden', borderRadius: r }, style]}>
-      <Animated.View
+      <Reanimated.View
         style={[
           { position: 'absolute', top: 0, left: 0, bottom: 0, width: screenW * 0.6, backgroundColor: SK_LIGHT, opacity: 0.95 },
           shimmer,
@@ -62,13 +64,10 @@ function SpotsSkeleton() {
     <SkBox shimmer={shimmer} w={w} h={h} r={r} style={style} screenW={screenW} />
   );
 
-  const ROWS = 12;
-
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
-      {/* Spot rows */}
       <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
-        {Array.from({ length: ROWS }).map((_, i) => (
+        {Array.from({ length: 12 }).map((_, i) => (
           <View key={i}>
             {i > 0 && (
               <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 44 }} />
@@ -119,16 +118,23 @@ const ACTIVITY_COLORS: Record<string, string> = {
   other: '#8B7255',
 };
 
+const PRICE_FILTER_OPTIONS = [
+  { value: 1, label: '$' },
+  { value: 2, label: '$$' },
+  { value: 3, label: '$$$' },
+  { value: 0, label: 'Free' },
+];
+
 export default function SpotsScreen() {
+  const params = useLocalSearchParams<{ category?: string }>();
   const [seeds, setSeeds] = useState<SeedSpot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [priceFilter, setPriceFilter] = useState<PriceFilter>(null);
+  const [categoryFilters, setCategoryFilters] = useState<string[]>(params.category ? [params.category] : []);
+  const [priceFilters, setPriceFilters] = useState<number[]>([]);
+  const [limit, setLimit] = useState<Limit>(50);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [showLimitSheet, setShowLimitSheet] = useState(false);
   const listRef = useRef<FlatList>(null);
-  function selectCategory(value: string | null) {
-    setCategoryFilter(value);
-    listRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }
 
   useEffect(() => {
     getSeedSpotsRaw().then(data => {
@@ -137,232 +143,461 @@ export default function SpotsScreen() {
     });
   }, []);
 
-  const categoryCounts: Record<string, number> = {};
-  for (const s of seeds) {
-    categoryCounts[s.activity_type] = (categoryCounts[s.activity_type] ?? 0) + 1;
-  }
-
   const filtered = seeds
     .filter(s => {
-      if (categoryFilter && s.activity_type !== categoryFilter) return false;
-      if (priceFilter !== null && s.price !== priceFilter) return false;
+      if (categoryFilters.length > 0 && !categoryFilters.includes(s.activity_type)) return false;
+      if (priceFilters.length > 0 && !priceFilters.includes(s.price)) return false;
       return true;
     })
     .sort((a, b) => b.rating - a.rating)
-    .slice(0, 50);
+    .slice(0, limit);
+
+  const activeFilterCount = categoryFilters.length + priceFilters.length;
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: HERO_BG }]} pointerEvents="none" />
       <SafeAreaView style={s.safe} edges={['top']}>
-        {/* Custom header */}
-        <View style={s.headerRow}>
+
+        {/* Colored hero */}
+        <View style={s.hero}>
           <Pressable
             style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.6 }]}
             onPress={() => router.back()}
             hitSlop={8}
           >
-            <Ionicons name="chevron-back" size={22} color={T.primary} />
+            <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.75)" />
           </Pressable>
-          <Text style={s.headerTitle}>All date spots</Text>
-          <View style={s.headerSpacer} />
+          <View style={s.heroContent}>
+            <Text style={s.heroMeta}>TOP {limit} · SEATTLE</Text>
+            <Text style={s.heroTitle}>All date spots</Text>
+          </View>
         </View>
 
-        {/* Category filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={s.catScroll}
-          contentContainerStyle={s.catRow}
-        >
-          <Pressable
-            style={[s.catChip, categoryFilter === null && s.catChipActive]}
-            onPress={() => selectCategory(null)}
-          >
-            <Text style={[s.catText, categoryFilter === null && s.catTextActive]}>All</Text>
-          </Pressable>
-          {SEED_VENUE_TYPES.map(a => {
-            const active = categoryFilter === a.value;
-            return (
-              <Pressable
-                key={a.value}
-                style={[s.catChip, active && s.catChipActive]}
-                onPress={() => selectCategory(active ? null : a.value)}
-              >
-                <Text style={[s.catText, active && s.catTextActive]}>
-                  {CATEGORY_LABELS[a.value] ?? a.label}
-                </Text>
+        {/* White card */}
+        <View style={s.whiteCard}>
+          {/* Badge row */}
+          <View style={s.badgeRow}>
+            <View style={[s.filterBtn, activeFilterCount > 0 && s.filterBtnActive]}>
+              <Pressable style={s.filterBtnMain} onPress={() => setShowFilterSheet(true)}>
+                <Ionicons name="options-outline" size={14} color={activeFilterCount > 0 ? T.accent : T.primary} />
+                <Text style={[s.filterBtnText, activeFilterCount > 0 && s.filterBtnTextActive]}>Filter</Text>
               </Pressable>
-            );
-          })}
-        </ScrollView>
+              {activeFilterCount > 0 && (
+                <>
+                  <View style={s.filterBtnDivider} />
+                  <Pressable
+                    style={s.filterClearBtn}
+                    onPress={() => { setCategoryFilters([]); setPriceFilters([]); }}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="close" size={14} color={T.accent} />
+                  </Pressable>
+                </>
+              )}
+            </View>
 
-        {/* Price filter row */}
-        <View style={s.priceRow}>
-          <Text style={s.priceLabel}>PRICE</Text>
-          {([1, 2, 3, 0] as Price[]).map(p => {
-            const active = priceFilter === p;
-            const label = PRICE_LABELS[p];
-            return (
-              <Pressable
-                key={p}
-                style={[s.chip, active && s.chipActiveSub]}
-                onPress={() => setPriceFilter(active ? null : p as PriceFilter)}
-              >
-                <Text style={[s.chipText, active && s.chipTextActiveSub]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Section header */}
-        {!loading && (
-          <Text style={s.listHeader}>
-            Top 50 spots{categoryFilter ? <Text style={s.listHeaderCategory}> · {CATEGORY_LABELS[categoryFilter] ?? categoryFilter}</Text> : ''}
-          </Text>
-        )}
-
-        {/* Spot list */}
-        {loading ? (
-          <SpotsSkeleton />
-        ) : filtered.length === 0 ? (
-          <View style={s.emptyWrap}>
-            <Text style={s.emptyText}>No spots match</Text>
-            <Pressable onPress={() => { selectCategory(null); setPriceFilter(null); }}>
-              <Text style={s.emptyLink}>Clear filters</Text>
+            <Pressable
+              style={({ pressed }) => [s.limitBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setShowLimitSheet(true)}
+            >
+              <Text style={s.limitBtnText}>Top {limit}</Text>
+              <Ionicons name="chevron-down" size={12} color={T.muted} />
             </Pressable>
           </View>
-        ) : (
-          <FlatList
-            ref={listRef}
-            data={filtered}
-            keyExtractor={item => item.id}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={s.listContent}
-            ItemSeparatorComponent={() => <View style={s.separator} />}
-            renderItem={({ item, index }) => {
-              const color = ratingColor(item.rating);
-              const accentColor = ACTIVITY_COLORS[item.activity_type] ?? ACTIVITY_COLORS.other;
-              const priceLabel = PRICE_LABELS[item.price as Price] ?? '';
-              const catLabel = CATEGORY_LABELS[item.activity_type] ?? item.activity_type;
-              const restMeta = [priceLabel, 'Seattle'].filter(Boolean).join(' · ');
 
-              return (
+          {/* Active filter chips */}
+          {activeFilterCount > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={s.activeChipsScroll}
+              contentContainerStyle={s.activeChipsRow}
+            >
+              {categoryFilters.map(cf => (
                 <Pressable
-                  style={({ pressed }) => [s.spotRow, pressed && { opacity: 0.7 }]}
-                  onPress={() => router.push(`/spot/${item.id}` as any)}
+                  key={cf}
+                  style={s.activeChip}
+                  onPress={() => setCategoryFilters(prev => prev.filter(x => x !== cf))}
                 >
-                  <View style={[s.accentBar, { backgroundColor: color }]} />
-                  <View style={s.spotInfo}>
-                    <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{item.venue_name}</Text>
-                    <Text style={s.spotMeta}>
-                      <Text style={{ color: accentColor }}>{catLabel}</Text>
-                      {restMeta ? <Text>{' · ' + restMeta}</Text> : null}
-                    </Text>
-                  </View>
-                  <View style={[s.ratingPill, { borderColor: color }]}>
-                    <Text style={[s.ratingPillText, { color }]}>{item.rating.toFixed(1)}</Text>
-                  </View>
+                  <Text style={s.activeChipText}>{CATEGORY_LABELS[cf] ?? cf}</Text>
+                  <Ionicons name="close" size={12} color={T.accent} />
                 </Pressable>
-              );
-            }}
-          />
-        )}
+              ))}
+              {priceFilters.map(pf => (
+                <Pressable
+                  key={pf}
+                  style={s.activeChip}
+                  onPress={() => setPriceFilters(prev => prev.filter(x => x !== pf))}
+                >
+                  <Text style={s.activeChipText}>{PRICE_FILTER_OPTIONS.find(p => p.value === pf)?.label ?? ''}</Text>
+                  <Ionicons name="close" size={12} color={T.accent} />
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={s.listDivider} />
+
+          {/* Spot list */}
+          {loading ? (
+            <SpotsSkeleton />
+          ) : filtered.length === 0 ? (
+            <View style={s.emptyWrap}>
+              <Text style={s.emptyText}>No spots match</Text>
+              <Pressable onPress={() => { setCategoryFilters([]); setPriceFilters([]); }}>
+                <Text style={s.emptyLink}>Clear filters</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              ref={listRef}
+              data={filtered}
+              keyExtractor={item => item.id}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={s.listContent}
+              ItemSeparatorComponent={() => <View style={s.separator} />}
+              renderItem={({ item }) => {
+                const color = ratingColor(item.rating);
+                const accentColor = ACTIVITY_COLORS[item.activity_type] ?? ACTIVITY_COLORS.other;
+                const priceLabel = PRICE_LABELS[item.price as Price] ?? '';
+                const catLabel = CATEGORY_LABELS[item.activity_type] ?? item.activity_type;
+                const restMeta = [priceLabel].filter(Boolean).join(' · ');
+
+                return (
+                  <Pressable
+                    style={({ pressed }) => [s.spotRow, pressed && { opacity: 0.7 }]}
+                    onPress={() => router.push(`/spot/${item.id}` as any)}
+                  >
+                    <View style={[s.accentBar, { backgroundColor: color }]} />
+                    <View style={s.spotInfo}>
+                      <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{item.venue_name}</Text>
+                      <Text style={s.spotMeta}>
+                        <Text style={{ color: accentColor }}>{catLabel}</Text>
+                        {restMeta ? <Text>{' · ' + restMeta}</Text> : null}
+                      </Text>
+                    </View>
+                    <View style={[s.ratingPill, { borderColor: color }]}>
+                      <Text style={[s.ratingPillText, { color }]}>{item.rating.toFixed(1)}</Text>
+                    </View>
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+        </View>
+
+        <FilterSheet
+          visible={showFilterSheet}
+          currentCategory={categoryFilters}
+          currentPrice={priceFilters}
+          currentLimit={limit}
+          onApply={(category, price, newLimit) => {
+            setCategoryFilters(category);
+            setPriceFilters(price);
+            setLimit(newLimit);
+            listRef.current?.scrollToOffset({ offset: 0, animated: false });
+          }}
+          onClose={() => setShowFilterSheet(false)}
+        />
+
+        <LimitSheet
+          visible={showLimitSheet}
+          selected={limit}
+          onSelect={l => { setLimit(l); listRef.current?.scrollToOffset({ offset: 0, animated: false }); }}
+          onClose={() => setShowLimitSheet(false)}
+        />
       </SafeAreaView>
     </>
   );
 }
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: T.bg },
+// ─── Limit Sheet ──────────────────────────────────────────────────────────────
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+function LimitSheet({ visible, selected, onSelect, onClose }: {
+  visible: boolean;
+  selected: Limit;
+  onSelect: (l: Limit) => void;
+  onClose: () => void;
+}) {
+  const sheetY = useRef(new Animated.Value(300)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(sheetY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
+    } else {
+      Animated.timing(sheetY, { toValue: 300, duration: 200, useNativeDriver: true }).start();
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose}>
+      <View style={ls.container}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View style={[ls.sheet, { transform: [{ translateY: sheetY }] }]}>
+          <View style={ls.handle} />
+          <Text style={ls.title}>Show top</Text>
+          {LIMIT_OPTIONS.map(opt => {
+            const sel = selected === opt;
+            return (
+              <Pressable
+                key={opt}
+                style={[ls.option, sel && ls.optionActive]}
+                onPress={() => { onSelect(opt); onClose(); }}
+              >
+                <Text style={[ls.optionText, sel && ls.optionTextActive]}>Top {opt}</Text>
+                {sel && <Ionicons name="checkmark" size={18} color={T.accent} />}
+              </Pressable>
+            );
+          })}
+          <View style={{ height: 32 }} />
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Filter Sheet ─────────────────────────────────────────────────────────────
+
+function FilterSheet({ visible, currentCategory, currentPrice, currentLimit, onApply, onClose }: {
+  visible: boolean;
+  currentCategory: string[];
+  currentPrice: number[];
+  currentLimit: Limit;
+  onApply: (category: string[], price: number[], limit: Limit) => void;
+  onClose: () => void;
+}) {
+  const [draftCategory, setDraftCategory] = useState<string[]>(currentCategory);
+  const [draftPrice, setDraftPrice] = useState<number[]>(currentPrice);
+  const [draftLimit, setDraftLimit] = useState<Limit>(currentLimit);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['category']));
+
+  useEffect(() => {
+    if (visible) {
+      setDraftCategory(currentCategory);
+      setDraftPrice(currentPrice);
+      setDraftLimit(currentLimit);
+    }
+  }, [visible]);
+
+  function toggleArr<T>(arr: T[], val: T): T[] {
+    return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+  }
+
+  function toggleSection(key: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={fs.root} edges={['top', 'bottom']}>
+        <View style={fs.header}>
+          <Pressable onPress={onClose} hitSlop={10}>
+            <Ionicons name="close" size={22} color={T.primary} />
+          </Pressable>
+          <Text style={fs.title}>Filter</Text>
+          <View style={{ width: 30 }} />
+        </View>
+
+        <ScrollView style={fs.scroll} contentContainerStyle={fs.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* Show (limit) */}
+          <Text style={fs.sectionTitle}>Show</Text>
+          <View style={fs.chipGrid}>
+            {LIMIT_OPTIONS.map(opt => {
+              const sel = draftLimit === opt;
+              return (
+                <Pressable
+                  key={opt}
+                  style={[fs.chip, sel && fs.chipActive]}
+                  onPress={() => setDraftLimit(opt)}
+                >
+                  <Text style={[fs.chipText, sel && fs.chipTextActive]}>Top {opt}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={fs.divider} />
+
+          {/* Category accordion */}
+          <Pressable style={fs.accordionHeader} onPress={() => toggleSection('category')}>
+            <Ionicons name="restaurant-outline" size={18} color={T.primary} />
+            <Text style={fs.accordionLabel}>Category</Text>
+            <View style={[fs.activeBadge, draftCategory.length === 0 && { opacity: 0 }]}>
+              <Text style={fs.activeBadgeText}>{draftCategory.length}</Text>
+            </View>
+            <Ionicons
+              name={expanded.has('category') ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={T.muted}
+            />
+          </Pressable>
+          {expanded.has('category') && (
+            <View style={fs.chipGrid}>
+              {SEED_VENUE_TYPES.map(a => {
+                const sel = draftCategory.includes(a.value);
+                return (
+                  <Pressable
+                    key={a.value}
+                    style={[fs.chip, sel && fs.chipActive]}
+                    onPress={() => setDraftCategory(toggleArr(draftCategory, a.value))}
+                  >
+                    <Text style={[fs.chipText, sel && fs.chipTextActive]}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={fs.divider} />
+
+          {/* Price accordion */}
+          <Pressable style={fs.accordionHeader} onPress={() => toggleSection('price')}>
+            <Ionicons name="cash-outline" size={18} color={T.primary} />
+            <Text style={fs.accordionLabel}>Price</Text>
+            <View style={[fs.activeBadge, draftPrice.length === 0 && { opacity: 0 }]}>
+              <Text style={fs.activeBadgeText}>{draftPrice.length}</Text>
+            </View>
+            <Ionicons
+              name={expanded.has('price') ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={T.muted}
+            />
+          </Pressable>
+          {expanded.has('price') && (
+            <View style={fs.chipGrid}>
+              {PRICE_FILTER_OPTIONS.map(p => {
+                const sel = draftPrice.includes(p.value);
+                return (
+                  <Pressable
+                    key={p.value}
+                    style={[fs.chip, sel && fs.chipActive]}
+                    onPress={() => setDraftPrice(toggleArr(draftPrice, p.value))}
+                  >
+                    <Text style={[fs.chipText, sel && fs.chipTextActive]}>{p.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={fs.footer}>
+          <Pressable onPress={() => { setDraftCategory([]); setDraftPrice([]); setDraftLimit(50); }}>
+            <Text style={fs.clearAll}>Clear all</Text>
+          </Pressable>
+          <Pressable
+            style={fs.applyBtn}
+            onPress={() => { onApply(draftCategory, draftPrice, draftLimit); onClose(); }}
+          >
+            <Text style={fs.applyBtnText}>Apply</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: 'transparent' },
+
+  hero: {
+    backgroundColor: HERO_BG,
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 14,
-    backgroundColor: T.bg,
+    paddingTop: 6,
+    paddingBottom: 20,
   },
   backBtn: {
-    width: 36,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: 12,
   },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
+  heroContent: {},
+  heroMeta: {
+    fontSize: 11,
     fontWeight: '700',
-    color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 1.2,
+    marginBottom: 6,
   },
-  headerSpacer: { width: 36 },
+  heroTitle: {
+    fontSize: 28,
+    fontFamily: 'Fraunces-Regular',
+    color: '#fff',
+    lineHeight: 32,
+  },
 
-  catScroll: { flexGrow: 0, flexShrink: 0 },
-  catRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  catChip: {
-    paddingHorizontal: 20,
-    paddingVertical: 9,
-    borderRadius: 50,
+  whiteCard: {
+    flex: 1,
     backgroundColor: T.bg,
-    borderWidth: 1,
-    borderColor: T.border,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 20,
+    overflow: 'hidden',
   },
-  catChipActive: { backgroundColor: '#E76F51', borderColor: '#E76F51' },
-  catText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  catTextActive: { color: '#fff' },
 
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: T.bg,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  chipActive: { backgroundColor: '#E76F51', borderColor: '#E76F51' },
-  chipText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  chipTextActive: { color: '#fff' },
-
-  chipActiveSub: { backgroundColor: 'rgba(231,111,81,0.12)', borderColor: '#E76F51' },
-  chipTextActiveSub: { color: '#E76F51' },
-
-  priceRow: {
+  badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    paddingBottom: 12,
-    gap: 10,
-    flexWrap: 'wrap',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 6,
   },
-  priceLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.2,
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.border,
+    backgroundColor: T.bg,
+    overflow: 'hidden',
   },
+  filterBtnActive: { borderColor: T.accent, backgroundColor: T.accentTint },
+  filterBtnMain: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6 },
+  filterBtnDivider: { width: StyleSheet.hairlineWidth, height: 14, backgroundColor: T.accent },
+  filterClearBtn: { paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
+  filterBtnText: { fontSize: 13, fontWeight: '600', color: T.primary },
+  filterBtnTextActive: { color: T.accent },
 
-  listHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 10,
-    fontSize: 18,
-    fontWeight: '700',
-    color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+  limitBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  limitBtnText: { fontSize: 13, color: T.muted, fontWeight: '500' },
+
+  activeChipsScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  listHeaderCategory: {
-    color: T.muted,
-    fontWeight: '400',
+  activeChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingTop: 0,
+    paddingBottom: 8,
+  },
+  activeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: T.accent,
+    backgroundColor: T.accentTint,
+    flexShrink: 0,
+  },
+  activeChipText: { fontSize: 13, fontWeight: '600', color: T.accent, flexShrink: 0 },
+
+  listDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: T.border,
   },
 
   listContent: {
@@ -388,13 +623,6 @@ const s = StyleSheet.create({
     marginRight: 10,
     minHeight: 36,
   },
-  spotRank: {
-    width: 32,
-    fontSize: 12,
-    fontWeight: '500',
-    color: T.muted,
-    marginRight: 10,
-  },
   spotInfo: { flex: 1, marginRight: 10 },
   spotName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 2 },
   spotMeta: { fontSize: 12, color: T.muted },
@@ -406,12 +634,88 @@ const s = StyleSheet.create({
     paddingVertical: 3,
     backgroundColor: 'transparent',
   },
-  ratingPillText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
+  ratingPillText: { fontSize: 12, fontWeight: '800' },
 
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   emptyText: { fontSize: 16, color: T.muted },
   emptyLink: { fontSize: 14, color: T.accent, fontWeight: '600' },
+});
+
+const ls = StyleSheet.create({
+  container: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheet: {
+    backgroundColor: T.bg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+  },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: T.border, alignSelf: 'center', marginBottom: 16 },
+  title: { fontSize: 13, fontWeight: '700', color: T.muted, textTransform: 'uppercase', letterSpacing: 0.8, paddingHorizontal: 20, paddingBottom: 8 },
+  option: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border,
+  },
+  optionActive: { backgroundColor: T.accentTint },
+  optionText: { fontSize: 16, fontWeight: '500', color: T.primary },
+  optionTextActive: { fontWeight: '700', color: T.accent },
+});
+
+const fs = StyleSheet.create({
+  root: { flex: 1, backgroundColor: T.bg },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
+  },
+  title: { fontSize: 17, fontWeight: '700', color: T.primary },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
+  sectionTitle: {
+    fontSize: 13, fontWeight: '700', color: T.muted,
+    textTransform: 'uppercase', letterSpacing: 0.8,
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  accordionLabel: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1 },
+  activeBadge: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center',
+  },
+  activeBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  chipGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    paddingHorizontal: 20, paddingBottom: 16,
+  },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: T.border, backgroundColor: T.bg,
+  },
+  chipActive: { backgroundColor: T.accentTint, borderColor: T.accent },
+  chipText: { fontSize: 13, fontWeight: '600', color: T.primary },
+  chipTextActive: { color: T.accent },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginTop: 16 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: T.border,
+  },
+  clearAll: { fontSize: 15, color: T.accent, fontWeight: '600' },
+  applyBtn: { backgroundColor: T.accent, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 14 },
+  applyBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });

@@ -14,7 +14,7 @@ export function SerifText(props: TextProps) {
   return (
     <RNText
       {...props}
-      style={[{ fontFamily: Fonts.serif }, props.style]}
+      style={[{ fontFamily: Fonts.serif, fontWeight: '600' }, props.style]}
     />
   );
 }

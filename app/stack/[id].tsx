@@ -1,137 +1,18 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Alert,
-  ScrollView, TextInput, FlatList, Image, Animated,
+  ScrollView, TextInput, Image, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  getStackDetail, getAllStacks, updateStack, deleteStack,
-  addVisitToStack, removeVisitFromStack, updateStackRankOrder,
+  getStackDetail, updateStack, deleteStack,
+  removeVisitFromStack,
   StackDetail, StackVisitRow,
 } from '@/lib/stacks';
-import {
-  startComparison, advance, resolveRankOrder, resolveAtMid,
-  currentComparison, ComparisonState,
-} from '@/lib/ranking';
-import { ratingColor, formatRating, friendlyDate, getAllVisits, Visit, ACTIVITY_TYPES } from '@/lib/visits';
-import type { Stack as StackType } from '@/lib/stacks';
+import { ratingColor, formatRating, friendlyDate, ACTIVITY_TYPES } from '@/lib/visits';
 import { T } from '@/lib/theme';
-
-// ─── Rank Stack Modal ────────────────────────────────────────────────────────
-
-const STACK_THIS_COLOR = '#8B6B45';
-const STACK_THAT_COLOR = '#6B7B8D';
-
-function RankStackModal({ stack, onClose, onDone }: {
-  stack: StackType;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const others = getAllStacks().filter(s => s.id !== stack.id);
-  const [cmpState, setCmpState] = useState<ComparisonState<StackType> | null>(
-    () => startComparison(others, () => true)
-  );
-  const thisScaleAnim = useRef(new Animated.Value(1)).current;
-  const thatScaleAnim = useRef(new Animated.Value(1)).current;
-
-  function animateTap(anim: Animated.Value) {
-    Animated.sequence([
-      Animated.timing(anim, { toValue: 1.06, duration: 80, useNativeDriver: true }),
-      Animated.spring(anim, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }),
-    ]).start();
-  }
-
-  function handleResult(result: 'better' | 'worse') {
-    const prev = cmpState!;
-    const next = advance(prev, result);
-    if (next) {
-      setCmpState(next);
-    } else {
-      const finalLo = result === 'better' ? prev.lo : prev.mid + 1;
-      saveRank(resolveRankOrder({ ...prev, lo: finalLo }, others));
-    }
-  }
-
-  function handleTooHard() { saveRank(cmpState!.sorted[cmpState!.mid].rank_order); }
-
-  function saveRank(rank_order: number) {
-    updateStackRankOrder(stack.id, rank_order);
-    onDone();
-  }
-
-  const opponent = cmpState ? currentComparison(cmpState) : null;
-  const thisRatingColor = ratingColor(stack.rating);
-  const thatRatingColor = opponent ? ratingColor(opponent.rating) : T.muted;
-
-  const cardContent = others.length === 0 ? (
-    <>
-      <Text style={rm.title}>Nothing to compare</Text>
-      <Text style={rm.subtitle}>Create more stacks to start ranking.</Text>
-      <Pressable style={rm.secBtn} onPress={onClose}><Text style={rm.secBtnText}>Got it</Text></Pressable>
-    </>
-  ) : opponent ? (
-    <>
-      <Text style={rm.title}>Which was a better date night?</Text>
-      <Text style={rm.subtitle}>Tap to rank</Text>
-      <View style={rm.compareRow}>
-        <Animated.View style={[rm.cardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
-          <Pressable style={[rm.card, rm.cardThis]} onPress={() => { animateTap(thisScaleAnim); handleResult('better'); }}>
-            <View style={[rm.cardHeader, { backgroundColor: STACK_THIS_COLOR }]}>
-              <Text style={rm.cardCategory}>DATE NIGHT</Text>
-              {stack.rating > 0 && (
-                <View style={[rm.cardRatingPill, { borderColor: thisRatingColor }]}>
-                  <Text style={[rm.cardRatingText, { color: thisRatingColor }]}>{formatRating(stack.rating)}</Text>
-                </View>
-              )}
-            </View>
-            <View style={rm.cardBody}>
-              <Text style={rm.cardName} numberOfLines={2}>{stack.name}</Text>
-              <Text style={rm.cardLabel}>This one</Text>
-            </View>
-          </Pressable>
-        </Animated.View>
-        <View style={rm.vs}><Text style={rm.vsText}>VS</Text></View>
-        <Animated.View style={[rm.cardWrap, { transform: [{ scale: thatScaleAnim }] }]}>
-          <Pressable style={[rm.card, rm.cardThat]} onPress={() => { animateTap(thatScaleAnim); handleResult('worse'); }}>
-            <View style={[rm.cardHeader, { backgroundColor: STACK_THAT_COLOR }]}>
-              <Text style={rm.cardCategory}>DATE NIGHT</Text>
-              {opponent.rating > 0 && (
-                <View style={[rm.cardRatingPill, { borderColor: thatRatingColor }]}>
-                  <Text style={[rm.cardRatingText, { color: thatRatingColor }]}>{formatRating(opponent.rating)}</Text>
-                </View>
-              )}
-            </View>
-            <View style={rm.cardBody}>
-              <Text style={rm.cardName} numberOfLines={2}>{opponent.name}</Text>
-              <Text style={rm.cardLabel}>That one</Text>
-            </View>
-          </Pressable>
-        </Animated.View>
-      </View>
-      <Pressable style={rm.tooHardBtn} onPress={handleTooHard}>
-        <Text style={rm.tooHardText}>Too hard to compare</Text>
-      </Pressable>
-      <Pressable style={rm.secBtn} onPress={onClose}><Text style={rm.secBtnText}>Cancel</Text></Pressable>
-    </>
-  ) : (
-    <>
-      <Text style={rm.title}>Ranking complete!</Text>
-      <Pressable style={rm.secBtn} onPress={onDone}><Text style={rm.secBtnText}>Done</Text></Pressable>
-    </>
-  );
-
-  return (
-    <Modal visible animationType="fade" transparent statusBarTranslucent>
-      <Pressable style={rm.overlay} onPress={onClose}>
-        <Pressable style={rm.floatingCard} onPress={() => {}}>
-          {cardContent}
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
 
 // ─── Edit Stack Modal ─────────────────────────────────────────────────────────
 
@@ -248,8 +129,7 @@ function SpotMiniCard({ visit, index }: { visit: StackVisitRow; index: number })
 
 export default function StackDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [detail, setDetail] = useState<StackDetail | null>(null);
-  const [ranking, setRanking] = useState(false);
+  const [detail, setDetail] = useState<StackDetail | null>(() => id ? getStackDetail(id) : null);
   const [editing, setEditing] = useState(false);
 
   useFocusEffect(useCallback(() => {
@@ -257,7 +137,11 @@ export default function StackDetailScreen() {
     setDetail(getStackDetail(id));
   }, [id]));
 
-  if (!detail) return null;
+  if (!detail) return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: T.bg, alignItems: 'center', justifyContent: 'center' }} edges={['top']}>
+      <ActivityIndicator color={T.accent} />
+    </SafeAreaView>
+  );
 
   const avgRating = detail.visits.length > 0
     ? detail.visits.reduce((sum, v) => sum + v.rating, 0) / detail.visits.length
@@ -317,11 +201,21 @@ export default function StackDetailScreen() {
             )}
           </View>
 
-          {detail.visits.length >= 2 && (
-            <Text style={s.journeyLine} numberOfLines={1}>
-              {detail.visits[0].venue_name} → {detail.visits[detail.visits.length - 1].venue_name}
-            </Text>
-          )}
+          {(() => {
+            const types = [...new Set(detail.visits.map(v => v.activity_type))];
+            return types.length > 0 ? (
+              <View style={s.categoryPills}>
+                {types.map(at => {
+                  const label = ACTIVITY_TYPES.find(a => a.value === at)?.label ?? at;
+                  return (
+                    <View key={at} style={s.categoryPill}>
+                      <Text style={s.categoryPillText}>{label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null;
+          })()}
 
         </View>
 
@@ -352,17 +246,6 @@ export default function StackDetailScreen() {
 
         <View style={{ height: 48 }} />
       </ScrollView>
-
-      {ranking && (
-        <RankStackModal
-          stack={detail}
-          onClose={() => setRanking(false)}
-          onDone={() => {
-            setRanking(false);
-            setDetail(getStackDetail(id));
-          }}
-        />
-      )}
 
       {editing && (
         <EditStackModal
@@ -401,9 +284,9 @@ const s = StyleSheet.create({
   },
   heroName: {
     fontSize: 26,
-    fontWeight: '800',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     lineHeight: 32,
     letterSpacing: -0.5,
     marginBottom: 6,
@@ -430,11 +313,13 @@ const s = StyleSheet.create({
   },
   qualityLabel: { fontSize: 13, fontWeight: '700' },
 
-  journeyLine: {
-    fontSize: 13,
-    color: T.muted,
-    fontStyle: 'italic',
+  categoryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  categoryPill: {
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 10, borderWidth: 1, borderColor: T.border,
+    backgroundColor: T.inputBg,
   },
+  categoryPillText: { fontSize: 12, fontWeight: '500', color: T.muted },
 
   photoStrip: {
     marginHorizontal: -20,
@@ -483,57 +368,6 @@ const s = StyleSheet.create({
   },
   scorePillText: { fontSize: 12, fontWeight: '800' },
 
-  rankBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 14,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  rankBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
-});
-
-const rm = StyleSheet.create({
-  overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center', paddingHorizontal: 16,
-  },
-  floatingCard: {
-    backgroundColor: T.bg, borderRadius: 24,
-    paddingHorizontal: 20, paddingVertical: 28,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2, shadowRadius: 20,
-  },
-  title: { fontSize: 18, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular', textAlign: 'center', marginBottom: 4 },
-  subtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 20 },
-  compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  cardWrap: { flex: 1, height: 140 },
-  card: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
-  cardThis: { borderColor: T.accent },
-  cardThat: { borderColor: T.border },
-  cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8, flexShrink: 1 },
-  cardRatingPill: {
-    backgroundColor: '#fff', borderWidth: 1.5,
-    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-  },
-  cardRatingText: { fontSize: 12, fontWeight: '800' },
-  cardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
-  cardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
-  cardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
-  vs: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: T.bg, borderWidth: 2, borderColor: T.accent,
-    alignItems: 'center', justifyContent: 'center',
-    zIndex: 10, marginHorizontal: -10,
-  },
-  vsText: { fontSize: 11, fontWeight: '700', color: T.accent },
-  tooHardBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 8 },
-  tooHardText: { fontSize: 14, fontWeight: '600', color: T.muted },
-  secBtn: { backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  secBtnText: { fontSize: 14, fontWeight: '500', color: T.muted },
 });
 
 const em = StyleSheet.create({

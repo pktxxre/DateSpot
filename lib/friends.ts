@@ -244,6 +244,197 @@ export async function getFriendsWithStats(): Promise<FriendWithStats[]> {
   }));
 }
 
+// ─── Follow graph helpers ─────────────────────────────────────────────────────
+
+export interface FollowRelation {
+  userId: string;
+  username: string;
+  handle: string;
+  avatarEmoticon: string;
+  profilePhotoUri: string | null;
+  status: 'friends' | 'following' | 'follow_back';
+}
+
+export async function getFollowCounts(): Promise<{ followers: number; following: number }> {
+  if (!supabase) return { followers: 0, following: 0 };
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return { followers: 0, following: 0 };
+  const [fr, fo] = await Promise.all([
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('friend_id', myId).eq('status', 'accepted'),
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('user_id', myId).eq('status', 'accepted'),
+  ]);
+  return { followers: fr.count ?? 0, following: fo.count ?? 0 };
+}
+
+export async function getFollowers(): Promise<FollowRelation[]> {
+  if (!supabase) return [];
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return [];
+
+  const { data: inRows } = await supabase
+    .from('friends').select('user_id').eq('friend_id', myId).eq('status', 'accepted');
+  if (!inRows || inRows.length === 0) return [];
+
+  const theirIds = inRows.map((r: any) => r.user_id);
+  const { data: outRows } = await supabase
+    .from('friends').select('friend_id').eq('user_id', myId).in('friend_id', theirIds).eq('status', 'accepted');
+  const iFollowSet = new Set((outRows ?? []).map((r: any) => r.friend_id));
+
+  const { data: profiles } = await supabase
+    .from('profiles').select('id, username, handle, avatar_emoticon, profile_photo_uri').in('id', theirIds);
+  return (profiles ?? []).map((p: any) => ({
+    userId: p.id, username: p.username, handle: p.handle,
+    avatarEmoticon: p.avatar_emoticon ?? ':)', profilePhotoUri: p.profile_photo_uri,
+    status: iFollowSet.has(p.id) ? 'friends' : 'follow_back',
+  }));
+}
+
+export async function getFollowing(): Promise<FollowRelation[]> {
+  if (!supabase) return [];
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return [];
+
+  const { data: outRows } = await supabase
+    .from('friends').select('friend_id').eq('user_id', myId).eq('status', 'accepted');
+  if (!outRows || outRows.length === 0) return [];
+
+  const theirIds = outRows.map((r: any) => r.friend_id);
+  const { data: inRows } = await supabase
+    .from('friends').select('user_id').eq('friend_id', myId).in('user_id', theirIds).eq('status', 'accepted');
+  const theyFollowSet = new Set((inRows ?? []).map((r: any) => r.user_id));
+
+  const { data: profiles } = await supabase
+    .from('profiles').select('id, username, handle, avatar_emoticon, profile_photo_uri').in('id', theirIds);
+  return (profiles ?? []).map((p: any) => ({
+    userId: p.id, username: p.username, handle: p.handle,
+    avatarEmoticon: p.avatar_emoticon ?? ':)', profilePhotoUri: p.profile_photo_uri,
+    status: theyFollowSet.has(p.id) ? 'friends' : 'following',
+  }));
+}
+
+// ─── Other user public data ───────────────────────────────────────────────────
+
+export interface PublicUserProfile {
+  id: string;
+  username: string;
+  handle: string;
+  bio: string;
+  avatarEmoticon: string;
+  profilePhotoUri: string | null;
+  city: string;
+}
+
+export async function getUserProfile(userId: string): Promise<PublicUserProfile | null> {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, username, handle, bio, avatar_emoticon, profile_photo_uri, city')
+    .eq('id', userId)
+    .single();
+  if (!data) return null;
+  return {
+    id: data.id, username: data.username, handle: data.handle, bio: data.bio ?? '',
+    avatarEmoticon: data.avatar_emoticon ?? ':)', profilePhotoUri: data.profile_photo_uri, city: data.city ?? '',
+  };
+}
+
+export interface PublicVisit {
+  id: string;
+  venue_name: string;
+  visited_at: string;
+  created_at: string;
+  rating: number;
+  activity_type: string;
+  occasion_type: string | null;
+  price: number;
+}
+
+export async function getUserVisits(userId: string): Promise<PublicVisit[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('visits')
+    .select('id, venue_name, visited_at, created_at, rating, activity_type, occasion_type, price')
+    .eq('user_id', userId).eq('is_seed', false).order('visited_at', { ascending: false });
+  return (data ?? []).map((v: any) => ({
+    id: v.id, venue_name: v.venue_name, visited_at: v.visited_at,
+    created_at: v.created_at ?? v.visited_at, rating: v.rating ?? 0,
+    activity_type: v.activity_type ?? 'other', occasion_type: v.occasion_type ?? null, price: v.price ?? 0,
+  }));
+}
+
+export interface PublicFutureSpot {
+  id: string;
+  venue_name: string;
+  created_at: string;
+  activity_type: string | null;
+  occasion_type: string | null;
+}
+
+export async function getUserFutureSpots(userId: string): Promise<PublicFutureSpot[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('future_spots')
+    .select('id, venue_name, created_at, activity_type, occasion_type')
+    .eq('user_id', userId).order('created_at', { ascending: false });
+  return (data ?? []).map((f: any) => ({
+    id: f.id, venue_name: f.venue_name, created_at: f.created_at,
+    activity_type: f.activity_type ?? null, occasion_type: f.occasion_type ?? null,
+  }));
+}
+
+export async function getUserFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
+  if (!supabase) return { followers: 0, following: 0 };
+  const [fr, fo] = await Promise.all([
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId).eq('status', 'accepted'),
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'accepted'),
+  ]);
+  return { followers: fr.count ?? 0, following: fo.count ?? 0 };
+}
+
+export async function getFollowStatus(userId: string): Promise<'friends' | 'following' | 'follow_back' | 'none'> {
+  if (!supabase) return 'none';
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return 'none';
+  const [iFollowRes, theyFollowRes] = await Promise.all([
+    supabase.from('friends').select('status').eq('user_id', myId).eq('friend_id', userId).eq('status', 'accepted').maybeSingle(),
+    supabase.from('friends').select('status').eq('user_id', userId).eq('friend_id', myId).eq('status', 'accepted').maybeSingle(),
+  ]);
+  const iFollow = !!iFollowRes.data;
+  const theyFollow = !!theyFollowRes.data;
+  if (iFollow && theyFollow) return 'friends';
+  if (iFollow) return 'following';
+  if (theyFollow) return 'follow_back';
+  return 'none';
+}
+
+export async function followUser(targetId: string): Promise<{ error?: string }> {
+  if (!supabase) return { error: 'Not connected' };
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return { error: 'Not logged in' };
+  return sendFriendRequest(myId, targetId);
+}
+
+export async function unfollowUser(targetId: string): Promise<void> {
+  if (!supabase) return;
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return;
+  await supabase.from('friends').delete().eq('user_id', myId).eq('friend_id', targetId);
+}
+
+export async function removeFollower(followerId: string): Promise<void> {
+  if (!supabase) return;
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (!myId) return;
+  await supabase.from('friends').delete().eq('user_id', followerId).eq('friend_id', myId);
+}
+
 export async function getFriendRecommendations(): Promise<FriendRecommendation[]> {
   if (!supabase) return [];
   const { data: userData } = await supabase.auth.getUser();
