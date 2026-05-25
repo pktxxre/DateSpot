@@ -19,8 +19,10 @@ export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
   const [fontsLoaded] = useFonts({
     ...Ionicons.font,
-    'InstrumentSerif-Regular': require('../assets/fonts/InstrumentSerif-Regular.ttf'),
-    'InstrumentSans-Variable': require('../assets/fonts/InstrumentSans-Variable.ttf'),
+    'DMSans': require('../assets/fonts/DMSans.ttf'),
+    'Fraunces-Light': require('../assets/fonts/Fraunces-Light.ttf'),
+    'Fraunces-Regular': require('../assets/fonts/Fraunces-Regular.ttf'),
+    'Fraunces-Variable': require('../assets/fonts/Fraunces-Variable.ttf'),
     'IBMPlexMono-Regular': require('../assets/fonts/IBMPlexMono-Regular.ttf'),
   });
   const [session, setSession] = useState<Session | null>(null);
@@ -114,6 +116,9 @@ export default function RootLayout() {
         <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="inbox" options={{ headerShown: false }} />
         <Stack.Screen name="friends" options={{ headerShown: false }} />
+        <Stack.Screen name="follow-list" options={{ headerShown: false }} />
+        <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="user-spots" options={{ headerShown: false }} />
       </Stack>
     </GestureHandlerRootView>
   );

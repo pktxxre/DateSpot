@@ -22,11 +22,24 @@ import { getSeedSpotById, getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { supabase } from '@/lib/supabase';
 import { getReactionsForVisit, addReaction, removeReaction, Reaction } from '@/lib/reactions';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot } from '@/lib/future';
-import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
+import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
 import * as Crypto from 'expo-crypto';
 import { T } from '@/lib/theme';
+import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+const CATEGORY_IMAGES: Record<string, any> = {
+  food:          require('@/assets/images/category-food.jpg'),
+  bars:          require('@/assets/images/category-drinks.jpg'),
+  cafes:         require('@/assets/images/category-cafes.jpg'),
+  outdoors:      require('@/assets/images/category-outdoors.jpg'),
+  indoors:       require('@/assets/images/category-indoors.avif'),
+  view:          require('@/assets/images/category-view.jpg'),
+  entertainment: require('@/assets/images/category-entertainment.jpg'),
+  shopping:      require('@/assets/images/category-shopping.avif'),
+  other:         require('@/assets/images/category-other.jpg'),
+};
 const H_PAD = 20;
 const PHOTO_COLS = 3;
 const PHOTO_GAP = 1;
@@ -184,7 +197,7 @@ const r = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2, shadowRadius: 20,
   },
-  title: { fontSize: 18, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular', textAlign: 'center', marginBottom: 4 },
+  title: { fontSize: 18, fontWeight: '400', color: T.primary, fontFamily: 'Fraunces-Regular', textAlign: 'center', marginBottom: 4 },
   subtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 20 },
   compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   cardWrap: { flex: 1, height: 140 },
@@ -517,21 +530,59 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
   );
 }
 
+function SpotDetailSkeleton() {
+  const { shimmer, screenW } = useShimmer();
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} w={w} h={h} r={r ?? 4} style={style} screenW={screenW} />
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={{ backgroundColor: '#8B7B6B', paddingTop: 96, paddingBottom: 10 }}>
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+          {sk(100, 11, 3, { marginBottom: 6 })}
+          {sk(200, 26, 4, { marginBottom: 4 })}
+          {sk(80, 13, 3)}
+        </View>
+      </View>
+      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          {sk(100, 30, 20)}
+          {sk(54, 28, 99)}
+        </View>
+        <View style={{ height: 20 }} />
+        {sk(70, 10, 3, { marginBottom: 8 })}
+        {sk('100%', 160, 14)}
+        {sk(180, 12, 3, { marginTop: 8, marginLeft: 2 })}
+        <View style={{ height: 20 }} />
+        {sk(55, 10, 3, { marginBottom: 8 })}
+        <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+          {sk(28, 28, 14)}
+          {sk(100, 13, 3)}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [visit, setVisit] = useState<Visit | null>(null);
   const [seedSpot, setSeedSpot] = useState<SeedSpot | null>(null);
   const [friendVisit, setFriendVisit] = useState<FriendVisit | null>(null);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    if (!id) return;
+    if (!id) { setLoading(false); return; }
+    setLoading(true);
     const local = getVisitById(id);
     if (local) {
       setVisit(local);
       setSeedSpot(null);
       setFriendVisit(null);
+      setLoading(false);
     } else {
       setVisit(null);
       getSeedSpotById(id).then(async s => {
@@ -563,9 +614,12 @@ export default function SpotDetailScreen() {
             setFriendVisit(null);
           }
         }
+        setLoading(false);
       });
     }
   }, [id]));
+
+  if (loading) return <SpotDetailSkeleton />;
 
   if (!visit && seedSpot) {
     return <SeedSpotDetail spot={seedSpot} />;
@@ -643,9 +697,6 @@ export default function SpotDetailScreen() {
                 <Text style={sd.heroName}>{visit.venue_name}</Text>
                 <Text style={sd.heroCity}>{dateStr}</Text>
               </View>
-              {rank > 0 && (
-                <Text style={sd.heroRank}>#{rank}</Text>
-              )}
             </View>
           </View>
 
@@ -677,7 +728,7 @@ export default function SpotDetailScreen() {
 
             {/* Map */}
             <Text style={sd.sectionLabel}>WHERE IT IS</Text>
-            <Pressable style={sd.mapWrap} onPress={() => router.push('/(tabs)/map')}>
+            <View style={sd.mapWrap}>
               <MapView
                 style={StyleSheet.absoluteFill}
                 region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
@@ -691,12 +742,8 @@ export default function SpotDetailScreen() {
                   </View>
                 </Marker>
               </MapView>
-              <View style={styles.mapHint}>
-                <Ionicons name="map-outline" size={12} color="#fff" />
-                <Text style={styles.mapHintText}>View on map</Text>
-              </View>
-            </Pressable>
-            {visit.address ? visit.address.split('\n').map((line, i) => (
+            </View>
+            {visit.address ? cleanAddress(visit.address).split('\n').filter(Boolean).map((line, i) => (
               <Text key={i} style={styles.mapAddress}>{line}</Text>
             )) : null}
 
@@ -745,6 +792,9 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
   const [savedFutureId, setSavedFutureId] = useState<string | null>(null);
   const [spotPhotos, setSpotPhotos] = useState<string[]>([]);
   const [spotRank, setSpotRank] = useState<number | null>(null);
+  const [alreadyLogged, setAlreadyLogged] = useState(() =>
+    getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim())
+  );
   const [ratingExpanded, setRatingExpanded] = useState(false);
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -760,6 +810,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
       f => f.venue_name === spot.venue_name && Math.abs(f.lat - spot.lat) < 0.001
     );
     setSavedFutureId(existing?.id ?? null);
+    setAlreadyLogged(getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim()));
   }, [spot.id]);
 
   // Determine this spot's overall rank (by rating) to gate Editor's Pick
@@ -836,8 +887,13 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
             <Ionicons name="chevron-back" size={20} color="#fff" />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={handleLogVisit} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="add" size={18} color="#fff" />
+          <Pressable
+            onPress={alreadyLogged ? undefined : handleLogVisit}
+            hitSlop={12}
+            style={[sd.floatingBtn, alreadyLogged && { backgroundColor: 'rgba(255,255,255,0.45)' }]}
+            disabled={alreadyLogged}
+          >
+            <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color="#fff" />
           </Pressable>
           <Pressable onPress={toggleSave} hitSlop={12} style={sd.floatingBtn}>
             <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color="#fff" />
@@ -1031,9 +1087,9 @@ const sd = StyleSheet.create({
   },
   heroName: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '400',
     color: '#fff',
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     lineHeight: 30,
     marginBottom: 4,
   },

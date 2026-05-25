@@ -18,11 +18,14 @@ import {
   getFriendRecommendations,
   FriendProfile, FriendWithStats, FriendActivityItem, FriendRecommendation,
 } from '@/lib/friends';
-import { getUnreadCount } from '@/lib/notifications';
+import { getUnreadCount, notifyActivity } from '@/lib/notifications';
 import { ratingColor, getAllVisits } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const FRIENDS_CACHE_KEY = 'datespot:friends_cache_v1';
 import { insertFutureSpot, deleteFutureSpotsByVenueName, getAllFutureSpots } from '@/lib/future';
 import { isActivityLiked, likeActivity, unlikeActivity } from '@/lib/friendLikes';
 import * as Crypto from 'expo-crypto';
@@ -259,6 +262,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
 
   function handleLog() {
     scheduleOpenLogWithLocation(item.venueName, item.lat, item.lng);
+    notifyActivity(item.friend.id, 'log', item.visitId);
     router.navigate('/(tabs)/map');
   }
 
@@ -279,6 +283,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
       });
       setSaved(true);
       showToast('Saved');
+      notifyActivity(item.friend.id, 'save', item.visitId);
     }
   }
 
@@ -290,6 +295,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
       likeActivity(item.visitId);
       const id = ++heartIdRef.current;
       setFloatingHearts(h => [...h, id]);
+      notifyActivity(item.friend.id, 'like', item.visitId);
     } else {
       unlikeActivity(item.visitId);
     }
@@ -299,13 +305,15 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
     <View style={[s.activityRow, !isLast && s.activityRowBorder, { overflow: 'hidden' }]}>
       {/* Top: avatar + meta + rating pill */}
       <View style={s.cardTop}>
-        <Avatar
-          id={item.friend.id}
-          name={item.friend.username}
-          photoUri={item.friend.profilePhotoUri}
-          emoticon={item.friend.avatarEmoticon}
-          size={36}
-        />
+        <Pressable onPress={() => router.push(`/user/${item.friend.id}` as any)} hitSlop={6}>
+          <Avatar
+            id={item.friend.id}
+            name={item.friend.username}
+            photoUri={item.friend.profilePhotoUri}
+            emoticon={item.friend.avatarEmoticon}
+            size={36}
+          />
+        </Pressable>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.cardSentence} numberOfLines={1}>
             <Text style={s.cardWho}>{item.friend.username}</Text>
@@ -349,14 +357,16 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
           ))}
         </View>
 
-        {toast && (
-          <RNAnimated.View style={[s.microToast, { opacity: toastOpacity }]}>
-            <Text style={s.microToastText}>{toast}</Text>
-          </RNAnimated.View>
-        )}
-
         {/* Log + Save — pinned to far right */}
         <View style={s.actionRight}>
+          {toast && (
+            <RNAnimated.Text
+              pointerEvents="none"
+              style={[s.microToast, { opacity: toastOpacity, position: 'absolute', bottom: 34, right: 0 }]}
+            >
+              {toast}
+            </RNAnimated.Text>
+          )}
           <Pressable
             style={[s.actionCircleBtn, {
               backgroundColor: alreadyVisited ? LOG_CLR : `${LOG_CLR}18`,
@@ -451,7 +461,10 @@ function RecCard({ rec }: { rec: FriendRecommendation }) {
 
 function FriendRow({ friend, isLast }: { friend: FriendWithStats; isLast: boolean }) {
   return (
-    <Pressable style={[s.friendRow, !isLast && s.friendRowBorder]}>
+    <Pressable
+      style={({ pressed }) => [s.friendRow, !isLast && s.friendRowBorder, pressed && { opacity: 0.6 }]}
+      onPress={() => router.push(`/user/${friend.id}` as any)}
+    >
       <Avatar id={friend.id} name={friend.username} photoUri={friend.profilePhotoUri} emoticon={friend.avatarEmoticon} size={40} />
       <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
         <Text style={s.friendName} numberOfLines={1}>{friend.username}</Text>
@@ -556,9 +569,21 @@ export default function FriendsScreen() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [myVisitedNames, setMyVisitedNames] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<ScrollView>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // Stale-while-revalidate: show cached data immediately, refresh in background
+    const cached = await AsyncStorage.getItem(FRIENDS_CACHE_KEY);
+    if (cached) {
+      const { friends: fr, activity: act, recommendations: recs, unreadCount: cnt, visitedNames: vn } = JSON.parse(cached);
+      setFriends(fr ?? []);
+      setActivity(act ?? []);
+      setRecommendations(recs ?? []);
+      setUnreadCount(cnt ?? 0);
+      if (vn) setMyVisitedNames(new Set(vn));
+      setLoading(false);
+    }
+
     const [fr, act, recs, count, myVisits] = await Promise.all([
       getFriendsWithStats(),
       getFriendActivity(),
@@ -566,16 +591,20 @@ export default function FriendsScreen() {
       getUnreadCount(),
       getAllVisits(),
     ]);
-    // Sort friends alphabetically
-    setFriends(fr.sort((a, b) => a.username.localeCompare(b.username)));
+    const sorted = fr.sort((a, b) => a.username.localeCompare(b.username));
+    setFriends(sorted);
     setActivity(act);
     setRecommendations(recs);
     setUnreadCount(count);
     setMyVisitedNames(new Set(myVisits.map(v => v.venue_name.toLowerCase().trim())));
     setLoading(false);
+    AsyncStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify({ friends: sorted, activity: act, recommendations: recs, unreadCount: count, visitedNames: myVisits.map(v => v.venue_name.toLowerCase().trim()) }));
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+    load();
+  }, [load]));
 
   const hasFriends = friends.length > 0;
 
@@ -595,7 +624,7 @@ export default function FriendsScreen() {
       {/* Header */}
       <View style={s.header}>
         <View>
-          <Text style={s.friendCountLabel}>{friends.length} FRIENDS</Text>
+          <Text style={s.friendCountLabel}>{friends.length} {friends.length === 1 ? 'FRIEND' : 'FRIENDS'}</Text>
           <Text style={s.pageTitle}>Friends</Text>
         </View>
         <View style={s.headerIcons}>
@@ -634,10 +663,10 @@ export default function FriendsScreen() {
         )}
       </View>
 
-      {loading && friends.length > 0 ? (
+      {loading && friends.length === 0 ? (
         <FriendsSkeleton />
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
           {/* Search mode: show filtered friends only */}
           {isSearching ? (
@@ -742,14 +771,14 @@ const s = StyleSheet.create({
 
   // Header
   header: {
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 4, paddingBottom: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14,
   },
   friendCountLabel: {
     fontSize: 11, fontWeight: '700', color: MUTED, letterSpacing: 1.5, marginBottom: 2,
   },
-  pageTitle: { fontSize: 34, color: PRIMARY, fontFamily: Fonts.serif, lineHeight: 38 },
-  headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 4 },
+  pageTitle: { fontSize: 32, color: PRIMARY, fontFamily: Fonts.serif, lineHeight: 36 },
+  headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: '#EDE7DE', alignItems: 'center', justifyContent: 'center',
@@ -778,7 +807,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 4, paddingBottom: 10,
   },
-  sectionTitle: { fontSize: 17, fontWeight: '600', color: PRIMARY, fontFamily: Fonts.serif, letterSpacing: -0.2 },
+  sectionTitle: { fontSize: 17, fontWeight: '400', color: PRIMARY, fontFamily: Fonts.serif, letterSpacing: -0.2 },
   sectionSub: { fontSize: 11, color: MUTED, marginTop: 1 },
   sectionAction: { fontSize: 13, fontWeight: '600', color: ACCENT },
 
@@ -816,12 +845,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: BORDER,
     alignItems: 'center', justifyContent: 'center',
   },
-  microToast: {
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 10, backgroundColor: '#3A2E24EE',
-    marginLeft: 4,
-  },
-  microToastText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  microToast: { fontSize: 11, fontWeight: '600', color: SAVE_CLR },
 
   // Activity empty state
   activityEmpty: {
@@ -844,8 +868,8 @@ const s = StyleSheet.create({
     flexDirection: 'column', gap: 8,
   },
   recTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  recCat: { fontSize: 11, fontWeight: '600', color: MUTED, letterSpacing: 0.3 },
-  recVenue: { fontSize: 15, fontWeight: '600', color: PRIMARY, fontFamily: Fonts.serif, lineHeight: 18 },
+  recCat: { fontSize: 11, fontWeight: '400', color: MUTED, letterSpacing: 0.3 },
+  recVenue: { fontSize: 15, fontWeight: '400', color: PRIMARY, fontFamily: Fonts.serif, lineHeight: 18 },
   recFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 'auto' as any },
   avatarCluster: { flexDirection: 'row' },
   clusterItem: { borderWidth: 2, borderColor: CARD, borderRadius: 12 },
@@ -865,7 +889,7 @@ const s = StyleSheet.create({
 
   // No friends
   noFriendsWrap: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40, gap: 12 },
-  noFriendsTitle: { fontSize: 20, fontWeight: '700', color: PRIMARY, fontFamily: Fonts.serif },
+  noFriendsTitle: { fontSize: 20, fontWeight: '400', color: PRIMARY, fontFamily: Fonts.serif },
   noFriendsSub: { fontSize: 15, color: MUTED, textAlign: 'center', lineHeight: 22 },
   inviteBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -885,7 +909,7 @@ const m = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
   },
-  title: { fontSize: 20, fontWeight: '700', color: PRIMARY, fontFamily: Fonts.serif },
+  title: { fontSize: 20, fontWeight: '400', color: PRIMARY, fontFamily: Fonts.serif },
   closeBtn: {
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: T.inputBg, alignItems: 'center', justifyContent: 'center',

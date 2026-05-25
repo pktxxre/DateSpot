@@ -1,6 +1,6 @@
 export const Fonts = {
-  serif: 'InstrumentSerif-Regular',
-  sans: 'InstrumentSans-Variable',
+  serif: 'DMSans',
+  sans: undefined as string | undefined,
   mono: 'IBMPlexMono-Regular',
 } as const;
 

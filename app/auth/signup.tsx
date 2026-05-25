@@ -165,8 +165,8 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, gap: 0 },
   title: {
-    fontSize: 26, fontWeight: '700', color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular', letterSpacing: -0.5,
+    fontSize: 26, fontWeight: '400', color: T.primary,
+    fontFamily: 'Fraunces-Regular', letterSpacing: -0.5,
     marginBottom: 8,
   },
   subtitle: {

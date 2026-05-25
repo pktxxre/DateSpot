@@ -1,23 +1,58 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, Modal, Alert, ScrollView, Share,
+  View, Text, StyleSheet, Pressable, Modal, Alert, ScrollView, Share, Dimensions,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  getFutureSpotById, deleteFutureSpot, updateFutureSpot, updateFutureSpotTypes, FutureSpot,
+  getFutureSpotById, deleteFutureSpot, updateFutureSpotTypes, FutureSpot,
 } from '@/lib/future';
 import { friendlyDate, ACTIVITY_TYPES, OCCASION_TYPES } from '@/lib/visits';
 import { T } from '@/lib/theme';
-import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
+import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
+import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
-const H_PAD = 20;
+const FUTURE_BLUE = '#5856d6';
+const SCREEN_H = Dimensions.get('window').height;
+
+function FutureSpotDetailSkeleton() {
+  const { shimmer, screenW } = useShimmer();
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} w={w} h={h} r={r ?? 4} style={style} screenW={screenW} />
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={{ backgroundColor: FUTURE_BLUE, paddingTop: 96, paddingBottom: 10 }}>
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+          {sk(100, 11, 3, { marginBottom: 6 })}
+          {sk(200, 26, 4, { marginBottom: 4 })}
+          {sk(120, 13, 3)}
+        </View>
+      </View>
+      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          {sk(120, 30, 20)}
+          {sk(38, 38, 19)}
+        </View>
+        <View style={{ height: 20 }} />
+        {sk(38, 10, 3, { marginBottom: 10 })}
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+          {sk(64, 28, 20)}
+          {sk(80, 28, 20)}
+        </View>
+        {sk(70, 10, 3, { marginBottom: 10 })}
+        {sk('100%', 140, 14)}
+        {sk(180, 12, 3, { marginTop: 8, marginLeft: 2 })}
+      </View>
+    </View>
+  );
+}
 
 export default function FutureSpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const insets = useSafeAreaInsets();
   const [spot, setSpot] = useState<FutureSpot | null>(() =>
     id ? getFutureSpotById(id as string) : null
   );
@@ -29,7 +64,7 @@ export default function FutureSpotDetailScreen() {
     if (id) setSpot(getFutureSpotById(id));
   }, [id]));
 
-  if (!spot) return null;
+  if (!spot) return <FutureSpotDetailSkeleton />;
 
   const dateStr = friendlyDate(spot.created_at);
 
@@ -53,7 +88,7 @@ export default function FutureSpotDetailScreen() {
 
   function handleLog() {
     scheduleOpenLogWithLocation(spot!.venue_name, spot!.lat, spot!.lng, spot!.activity_type, spot!.occasion_type);
-    router.back();
+    router.navigate('/(tabs)/map');
   }
 
   function handleDelete() {
@@ -68,104 +103,122 @@ export default function FutureSpotDetailScreen() {
     ]);
   }
 
+  const activityInfo = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
+  const occasionInfo = OCCASION_TYPES.find(a => a.value === spot.occasion_type);
+  const metaParts = [activityInfo?.label, occasionInfo?.label].filter(Boolean);
+
   return (
-    <View style={styles.root}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={[styles.headerSafe, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="chevron-back" size={26} color={T.primary} />
+      {/* Floating header */}
+      <SafeAreaView style={styles.floatingHeader} edges={['top']}>
+        <View style={styles.floatingHeaderInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.floatingBtn}>
+            <Ionicons name="chevron-back" size={20} color="#fff" />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={handleShare} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="share-outline" size={22} color={T.primary} />
+          <Pressable onPress={handleShare} hitSlop={12} style={styles.floatingBtn}>
+            <Ionicons name="share-outline" size={20} color="#fff" />
           </Pressable>
-          <Pressable onPress={handleEdit} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="pencil-outline" size={20} color={T.primary} />
+          <Pressable onPress={handleEdit} hitSlop={12} style={styles.floatingBtn}>
+            <Ionicons name="pencil-outline" size={18} color="#fff" />
           </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="trash-outline" size={20} color={T.danger} />
+          <Pressable onPress={handleDelete} hitSlop={12} style={styles.floatingBtn}>
+            <Ionicons name="trash-outline" size={18} color="#fff" />
           </Pressable>
         </View>
-      </View>
+      </SafeAreaView>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={{ backgroundColor: FUTURE_BLUE }}>
 
-        {/* Hero */}
-        <View style={styles.hero}>
-          <Text style={styles.venueName}>{spot.venue_name}</Text>
-          <Text style={styles.dateStr}>Added {dateStr}</Text>
-
-          <View style={styles.tagsRow}>
-            <View style={styles.tag}>
-              <Ionicons name="bookmark" size={13} color="#5856d6" style={{ marginRight: 4 }} />
-              <Text style={[styles.tagText, { color: '#5856d6' }]}>Want to go</Text>
+          {/* Colored hero */}
+          <View style={styles.hero}>
+            <View style={styles.heroContent}>
+              <Text style={styles.heroMeta}>
+                {metaParts.length > 0 ? metaParts.join(' · ').toUpperCase() : 'WANT TO GO'}
+              </Text>
+              <Text style={styles.heroName}>{spot.venue_name}</Text>
+              <Text style={styles.heroSub}>Added {dateStr}</Text>
             </View>
-            <Pressable style={styles.logBtn} onPress={handleLog} hitSlop={8}>
-              <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.logBtnText}>Log</Text>
-            </Pressable>
+          </View>
+
+          {/* White card */}
+          <View style={[styles.whiteCard, { minHeight: SCREEN_H }]}>
+
+            {/* Tags row — want to go badge + log button */}
+            <View style={styles.tagsRow}>
+              <View style={styles.tag}>
+                <Ionicons name="bookmark" size={13} color={FUTURE_BLUE} style={{ marginRight: 4 }} />
+                <Text style={[styles.tagText, { color: FUTURE_BLUE }]}>Want to go</Text>
+              </View>
+              <Pressable style={styles.logBtn} onPress={handleLog} hitSlop={8}>
+                <Ionicons name="add" size={18} color={T.accent} />
+              </Pressable>
+            </View>
+
+            <View style={{ height: 20 }} />
+
+            {/* Notes */}
+            {spot.notes ? (
+              <>
+                <Text style={styles.sectionLabel}>NOTES</Text>
+                <View style={styles.notesCard}>
+                  <Text style={styles.notesText}>{spot.notes}</Text>
+                </View>
+                <View style={{ height: 20 }} />
+              </>
+            ) : null}
+
+            {/* Category / type */}
+            {(spot.activity_type || spot.occasion_type) ? (
+              <>
+                <Text style={styles.sectionLabel}>TYPE</Text>
+                <View style={styles.typeTags}>
+                  {spot.activity_type ? (
+                    <View style={styles.typeTag}>
+                      <Text style={styles.typeTagText}>
+                        {ACTIVITY_TYPES.find(a => a.value === spot.activity_type)?.label ?? spot.activity_type}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {spot.occasion_type ? (
+                    <View style={styles.typeTag}>
+                      <Text style={styles.typeTagText}>
+                        {OCCASION_TYPES.find(a => a.value === spot.occasion_type)?.label ?? spot.occasion_type}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={{ height: 20 }} />
+              </>
+            ) : null}
+
+            {/* Map */}
+            <Text style={styles.sectionLabel}>WHERE IT IS</Text>
+            <View style={styles.mapCard}>
+              <MapView
+                style={StyleSheet.absoluteFill}
+                region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+                scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+                pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+                showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+              >
+                <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+                  <View style={styles.pin}>
+                    <Ionicons name="bookmark" size={14} color="#fff" />
+                  </View>
+                </Marker>
+              </MapView>
+            </View>
+            {spot.address ? cleanAddress(spot.address).split('\n').filter(Boolean).map((line, i) => (
+              <Text key={i} style={styles.mapAddress}>{line}</Text>
+            )) : null}
+
+            <View style={{ height: 40 }} />
           </View>
         </View>
-
-        {/* Notes */}
-        {spot.notes ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Notes</Text>
-            <View style={styles.notesCard}>
-              <Text style={styles.notesText}>{spot.notes}</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {/* Category / type */}
-        {(spot.activity_type || spot.occasion_type) ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Type</Text>
-            <View style={styles.typeTags}>
-              {spot.activity_type ? (
-                <View style={styles.typeTag}>
-                  <Text style={styles.typeTagText}>
-                    {ACTIVITY_TYPES.find(a => a.value === spot.activity_type)?.label ?? spot.activity_type}
-                  </Text>
-                </View>
-              ) : null}
-              {spot.occasion_type ? (
-                <View style={styles.typeTag}>
-                  <Text style={styles.typeTagText}>
-                    {OCCASION_TYPES.find(a => a.value === spot.occasion_type)?.label ?? spot.occasion_type}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Map */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Location</Text>
-          <View style={styles.mapCard}>
-            <MapView
-              style={StyleSheet.absoluteFill}
-              region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-              scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-              pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-              showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
-            >
-              <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-                <View style={styles.pin}>
-                  <Ionicons name="bookmark" size={14} color="#fff" />
-                </View>
-              </Marker>
-            </MapView>
-          </View>
-          {spot.address ? spot.address.split('\n').map((line, i) => (
-            <Text key={i} style={styles.mapAddress}>{line}</Text>
-          )) : null}
-        </View>
-
-        <View style={{ height: 48 }} />
       </ScrollView>
 
       {/* Edit types modal */}
@@ -221,40 +274,52 @@ export default function FutureSpotDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg },
-  headerSafe: { backgroundColor: T.bg },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, paddingVertical: 2 },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20 },
-
-  hero: {
-    paddingHorizontal: H_PAD, paddingTop: 8, paddingBottom: 24,
-    borderBottomWidth: 1, borderBottomColor: T.border,
+  floatingHeader: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    zIndex: 10,
   },
-  venueName: {
-    fontSize: 26, fontWeight: '800', color: T.primary,
-    lineHeight: 32, letterSpacing: -0.5, marginBottom: 6,
+  floatingHeaderInner: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 8, gap: 10,
   },
-  dateStr: { fontSize: 14, color: T.muted, fontWeight: '500', marginBottom: 14 },
+  floatingBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  hero: { paddingTop: 96, paddingBottom: 10 },
+  heroContent: { paddingHorizontal: 20, paddingTop: 20 },
+  heroMeta: {
+    fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)',
+    letterSpacing: 1, marginBottom: 6,
+  },
+  heroName: {
+    fontSize: 24, fontWeight: '400', color: '#fff',
+    fontFamily: 'Fraunces-Regular', lineHeight: 30, marginBottom: 4,
+  },
+  heroSub: { fontSize: 13, color: 'rgba(255,255,255,0.85)' },
+
+  whiteCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 20,
+  },
 
   tagsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#EEEEFF', borderWidth: 1, borderColor: '#5856d6',
+    backgroundColor: '#EEEEFF', borderWidth: 1, borderColor: FUTURE_BLUE,
     borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
   },
   tagText: { fontSize: 13, fontWeight: '600' },
   logBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: T.accent, borderRadius: 20,
-    paddingHorizontal: 14, paddingVertical: 6,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: T.accentTint, borderWidth: 1.5, borderColor: T.accent,
+    alignItems: 'center', justifyContent: 'center',
   },
-  logBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
-  section: { paddingHorizontal: H_PAD, marginTop: 22 },
   sectionLabel: {
     fontSize: 11, fontWeight: '700', color: T.muted,
     textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10,
@@ -263,19 +328,8 @@ const styles = StyleSheet.create({
   notesCard: {
     backgroundColor: T.card, borderRadius: 14, padding: 16,
     borderWidth: 1, borderColor: T.border,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6,
   },
   notesText: { fontSize: 15, color: T.primary, lineHeight: 23 },
-
-  mapCard: { height: 140, borderRadius: 14, overflow: 'hidden', backgroundColor: '#e8e8ed' },
-  pin: {
-    width: 38, height: 38, borderRadius: 19,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#5856d6',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3,
-  },
-
-  mapAddress: { fontSize: 12, color: T.muted, marginTop: 8, paddingHorizontal: 2 },
 
   typeTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   typeTag: {
@@ -283,6 +337,15 @@ const styles = StyleSheet.create({
     borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
   },
   typeTagText: { fontSize: 13, color: T.primary, fontWeight: '500' },
+
+  mapCard: { height: 140, borderRadius: 14, overflow: 'hidden', backgroundColor: '#e8e8ed' },
+  pin: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: FUTURE_BLUE,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3,
+  },
+  mapAddress: { fontSize: 12, color: T.muted, marginTop: 8, paddingHorizontal: 2 },
 
   editRoot: { flex: 1, backgroundColor: T.bg },
   editContent: { padding: 24, paddingTop: 28 },
@@ -312,5 +375,4 @@ const styles = StyleSheet.create({
   btnPrimaryText: { color: T.accent, fontSize: 16, fontWeight: '700' },
   btnSecondary: { flex: 1, backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },
-
 });

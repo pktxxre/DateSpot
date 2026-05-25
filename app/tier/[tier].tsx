@@ -12,9 +12,9 @@ import { useState } from 'react';
 
 export default function TierScreen() {
   const { tier } = useLocalSearchParams<{ tier: string }>();
-  const [stacks, setStacks] = useState<StackSummary[]>([]);
-
   const tierKey = (tier as TierKey) ?? 'S';
+  const [stacks, setStacks] = useState<StackSummary[]>(() => getAllStacks().filter(s => stackTier(s) === tierKey));
+
   const cfg = TIER_CONFIG[tierKey] ?? TIER_CONFIG['S'];
 
   useFocusEffect(
@@ -126,9 +126,9 @@ const s = StyleSheet.create({
   headerText: { flex: 1 },
   title: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
   },
   subtitle: { fontSize: 13, color: T.muted, marginTop: 1 },
   list: { paddingTop: 8, paddingBottom: 100 },
@@ -140,9 +140,9 @@ const s = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     textAlign: 'center',
     marginBottom: 6,
   },
@@ -181,9 +181,9 @@ const sr = StyleSheet.create({
   },
   name: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     flex: 1,
     marginRight: 8,
   },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable,
-  ActivityIndicator, Dimensions, TextInput, FlatList,
+  ActivityIndicator, Dimensions, TextInput, FlatList, Image,
 } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +13,10 @@ import { getProfile } from '@/lib/profile';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
+import { useShimmer, SkBox } from '@/components/SkeletonBox';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const SEEDS_CACHE_KEY = 'datespot:seeds_cache_v1';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_W = SCREEN_W - 40;
@@ -51,6 +55,18 @@ const ACTIVITY_COLORS: Record<string, string> = {
   other: '#8B7255',
 };
 
+const CATEGORY_IMAGES: Record<string, any> = {
+  food:          require('@/assets/images/category-food.jpg'),
+  bars:          require('@/assets/images/category-drinks.jpg'),
+  cafes:         require('@/assets/images/category-cafes.jpg'),
+  outdoors:      require('@/assets/images/category-outdoors.jpg'),
+  indoors:       require('@/assets/images/category-indoors.avif'),
+  view:          require('@/assets/images/category-view.jpg'),
+  entertainment: require('@/assets/images/category-entertainment.jpg'),
+  shopping:      require('@/assets/images/category-shopping.avif'),
+  other:         require('@/assets/images/category-other.jpg'),
+};
+
 
 type PriceFilter = 0 | 1 | 2 | 3 | null;
 
@@ -87,10 +103,19 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    getSeedSpotsRaw().then(raw => {
+    // Stale-while-revalidate: show cached seeds immediately, refresh in background
+    AsyncStorage.getItem(SEEDS_CACHE_KEY).then(cached => {
       if (cancelled) return;
-      setSeeds(raw);
-      setLoading(false);
+      if (cached) {
+        setSeeds(JSON.parse(cached));
+        setLoading(false);
+      }
+      getSeedSpotsRaw().then(raw => {
+        if (cancelled) return;
+        setSeeds(raw);
+        setLoading(false);
+        AsyncStorage.setItem(SEEDS_CACHE_KEY, JSON.stringify(raw));
+      });
     });
     return () => { cancelled = true; };
   }, []);
@@ -157,13 +182,13 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={s.header}>
         <View>
+          <Text style={s.title}>DateSpot</Text>
           {city ? (
             <View style={s.cityRow}>
               <Ionicons name="locate-outline" size={11} color={T.muted} />
               <Text style={s.city}>{city.toUpperCase()}</Text>
             </View>
           ) : null}
-          <Text style={s.title}>Discover</Text>
         </View>
         <ProfileAvatar onPress={() => router.push('/(tabs)/profile')} />
       </View>
@@ -255,9 +280,7 @@ export default function HomeScreen() {
 
         {/* Search results OR category cards */}
         {loading ? (
-          <View style={s.loadingWrap}>
-            <ActivityIndicator color={T.accent} />
-          </View>
+          <HomeCategorySkeleton />
         ) : isSearching ? (
           <View style={s.searchResultsList}>
             {searchResults.length === 0 ? (
@@ -297,7 +320,7 @@ export default function HomeScreen() {
           <View style={s.stacksSection}>
             <View style={s.stacksSectionHeader}>
               <Text style={s.stacksSectionTitle}>Your stacks</Text>
-              <Pressable onPress={() => router.push({ pathname: '/(tabs)/lists', params: { tab: 'date-nights' } } as any)}>
+              <Pressable onPress={() => router.push({ pathname: '/(tabs)/lists', params: { tab: 'stacks' } } as any)}>
                 <Text style={s.seeAll}>See all →</Text>
               </Pressable>
             </View>
@@ -343,6 +366,17 @@ export default function HomeScreen() {
   );
 }
 
+function HomeCategorySkeleton() {
+  const { shimmer, screenW } = useShimmer();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 12, paddingVertical: 4 }} scrollEnabled={false}>
+      {[140, 160, 140, 155].map((w, i) => (
+        <SkBox key={i} shimmer={shimmer} screenW={screenW} w={w} h={180} r={16} />
+      ))}
+    </ScrollView>
+  );
+}
+
 function HomeStackCard({ stack }: { stack: StackSummary }) {
   const color = ratingColor(stack.rating);
   const dateStr = friendlyDate(stack.created_at);
@@ -380,17 +414,27 @@ function CategoryCard({ category, spots, cardW }: {
   cardW: number;
 }) {
   const bgColor = ACTIVITY_COLORS[category.value] ?? ACTIVITY_COLORS.other;
+  const heroImage = CATEGORY_IMAGES[category.value];
   return (
     <View style={[s.categoryCard, { width: cardW }]}>
-      {/* Hero */}
-      <View style={[s.categoryHero, { backgroundColor: bgColor }]}>
+      {/* Hero — tappable to open all spots filtered to this category */}
+      <Pressable
+        style={({ pressed }) => [s.categoryHero, { backgroundColor: bgColor }, pressed && { opacity: 0.85 }]}
+        onPress={() => router.push({ pathname: '/spots', params: { category: category.value } } as any)}
+        accessibilityRole="button"
+        accessibilityLabel={`Browse all ${category.label} spots`}
+      >
+        {heroImage && (
+          <Image source={heroImage} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, width: '100%', height: '100%', resizeMode: 'cover' }} />
+        )}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
         <View style={s.categoryHeroInner}>
           <View style={s.categoryHeroContent}>
             <Text style={s.categoryHeroName}>{category.label}</Text>
             <Text style={s.categoryHeroSub}>Top {spots.length} in your area</Text>
           </View>
         </View>
-      </View>
+      </Pressable>
       {/* Spot rows */}
       {spots.map((spot, idx) => {
         const color = ratingColor(spot.rating);
@@ -488,9 +532,8 @@ const s = StyleSheet.create({
   },
   title: {
     fontSize: 32,
-    fontWeight: '700',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     lineHeight: 36,
   },
 
@@ -621,9 +664,9 @@ const s = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
     marginBottom: 2,
   },
   sectionSubtitle: {
@@ -648,14 +691,14 @@ const s = StyleSheet.create({
     shadowOpacity: 0.10, shadowRadius: 10,
   },
   categoryHero: {
-    height: 130, justifyContent: 'flex-end',
+    height: 130, justifyContent: 'flex-end', overflow: 'hidden',
   },
   categoryHeroInner: {
     flex: 1, padding: 16, justifyContent: 'flex-end',
   },
   categoryHeroContent: {},
   categoryHeroName: {
-    fontSize: 21, fontWeight: '700', color: '#fff', fontFamily: 'InstrumentSerif-Regular', marginBottom: 2,
+    fontSize: 21, fontWeight: '400', color: '#fff', fontFamily: 'Fraunces-Regular', marginBottom: 2,
   },
   categoryHeroSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)' },
 
@@ -717,9 +760,9 @@ const s = StyleSheet.create({
   },
   stacksSectionTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
   },
   stacksScroll: {
     paddingLeft: 16,
@@ -740,13 +783,13 @@ const s = StyleSheet.create({
     shadowRadius: 8,
   },
   stackCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  stackCardName: { fontSize: 14, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular', flex: 1, marginRight: 6 },
+  stackCardName: { fontSize: 14, fontWeight: '400', color: T.primary, fontFamily: 'Fraunces-Regular', flex: 1, marginRight: 6 },
   stackSpotBadge: { backgroundColor: T.inputBg, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
   stackSpotBadgeText: { fontSize: 11, fontWeight: '700', color: T.muted },
   stackCardDate: { fontSize: 11, color: T.muted, marginBottom: 4 },
   stackJourney: { fontSize: 11, color: T.muted, fontStyle: 'italic', marginBottom: 8 },
   stackQuality: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
-  stackQualityText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  stackQualityText: { fontSize: 12, fontWeight: '800', color: '#fff' },
 
   recentSection: {
     marginTop: 24,
@@ -763,9 +806,9 @@ const s = StyleSheet.create({
   },
   recentTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '400',
     color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontFamily: 'Fraunces-Regular',
   },
   emptyDates: {
     paddingHorizontal: 16,
@@ -822,5 +865,5 @@ const s = StyleSheet.create({
     borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
     backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
-  recentScoreText: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  recentScoreText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
 });

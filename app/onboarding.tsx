@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: 10 },
   emoji: { fontSize: 52 },
   title: {
-    fontSize: 24, fontWeight: '700', color: T.primary,
+    fontSize: 24, fontWeight: '400', color: T.primary,
     fontFamily: Fonts.serif, letterSpacing: -0.4, textAlign: 'center',
   },
   subtitle: { fontSize: 15, color: T.muted, textAlign: 'center', lineHeight: 22 },

@@ -107,6 +107,24 @@ export async function getUnreadCount(): Promise<number> {
   return count ?? 0;
 }
 
+export async function notifyActivity(
+  recipientId: string,
+  type: 'like' | 'log' | 'save',
+  refId: string,
+): Promise<void> {
+  if (!supabase) return;
+  const { data: userData } = await supabase.auth.getUser();
+  const myUserId = userData.user?.id;
+  if (!myUserId || myUserId === recipientId) return;
+
+  await supabase.from('notifications').insert({
+    user_id: recipientId,
+    actor_id: myUserId,
+    type,
+    ref_id: refId,
+  });
+}
+
 export async function markAllRead(): Promise<void> {
   if (!supabase) return;
   const { data: userData } = await supabase.auth.getUser();

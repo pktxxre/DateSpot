@@ -9,6 +9,10 @@ import { T } from '@/lib/theme';
 import { fetchNotifications, markAllRead, Notification } from '@/lib/notifications';
 import { acceptFriendRequest, declineFriendRequest, notifyFriendAccepted } from '@/lib/friends';
 import { getVisitById } from '@/lib/visits';
+import { useShimmer, SkBox } from '@/components/SkeletonBox';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const INBOX_CACHE_KEY = 'datespot:notifications_cache_v1';
 
 function timeAgo(isoString: string): string {
   const diff = Date.now() - new Date(isoString).getTime();
@@ -149,19 +153,110 @@ function ReactionRow({ notification }: { notification: Notification }) {
   );
 }
 
+function LikeRow({ notification }: { notification: Notification }) {
+  const actorName = notification.actor?.username ?? 'Someone';
+  const visitId = notification.refId;
+  const visit = visitId ? getVisitById(visitId) : null;
+  const venueName = visit?.venue_name ?? null;
+
+  return (
+    <Pressable style={s.row} onPress={() => { if (visitId) router.push(`/spot/${visitId}`); }}>
+      <ActorAvatar notification={notification} />
+      <View style={s.rowContent}>
+        <Text style={s.rowText}>
+          <Text style={s.rowBold}>{actorName}</Text>
+          {' liked your spot'}
+          {venueName ? <Text>{' at '}<Text style={s.rowBold}>{venueName}</Text></Text> : null}
+        </Text>
+        <Text style={s.rowTime}>{timeAgo(notification.createdAt)}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={T.border} />
+    </Pressable>
+  );
+}
+
+function SaveRow({ notification }: { notification: Notification }) {
+  const actorName = notification.actor?.username ?? 'Someone';
+  const visitId = notification.refId;
+  const visit = visitId ? getVisitById(visitId) : null;
+  const venueName = visit?.venue_name ?? null;
+
+  return (
+    <Pressable style={s.row} onPress={() => { if (visitId) router.push(`/spot/${visitId}`); }}>
+      <ActorAvatar notification={notification} />
+      <View style={s.rowContent}>
+        <Text style={s.rowText}>
+          <Text style={s.rowBold}>{actorName}</Text>
+          {' saved your spot'}
+          {venueName ? <Text>{' at '}<Text style={s.rowBold}>{venueName}</Text></Text> : null}
+        </Text>
+        <Text style={s.rowTime}>{timeAgo(notification.createdAt)}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={T.border} />
+    </Pressable>
+  );
+}
+
+function LogRow({ notification }: { notification: Notification }) {
+  const actorName = notification.actor?.username ?? 'Someone';
+  const visitId = notification.refId;
+  const visit = visitId ? getVisitById(visitId) : null;
+  const venueName = visit?.venue_name ?? null;
+
+  return (
+    <Pressable style={s.row} onPress={() => { if (visitId) router.push(`/spot/${visitId}`); }}>
+      <ActorAvatar notification={notification} />
+      <View style={s.rowContent}>
+        <Text style={s.rowText}>
+          <Text style={s.rowBold}>{actorName}</Text>
+          {' wants to log your spot'}
+          {venueName ? <Text>{' at '}<Text style={s.rowBold}>{venueName}</Text></Text> : null}
+        </Text>
+        <Text style={s.rowTime}>{timeAgo(notification.createdAt)}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={T.border} />
+    </Pressable>
+  );
+}
+
+function InboxSkeleton() {
+  const { shimmer, screenW } = useShimmer();
+  return (
+    <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+      {[0, 1, 2, 3].map(i => (
+        <View key={i} style={{ flexDirection: 'row', gap: 12, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border }}>
+          <SkBox shimmer={shimmer} screenW={screenW} w={44} h={44} r={22} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <SkBox shimmer={shimmer} screenW={screenW} w="85%" h={13} r={6} />
+            <SkBox shimmer={shimmer} screenW={screenW} w="40%" h={11} r={5} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function InboxScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(false);
+    // Stale-while-revalidate: show cached notifications immediately
+    const cached = await AsyncStorage.getItem(INBOX_CACHE_KEY);
+    if (cached) {
+      setNotifications(JSON.parse(cached));
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     const data = await fetchNotifications();
     if (data === null) {
-      setError(true);
+      if (!cached) setError(true);
     } else {
       setNotifications(data);
+      AsyncStorage.setItem(INBOX_CACHE_KEY, JSON.stringify(data));
     }
     setLoading(false);
     await markAllRead();
@@ -190,7 +285,7 @@ export default function InboxScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 60 }} color={T.accent} />
+        <InboxSkeleton />
       ) : error ? (
         <View style={s.centerWrap}>
           <Text style={s.emptyTitle}>Couldn't load notifications</Text>
@@ -225,6 +320,15 @@ export default function InboxScreen() {
             if (item.type === 'reaction') {
               return <ReactionRow notification={item} />;
             }
+            if (item.type === 'like') {
+              return <LikeRow notification={item} />;
+            }
+            if (item.type === 'save') {
+              return <SaveRow notification={item} />;
+            }
+            if (item.type === 'log') {
+              return <LogRow notification={item} />;
+            }
             return null;
           }}
         />
@@ -249,8 +353,8 @@ const s = StyleSheet.create({
     backgroundColor: T.inputBg, borderRadius: 19,
   },
   title: {
-    fontSize: 18, fontWeight: '700', color: T.primary,
-    fontFamily: 'InstrumentSerif-Regular',
+    fontSize: 18, fontWeight: '400', color: T.primary,
+    fontFamily: 'Fraunces-Regular',
   },
   listContent: { paddingVertical: 4 },
   row: {
@@ -290,7 +394,7 @@ const s = StyleSheet.create({
     flex: 1, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 40, gap: 12,
   },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: T.primary, fontFamily: 'InstrumentSerif-Regular' },
+  emptyTitle: { fontSize: 18, fontWeight: '400', color: T.primary, fontFamily: 'Fraunces-Regular', },
   emptySub: { fontSize: 14, color: T.muted, textAlign: 'center', lineHeight: 20 },
   retryBtn: {
     paddingHorizontal: 20, paddingVertical: 10,
