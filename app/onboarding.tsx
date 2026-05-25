@@ -86,7 +86,7 @@ export default function OnboardingScreen() {
       email,
     });
     setLoading(false);
-    router.replace('/walkthrough');
+    router.replace({ pathname: '/intro', params: { next: '/(tabs)' } });
   }
 
   return (

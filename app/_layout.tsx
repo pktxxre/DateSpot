@@ -106,16 +106,16 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="intro" options={{ headerShown: false, animation: 'none' }} />
         <Stack.Screen name="auth/index" options={{ headerShown: false }} />
         <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
         <Stack.Screen name="auth/login" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="walkthrough" options={{ headerShown: false }} />
+
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="inbox" options={{ headerShown: false }} />
-        <Stack.Screen name="friends" options={{ headerShown: false }} />
         <Stack.Screen name="follow-list" options={{ headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="user-spots" options={{ headerShown: false }} />

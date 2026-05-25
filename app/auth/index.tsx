@@ -204,7 +204,7 @@ export default function OnboardingFlow() {
       cityLng: coords?.lng ?? null,
     });
     setLoading(false);
-    router.replace('/walkthrough');
+    router.replace({ pathname: '/intro', params: { next: '/(tabs)' } });
   }
 
   const isFormStep = FORM_STEPS.includes(step);

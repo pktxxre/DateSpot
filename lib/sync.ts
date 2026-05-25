@@ -1,7 +1,5 @@
 import { supabase } from './supabase';
 import { getDb } from './db';
-import { recomputeRatings } from './visits';
-import { recomputeStackRatings } from './stacks';
 import type { UserProfile } from './profile';
 
 async function getUserId(): Promise<string | null> {
@@ -267,6 +265,8 @@ export async function restoreFromCloud(userId: string): Promise<void> {
     }
   });
 
+  const { recomputeRatings } = await import('./visits');
+  const { recomputeStackRatings } = await import('./stacks');
   recomputeRatings();
   recomputeStackRatings();
 }
