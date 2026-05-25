@@ -2,6 +2,16 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.3.0.0] - 2026-05-25
+
+### Added
+- **Intro screen** — new animated intro plays a video with a typewriter "DateSpot" reveal on first launch; gracefully falls back to the main app if `expo-video` is unavailable or the video fails to load
+
+### Changed
+- **Routing** — onboarding and auth flows now redirect to `/intro` (then `/(tabs)`) instead of `/walkthrough`; `friends` route removed from the root stack (moved to tabs)
+- **Skeleton polish** — home category, spot detail, and future spot detail skeletons now use taller, more accurate placeholder rows that match real content heights
+- **Sync lazy imports** — `recomputeRatings` and `recomputeStackRatings` are now lazily imported in `restoreFromCloud` to avoid circular module dependency at startup
+
 ## [0.2.0.0] - 2026-05-22
 
 ### Added
