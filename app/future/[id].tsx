@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, Modal, Alert, ScrollView, Share, Dimensions,
+  View, Text, StyleSheet, Pressable, Modal, Alert, ScrollView, Share,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
@@ -15,7 +15,7 @@ import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
 const FUTURE_BLUE = '#5856d6';
-const SCREEN_H = Dimensions.get('window').height;
+const MAP_HERO_H = 290;
 
 function FutureSpotDetailSkeleton() {
   const { shimmer, screenW } = useShimmer();
@@ -111,114 +111,86 @@ export default function FutureSpotDetailScreen() {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Floating header */}
-      <SafeAreaView style={styles.floatingHeader} edges={['top']}>
-        <View style={styles.floatingHeaderInner}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.floatingBtn}>
-            <Ionicons name="chevron-back" size={20} color="#fff" />
+      {/* Map hero — fixed, behind floating nav */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <MapView
+          style={StyleSheet.absoluteFill}
+          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+        >
+          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+            <View style={styles.pin}>
+              <Ionicons name="bookmark" size={14} color="#fff" />
+            </View>
+          </Marker>
+        </MapView>
+        <View pointerEvents="none" style={styles.mapSolidOverlay} />
+        <View style={styles.heroOverlay} pointerEvents="none">
+          <Text style={styles.heroName}>{spot.venue_name}</Text>
+        </View>
+      </View>
+
+      {/* Floating nav — absolutely over map, 75% opacity */}
+      <SafeAreaView style={styles.floatingNav} edges={['top']}>
+        <View style={styles.floatingNavInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.floatingNavBtn}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={handleShare} hitSlop={12} style={styles.floatingBtn}>
-            <Ionicons name="share-outline" size={20} color="#fff" />
+          <Pressable onPress={handleShare} hitSlop={12} style={styles.floatingNavBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
           </Pressable>
-          <Pressable onPress={handleEdit} hitSlop={12} style={styles.floatingBtn}>
-            <Ionicons name="pencil-outline" size={18} color="#fff" />
+          <Pressable onPress={handleEdit} hitSlop={12} style={styles.floatingNavBtn}>
+            <Ionicons name="pencil-outline" size={18} color={T.primary} />
           </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={12} style={styles.floatingBtn}>
-            <Ionicons name="trash-outline" size={18} color="#fff" />
+          <Pressable onPress={handleDelete} hitSlop={12} style={styles.floatingNavBtn}>
+            <Ionicons name="trash-outline" size={18} color={T.primary} />
           </Pressable>
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
-        <View style={{ backgroundColor: FUTURE_BLUE }}>
-
-          {/* Colored hero */}
-          <View style={styles.hero}>
-            <View style={styles.heroContent}>
-              <Text style={styles.heroMeta}>
-                {metaParts.length > 0 ? metaParts.join(' · ').toUpperCase() : 'WANT TO GO'}
-              </Text>
-              <Text style={styles.heroName}>{spot.venue_name}</Text>
-              <Text style={styles.heroSub}>Added {dateStr}</Text>
-            </View>
+      {/* White card */}
+      <ScrollView
+        style={styles.beliCard}
+        contentContainerStyle={styles.beliCardContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Want-to-go badge + log button */}
+        <View style={styles.beliTopRow}>
+          <View style={styles.wantToGoTag}>
+            <Ionicons name="bookmark" size={13} color={FUTURE_BLUE} style={{ marginRight: 4 }} />
+            <Text style={[styles.wantToGoTagText, { color: FUTURE_BLUE }]}>Want to go</Text>
           </View>
-
-          {/* White card */}
-          <View style={[styles.whiteCard, { minHeight: SCREEN_H }]}>
-
-            {/* Tags row — want to go badge + log button */}
-            <View style={styles.tagsRow}>
-              <View style={styles.tag}>
-                <Ionicons name="bookmark" size={13} color={FUTURE_BLUE} style={{ marginRight: 4 }} />
-                <Text style={[styles.tagText, { color: FUTURE_BLUE }]}>Want to go</Text>
-              </View>
-              <Pressable style={styles.logBtn} onPress={handleLog} hitSlop={8}>
-                <Ionicons name="add" size={18} color={T.accent} />
-              </Pressable>
-            </View>
-
-            <View style={{ height: 20 }} />
-
-            {/* Notes */}
-            {spot.notes ? (
-              <>
-                <Text style={styles.sectionLabel}>NOTES</Text>
-                <View style={styles.notesCard}>
-                  <Text style={styles.notesText}>{spot.notes}</Text>
-                </View>
-                <View style={{ height: 20 }} />
-              </>
-            ) : null}
-
-            {/* Category / type */}
-            {(spot.activity_type || spot.occasion_type) ? (
-              <>
-                <Text style={styles.sectionLabel}>TYPE</Text>
-                <View style={styles.typeTags}>
-                  {spot.activity_type ? (
-                    <View style={styles.typeTag}>
-                      <Text style={styles.typeTagText}>
-                        {ACTIVITY_TYPES.find(a => a.value === spot.activity_type)?.label ?? spot.activity_type}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {spot.occasion_type ? (
-                    <View style={styles.typeTag}>
-                      <Text style={styles.typeTagText}>
-                        {OCCASION_TYPES.find(a => a.value === spot.occasion_type)?.label ?? spot.occasion_type}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-                <View style={{ height: 20 }} />
-              </>
-            ) : null}
-
-            {/* Map */}
-            <Text style={styles.sectionLabel}>WHERE IT IS</Text>
-            <View style={styles.mapCard}>
-              <MapView
-                style={StyleSheet.absoluteFill}
-                region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-                scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-                pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-                showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
-              >
-                <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-                  <View style={styles.pin}>
-                    <Ionicons name="bookmark" size={14} color="#fff" />
-                  </View>
-                </Marker>
-              </MapView>
-            </View>
-            {spot.address ? cleanAddress(spot.address).split('\n').filter(Boolean).map((line, i) => (
-              <Text key={i} style={styles.mapAddress}>{line}</Text>
-            )) : null}
-
-            <View style={{ height: 40 }} />
-          </View>
+          <Pressable style={styles.logVisitBtn} onPress={handleLog} hitSlop={8}>
+            <Ionicons name="add" size={16} color={T.accent} />
+            <Text style={styles.logVisitBtnText}>Log visit</Text>
+          </Pressable>
         </View>
+
+        {/* Tags */}
+        {metaParts.length > 0 && (
+          <Text style={styles.beliTags}>{metaParts.join(' · ')}</Text>
+        )}
+
+        {/* Address */}
+        {spot.address ? (
+          <Text style={styles.beliAddress} numberOfLines={2}>
+            {cleanAddress(spot.address).split('\n').filter(Boolean).join(', ')}
+          </Text>
+        ) : null}
+
+        {/* Notes */}
+        {spot.notes ? (
+          <>
+            <View style={styles.divider} />
+            <Text style={styles.sectionLabel}>NOTES</Text>
+            <Text style={styles.notesText}>{spot.notes}</Text>
+          </>
+        ) : null}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       {/* Edit types modal */}
@@ -274,30 +246,26 @@ export default function FutureSpotDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  floatingHeader: {
+  floatingNav: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
     zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.75)',
   },
-  floatingHeaderInner: {
+  floatingNavInner: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 8, gap: 10,
+    paddingHorizontal: 8, paddingVertical: 6, gap: 4,
   },
-  floatingBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  floatingNavBtn: {
+    width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
 
   hero: { paddingTop: 96, paddingBottom: 10 },
   heroContent: { paddingHorizontal: 20, paddingTop: 20 },
-  heroMeta: {
-    fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)',
-    letterSpacing: 1, marginBottom: 6,
-  },
   heroName: {
-    fontSize: 24, fontWeight: '400', color: '#fff',
-    fontFamily: 'Fraunces-Regular', lineHeight: 30, marginBottom: 4,
+    fontSize: 45, fontWeight: '700', color: '#000',
+    fontFamily: 'Fraunces-Regular', lineHeight: 50,
   },
   heroSub: { fontSize: 13, color: 'rgba(255,255,255,0.85)' },
 
@@ -375,4 +343,49 @@ const styles = StyleSheet.create({
   btnPrimaryText: { color: T.accent, fontSize: 16, fontWeight: '700' },
   btnSecondary: { flex: 1, backgroundColor: T.inputBg, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },
+
+  mapSolidOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  heroOverlay: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 16, paddingBottom: 16,
+  },
+  heroOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 20, paddingBottom: 30,
+  },
+  beliCard: {
+    flex: 1, backgroundColor: '#fff',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    marginTop: -24,
+  },
+  beliCardContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 60 },
+  beliTopRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 10,
+  },
+  wantToGoTag: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#EEEEFF', borderWidth: 1, borderColor: FUTURE_BLUE,
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5,
+  },
+  wantToGoTagText: { fontSize: 13, fontWeight: '600' },
+  logVisitBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: T.accentTint, borderWidth: 1.5, borderColor: T.accent,
+  },
+  logVisitBtnText: { fontSize: 13, fontWeight: '600', color: T.accent },
+  beliVenueName: {
+    fontSize: 28, fontWeight: '700', color: '#000',
+    fontFamily: 'Fraunces-Regular', lineHeight: 34, marginBottom: 10,
+  },
+  beliTags: { fontSize: 13, color: T.muted, marginBottom: 4, lineHeight: 19 },
+  beliAddress: { fontSize: 13, color: T.muted, lineHeight: 18 },
+  divider: {
+    height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginVertical: 20,
+  },
 });

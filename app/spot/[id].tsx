@@ -18,7 +18,7 @@ import {
   currentComparison, ComparisonState,
 } from '@/lib/ranking';
 import { uploadPhoto } from '@/lib/storage';
-import { getSeedSpotById, getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
+import { getSeedSpotById, SeedSpot } from '@/lib/seeds';
 import { supabase } from '@/lib/supabase';
 import { getReactionsForVisit, addReaction, removeReaction, Reaction } from '@/lib/reactions';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot } from '@/lib/future';
@@ -26,6 +26,7 @@ import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
 import * as Crypto from 'expo-crypto';
 import { T } from '@/lib/theme';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
+import { getFriendScoreForVenue } from '@/lib/friends';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -41,6 +42,8 @@ const CATEGORY_IMAGES: Record<string, any> = {
   other:         require('@/assets/images/category-other.jpg'),
 };
 const H_PAD = 20;
+const MAP_HERO_H = 290;
+const SAVE_BLUE = '#5856d6';
 const PHOTO_COLS = 3;
 const PHOTO_GAP = 1;
 const PHOTO_SIZE = (SCREEN_W - H_PAD * 2 - PHOTO_GAP * (PHOTO_COLS - 1)) / PHOTO_COLS;
@@ -469,23 +472,23 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={sd.floatingHeader} edges={['top']}>
-        <View style={sd.floatingHeaderInner}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="chevron-back" size={20} color="#fff" />
+      <SafeAreaView style={sd.floatingNav} edges={['top']}>
+        <View style={sd.floatingNavInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
         </View>
       </SafeAreaView>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
         <View style={{ backgroundColor: heroBg }}>
-          <View style={sd.hero}>
-            <View style={sd.heroContent}>
-              <Text style={sd.heroMeta}>
+          <View style={{ paddingTop: 48, paddingBottom: 10 }}>
+            <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)', letterSpacing: 1, marginBottom: 6 }}>
                 {info?.label?.toUpperCase() ?? fv.activity_type.toUpperCase()}
                 {priceLabel ? ` · ${priceLabel}` : ''}
                 {dateStr ? ` · ${dateStr}` : ''}
               </Text>
-              <Text style={sd.heroName}>{fv.venue_name}</Text>
+              <Text style={{ fontSize: 24, fontWeight: '400', color: '#fff', fontFamily: 'Fraunces-Regular', lineHeight: 30, marginBottom: 4 }}>{fv.venue_name}</Text>
             </View>
           </View>
           <View style={sd.whiteCard}>
@@ -573,16 +576,19 @@ export default function SpotDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [rankingAgain, setRankingAgain] = useState(false);
+  const [friendScore, setFriendScore] = useState<number | null | 'loading'>('loading');
 
   useFocusEffect(useCallback(() => {
     if (!id) { setLoading(false); return; }
     setLoading(true);
+    setFriendScore('loading');
     const local = getVisitById(id);
     if (local) {
       setVisit(local);
       setSeedSpot(null);
       setFriendVisit(null);
       setLoading(false);
+      getFriendScoreForVenue(local.venue_name).then(score => setFriendScore(score));
     } else {
       setVisit(null);
       getSeedSpotById(id).then(async s => {
@@ -632,12 +638,13 @@ export default function SpotDetailScreen() {
   if (!visit) return null;
 
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
+  const occasionInfo = OCCASION_TYPES.find(a => a.value === visit.occasion_type);
   const color = ratingColor(visit.rating);
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const heroBg = ACTIVITY_COLORS_HERO[visit.activity_type] ?? ACTIVITY_COLORS_HERO.other;
   const priceLabel = PRICE_LABELS[visit.price as Price];
   const allSorted = getAllVisits().sort((a, b) => b.rating - a.rating);
   const rank = allSorted.findIndex(v => v.id === visit.id) + 1;
+  const tagParts = [occasionInfo?.label, info?.label].filter(Boolean);
 
   async function handleShare() {
     try {
@@ -663,110 +670,139 @@ export default function SpotDetailScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Floating header over colored hero */}
-      <SafeAreaView style={sd.floatingHeader} edges={['top']}>
-        <View style={sd.floatingHeaderInner}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="chevron-back" size={20} color="#fff" />
+      {/* Map hero — fixed, behind floating nav */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <MapView
+          style={StyleSheet.absoluteFill}
+          region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+        >
+          <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
+            <View style={[styles.pin, { borderColor: color }]}>
+              <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
+            </View>
+          </Marker>
+        </MapView>
+        <View pointerEvents="none" style={sd.mapSolidOverlay} />
+        <View style={sd.heroOverlay} pointerEvents="none">
+          <Text style={sd.heroName} numberOfLines={3}>{visit.venue_name}</Text>
+        </View>
+      </View>
+
+      {/* Floating nav — absolutely over map, 75% opacity */}
+      <SafeAreaView style={sd.floatingNav} edges={['top']}>
+        <View style={sd.floatingNavInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={handleShare} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="share-outline" size={20} color="#fff" />
+          <Pressable onPress={handleShare} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
           </Pressable>
-          <Pressable onPress={() => setEditing(true)} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="pencil-outline" size={18} color="#fff" />
+          <Pressable onPress={() => setEditing(true)} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="pencil-outline" size={18} color={T.primary} />
           </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="trash-outline" size={18} color="#fff" />
+          <Pressable onPress={handleDelete} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="trash-outline" size={18} color={T.primary} />
           </Pressable>
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
-        <View style={{ backgroundColor: heroBg }}>
-          {/* Colored hero */}
-          <View style={sd.hero}>
-            <View style={[sd.heroContent, { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }]}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={sd.heroMeta}>
-                  {(info?.label ?? '').toUpperCase()}{priceLabel ? ` · ${priceLabel}` : ''}
-                </Text>
-                <Text style={sd.heroName}>{visit.venue_name}</Text>
-                <Text style={sd.heroCity}>{dateStr}</Text>
-              </View>
-            </View>
+      {/* White card — scrollable, overlaps map by 24px */}
+      <ScrollView
+        style={sd.beliCard}
+        contentContainerStyle={sd.beliCardContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Rating + action row */}
+        <View style={sd.beliTopRow}>
+          <View style={[sd.ratingBadge, { borderColor: color }]}>
+            <Text style={[sd.ratingBadgeText, { color }]}>{formatRating(visit.rating)}</Text>
           </View>
-
-          {/* White card */}
-          <View style={[sd.whiteCard, { minHeight: SCREEN_H }]}>
-            {/* Rating badge + action buttons */}
-            <View style={sd.badgeRow}>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
-                  <Ionicons name="git-compare-outline" size={13} color={T.accent} />
-                  <Text style={styles.rankAgainText}>Rank again</Text>
-                </Pressable>
-              </View>
-              <View style={[sd.ratingBadge, { borderColor: color }]}>
-                <Text style={[sd.ratingBadgeText, { color }]}>{formatRating(visit.rating)}</Text>
-              </View>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
+              <Ionicons name="git-compare-outline" size={13} color={T.accent} />
+              <Text style={styles.rankAgainText}>Rank again</Text>
+            </Pressable>
+            <View style={sd.checkBadge}>
+              <Ionicons name="checkmark" size={14} color="#34c759" />
             </View>
-
-            <View style={{ height: 20 }} />
-
-            {/* Notes */}
-            {visit.notes ? (
-              <>
-                <Text style={sd.sectionLabel}>NOTES FROM THE NIGHT</Text>
-                <Text style={sd.notesText}>{visit.notes}</Text>
-                <View style={{ height: 16 }} />
-              </>
-            ) : null}
-
-            {/* Map */}
-            <Text style={sd.sectionLabel}>WHERE IT IS</Text>
-            <View style={sd.mapWrap}>
-              <MapView
-                style={StyleSheet.absoluteFill}
-                region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-                scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-                pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-                showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
-              >
-                <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
-                  <View style={[styles.pin, { borderColor: color }]}>
-                    <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
-                  </View>
-                </Marker>
-              </MapView>
-            </View>
-            {visit.address ? cleanAddress(visit.address).split('\n').filter(Boolean).map((line, i) => (
-              <Text key={i} style={styles.mapAddress}>{line}</Text>
-            )) : null}
-
-            <View style={{ height: 20 }} />
-
-            {/* Photos */}
-            <Text style={sd.sectionLabel}>PHOTOS</Text>
-            {visit.photos.length > 0 ? (
-              <View style={sd.photosGrid}>
-                {visit.photos.map((uri, idx) => (
-                  <Image key={idx} source={{ uri }} style={sd.photoThumb} resizeMode="cover" />
-                ))}
-              </View>
-            ) : (
-              <View style={sd.emptySection}>
-                <Ionicons name="camera-outline" size={28} color={T.border} />
-                <Text style={sd.emptySectionText}>No photos yet</Text>
-              </View>
-            )}
-
-            <View style={{ height: 40 }} />
           </View>
         </View>
+
+        {/* Tags + price */}
+        {(tagParts.length > 0 || priceLabel) && (
+          <Text style={sd.beliTags}>
+            {[...tagParts, priceLabel].filter(Boolean).join(' · ')}
+          </Text>
+        )}
+
+        {/* Address */}
+        {visit.address ? (
+          <Text style={sd.beliAddress} numberOfLines={2}>
+            {cleanAddress(visit.address).split('\n').filter(Boolean).join(', ')}
+          </Text>
+        ) : null}
+
+        <View style={sd.divider} />
+
+        {/* Scores */}
+        <Text style={sd.sectionLabel}>SCORES</Text>
+        <View style={sd.scoresRow}>
+          <View style={sd.scoreCard}>
+            <Text style={[sd.scoreNumber, { color }]}>{formatRating(visit.rating)}</Text>
+            <Text style={sd.scoreCardTitle}>Your Rating</Text>
+            {rank > 0 && <Text style={sd.scoreCardSub}>#{rank} on your list</Text>}
+          </View>
+          {friendScore !== 'loading' && friendScore !== null ? (
+            <View style={sd.scoreCard}>
+              <Text style={[sd.scoreNumber, { color: ratingColor(friendScore) }]}>
+                {formatRating(friendScore)}
+              </Text>
+              <Text style={sd.scoreCardTitle}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>Avg. of friends</Text>
+            </View>
+          ) : (
+            <View style={[sd.scoreCard, sd.scoreCardLocked]}>
+              <Text style={[sd.scoreNumber, { color: T.border }]}>–</Text>
+              <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={sd.divider} />
+
+        {/* Notes */}
+        {visit.notes ? (
+          <>
+            <Text style={sd.sectionLabel}>NOTES FROM THE NIGHT</Text>
+            <Text style={sd.notesText}>{visit.notes}</Text>
+            <View style={{ height: 20 }} />
+          </>
+        ) : null}
+
+        {/* Photos */}
+        <Text style={sd.sectionLabel}>PHOTOS</Text>
+        {visit.photos.length > 0 ? (
+          <View style={sd.photosGrid}>
+            {visit.photos.map((uri, idx) => (
+              <Image key={idx} source={{ uri }} style={sd.photoThumb} resizeMode="cover" />
+            ))}
+          </View>
+        ) : (
+          <View style={sd.emptySection}>
+            <Ionicons name="camera-outline" size={28} color={T.border} />
+            <Text style={sd.emptySectionText}>No photos yet</Text>
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       {editing && (
@@ -796,14 +832,12 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
     getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim())
   );
   const [ratingExpanded, setRatingExpanded] = useState(false);
+  const [seedFriendScore, setSeedFriendScore] = useState<number | null | 'loading'>('loading');
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveScale = useRef(new Animated.Value(1)).current;
   const color = ratingColor(spot.rating);
   const priceLabel = PRICE_LABELS[spot.price as Price];
-  const heroBg = ACTIVITY_COLORS_HERO[spot.activity_type] ?? ACTIVITY_COLORS_HERO.other;
-  const catLabel = spot.activity_type
-    ? spot.activity_type.charAt(0).toUpperCase() + spot.activity_type.slice(1)
-    : 'Other';
 
   useEffect(() => {
     const existing = getAllFutureSpots().find(
@@ -811,6 +845,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
     );
     setSavedFutureId(existing?.id ?? null);
     setAlreadyLogged(getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim()));
+    getFriendScoreForVenue(spot.venue_name).then(score => setSeedFriendScore(score));
   }, [spot.id]);
 
   // Determine this spot's overall rank (by rating) to gate Editor's Pick
@@ -839,6 +874,12 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         setSpotPhotos(all);
       });
   }, [spot.venue_name]);
+
+  async function handleShare() {
+    try {
+      await Share.share({ message: `Check out ${spot.venue_name} on DateSpot!` });
+    } catch {}
+  }
 
   function showSavedBanner() {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
@@ -876,30 +917,12 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
 
   const isEditorsPick = spotRank !== null && spotRank <= 10;
 
-  return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <Stack.Screen options={{ headerShown: false }} />
+  const activityInfo = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
+  const seedTagParts = [activityInfo?.label].filter(Boolean);
 
-      {/* Floating header over hero */}
-      <SafeAreaView style={sd.floatingHeader} edges={['top']}>
-        <View style={sd.floatingHeaderInner}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name="chevron-back" size={20} color="#fff" />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={alreadyLogged ? undefined : handleLogVisit}
-            hitSlop={12}
-            style={[sd.floatingBtn, alreadyLogged && { backgroundColor: 'rgba(255,255,255,0.45)' }]}
-            disabled={alreadyLogged}
-          >
-            <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color="#fff" />
-          </Pressable>
-          <Pressable onPress={toggleSave} hitSlop={12} style={sd.floatingBtn}>
-            <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color="#fff" />
-          </Pressable>
-        </View>
-      </SafeAreaView>
+  return (
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <Stack.Screen options={{ headerShown: false }} />
 
       {/* Saved banner */}
       <Animated.View
@@ -916,110 +939,152 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         <Text style={sd.savedBannerText}>Saved! Check it out on your map.</Text>
       </Animated.View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
-        {/* Wrapper shares hero color so rounded card corners show against it */}
-        <View style={{ backgroundColor: heroBg }}>
-          {/* Colored hero — content pinned right under the floating header */}
-          <View style={sd.hero}>
-            <View style={sd.heroContent}>
-              <Text style={sd.heroMeta}>
-                {(catLabel || 'Other').toUpperCase()}{priceLabel ? ` · ${priceLabel}` : ''}
-              </Text>
-              <Text style={sd.heroName}>{spot.venue_name}</Text>
-              <Text style={sd.heroCity}>Seattle</Text>
+      {/* Map hero — fixed, behind floating nav */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <MapView
+          style={StyleSheet.absoluteFill}
+          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+        >
+          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+            <View style={[styles.pin, { borderColor: color }]}>
+              <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
             </View>
-          </View>
+          </Marker>
+        </MapView>
+        <View pointerEvents="none" style={sd.mapSolidOverlay} />
+        <View style={sd.heroOverlay} pointerEvents="none">
+          <Text style={sd.heroName} numberOfLines={3}>{spot.venue_name}</Text>
+        </View>
+      </View>
 
-          {/* White card inside wrapper — rounded corners visible against heroBg */}
-          <View style={sd.whiteCard}>
-          {/* Badge row + rating */}
-          <View style={sd.badgeRow}>
-            {isEditorsPick ? (
+      {/* Floating nav — absolutely over map, 75% opacity */}
+      <SafeAreaView style={sd.floatingNav} edges={['top']}>
+        <View style={sd.floatingNavInner}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <Pressable onPress={handleShare} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+
+      {/* White card */}
+      <ScrollView
+        style={sd.beliCard}
+        contentContainerStyle={sd.beliCardContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Rating + action row */}
+        <View style={sd.beliTopRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={[sd.ratingBadge, { borderColor: color }]}>
+              <Text style={[sd.ratingBadgeText, { color }]}>{spot.rating.toFixed(1)}</Text>
+            </View>
+            {isEditorsPick && (
               <View style={sd.editorBadge}>
                 <Ionicons name="star" size={11} color="#E76F51" style={{ marginRight: 4 }} />
                 <Text style={sd.editorBadgeText}>EDITOR'S PICK</Text>
               </View>
-            ) : <View />}
-            <View style={sd.ratingWrap}>
-              <Pressable onPress={() => setRatingExpanded(v => !v)}>
-                <View style={[sd.ratingBadge, { borderColor: color }]}>
-                  <Text style={[sd.ratingBadgeText, { color }]}>{spot.rating.toFixed(1)}</Text>
-                </View>
-              </Pressable>
-              {ratingExpanded && (
-                <Text style={sd.ratingCaption}>Avg. of all logs</Text>
-              )}
-            </View>
+            )}
           </View>
-
-          <View style={{ height: 20 }} />
-
-          {/* Why it's a great date */}
-          {spot.notes ? (
-            <>
-              <Text style={sd.sectionLabel}>WHY IT'S A GREAT DATE</Text>
-              <Text style={sd.notesText}>{spot.notes}</Text>
-              <View style={{ height: 16 }} />
-            </>
-          ) : null}
-
-          {/* Map */}
-          <Text style={sd.sectionLabel}>WHERE IT IS</Text>
-          <View style={sd.mapWrap}>
-            <MapView
-              style={StyleSheet.absoluteFill}
-              region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-              scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-              pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-              showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Pressable
+              onPress={alreadyLogged ? undefined : handleLogVisit}
+              style={[sd.actionCircleBtn, alreadyLogged && { borderColor: '#34c759', backgroundColor: '#eefff0' }]}
+              disabled={alreadyLogged}
             >
-              <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-                <View style={[styles.pin, { borderColor: color }]}>
-                  <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
-                </View>
-              </Marker>
-            </MapView>
-          </View>
-
-          {spot.address ? (
-            <Text style={sd.addressText}>{spot.address}</Text>
-          ) : null}
-
-          {/* Divider */}
-          <View style={sd.divider} />
-
-          {/* Photos section — always visible */}
-          <Text style={sd.sectionLabel}>PHOTOS</Text>
-          {spotPhotos.length > 0 ? (
-            <View style={sd.photosGrid}>
-              {spotPhotos.map((uri, idx) => (
-                <Image key={idx} source={{ uri }} style={sd.photoThumb} resizeMode="cover" />
-              ))}
-            </View>
-          ) : (
-            <View style={sd.emptySection}>
-              <Ionicons name="camera-outline" size={28} color={T.border} />
-              <Text style={sd.emptySectionText}>No photos yet</Text>
-            </View>
-          )}
-
-          {/* Divider */}
-          <View style={sd.divider} />
-
-          {/* What your friends think — always visible */}
-          <Text style={sd.sectionLabel}>WHAT YOUR FRIENDS THINK</Text>
-          <View style={sd.emptySection}>
-            <Ionicons name="people-outline" size={28} color={T.border} />
-            <Text style={sd.emptySectionText}>None of your friends have logged this spot yet.</Text>
-            <Pressable style={sd.addFriendsBtn} onPress={() => router.push('/(tabs)/friends')}>
-              <Ionicons name="person-add-outline" size={14} color={T.accent} />
-              <Text style={sd.addFriendsBtnText}>Add friends</Text>
+              <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color={alreadyLogged ? '#34c759' : T.accent} />
+            </Pressable>
+            <Pressable onPress={toggleSave} style={[sd.actionCircleBtn, { backgroundColor: savedFutureId ? SAVE_BLUE : `${SAVE_BLUE}18`, borderColor: SAVE_BLUE }]}>
+              <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color={savedFutureId ? '#fff' : SAVE_BLUE} />
             </Pressable>
           </View>
-
-          <View style={{ height: 40 }} />
         </View>
-        </View>{/* end heroBg wrapper */}
+
+        {/* Tags + price */}
+        {(seedTagParts.length > 0 || priceLabel) && (
+          <Text style={sd.beliTags}>
+            {[...seedTagParts, priceLabel].filter(Boolean).join(' · ')}
+          </Text>
+        )}
+
+        {/* Address */}
+        {spot.address ? (
+          <Text style={sd.beliAddress} numberOfLines={2}>{spot.address}</Text>
+        ) : null}
+
+        <View style={sd.divider} />
+
+        {/* Scores */}
+        <Text style={sd.sectionLabel}>SCORES</Text>
+        <View style={sd.scoresRow}>
+          <View style={sd.scoreCard}>
+            <Text style={[sd.scoreNumber, { color }]}>{spot.rating.toFixed(1)}</Text>
+            <Text style={sd.scoreCardTitle}>Rec Score</Text>
+            <Text style={sd.scoreCardSub}>Avg. of all logs</Text>
+          </View>
+          {seedFriendScore !== 'loading' && seedFriendScore !== null ? (
+            <View style={sd.scoreCard}>
+              <Text style={[sd.scoreNumber, { color: ratingColor(seedFriendScore) }]}>
+                {formatRating(seedFriendScore)}
+              </Text>
+              <Text style={sd.scoreCardTitle}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>Avg. of friends</Text>
+            </View>
+          ) : (
+            <View style={[sd.scoreCard, sd.scoreCardLocked]}>
+              <Text style={[sd.scoreNumber, { color: T.border }]}>–</Text>
+              <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={sd.divider} />
+
+        {/* Why it's a great date */}
+        {spot.notes ? (
+          <>
+            <Text style={sd.sectionLabel}>WHY IT'S A GREAT DATE</Text>
+            <Text style={sd.notesText}>{spot.notes}</Text>
+            <View style={{ height: 20 }} />
+          </>
+        ) : null}
+
+        {/* Photos */}
+        <Text style={sd.sectionLabel}>PHOTOS</Text>
+        {spotPhotos.length > 0 ? (
+          <View style={sd.photosGrid}>
+            {spotPhotos.map((uri, idx) => (
+              <Image key={idx} source={{ uri }} style={sd.photoThumb} resizeMode="cover" />
+            ))}
+          </View>
+        ) : (
+          <View style={sd.emptySection}>
+            <Ionicons name="camera-outline" size={28} color={T.border} />
+            <Text style={sd.emptySectionText}>No photos yet</Text>
+          </View>
+        )}
+
+        <View style={sd.divider} />
+
+        {/* What your friends think */}
+        <Text style={sd.sectionLabel}>WHAT YOUR FRIENDS THINK</Text>
+        <View style={sd.emptySection}>
+          <Ionicons name="people-outline" size={28} color={T.border} />
+          <Text style={sd.emptySectionText}>None of your friends have logged this spot yet.</Text>
+          <Pressable style={sd.addFriendsBtn} onPress={() => router.push('/(tabs)/friends')}>
+            <Ionicons name="person-add-outline" size={14} color={T.accent} />
+            <Text style={sd.addFriendsBtnText}>Add friends</Text>
+          </Pressable>
+        </View>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
@@ -1086,12 +1151,11 @@ const sd = StyleSheet.create({
     marginBottom: 6,
   },
   heroName: {
-    fontSize: 24,
-    fontWeight: '400',
-    color: '#fff',
+    fontSize: 45,
+    fontWeight: '700',
+    color: '#000',
     fontFamily: 'Fraunces-Regular',
-    lineHeight: 30,
-    marginBottom: 4,
+    lineHeight: 50,
   },
   heroCity: {
     fontSize: 13,
@@ -1219,6 +1283,112 @@ const sd = StyleSheet.create({
     fontWeight: '600',
     color: T.accent,
   },
+  mapSolidOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  heroOverlay: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 16, paddingBottom: 16,
+  },
+  heroOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+  },
+  beliCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -24,
+  },
+  beliCardContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 60,
+  },
+  beliTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  beliTags: {
+    fontSize: 13,
+    color: T.muted,
+    marginBottom: 4,
+    lineHeight: 19,
+  },
+  beliAddress: {
+    fontSize: 13,
+    color: T.muted,
+    marginBottom: 0,
+    lineHeight: 18,
+  },
+  checkBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#eefff0',
+    borderWidth: 1.5,
+    borderColor: '#34c759',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoresRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 4,
+  },
+  scoreCard: {
+    flex: 1,
+    backgroundColor: T.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: T.border,
+    padding: 16,
+    gap: 3,
+  },
+  scoreCardLocked: {
+    alignItems: 'flex-start',
+  },
+  beliVenueName: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'Fraunces-Regular',
+    lineHeight: 34,
+    marginBottom: 10,
+  },
+  scoreNumber: {
+    fontSize: 26,
+    fontWeight: '800',
+  },
+  scoreCardTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: T.primary,
+  },
+  scoreCardSub: {
+    fontSize: 11,
+    color: T.muted,
+    lineHeight: 15,
+  },
+  actionCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: T.accentTint,
+    borderWidth: 1.5,
+    borderColor: T.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ctaSafe: {
     backgroundColor: '#fff',
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1234,6 +1404,28 @@ const sd = StyleSheet.create({
     paddingVertical: 16,
   },
   logCtaText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  floatingNav: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  floatingNavInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  floatingNavBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => void; onSave: (v: Visit) => void }) {
