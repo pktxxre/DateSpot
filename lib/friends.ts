@@ -419,6 +419,25 @@ export async function followUser(targetId: string): Promise<{ error?: string }> 
   return sendFriendRequest(myId, targetId);
 }
 
+export async function getFriendScoreForVenue(venueName: string): Promise<number | null> {
+  if (!supabase) return null;
+  const { data: userData } = await supabase.auth.getUser();
+  const myUserId = userData.user?.id;
+  if (!myUserId) return null;
+  const friendIds = await getAcceptedFriendIds(myUserId);
+  if (friendIds.length === 0) return null;
+  const { data } = await supabase
+    .from('visits')
+    .select('rating')
+    .in('user_id', friendIds)
+    .eq('is_seed', false)
+    .ilike('venue_name', venueName)
+    .gt('rating', 0);
+  if (!data || data.length === 0) return null;
+  const avg = data.reduce((sum: number, r: any) => sum + r.rating, 0) / data.length;
+  return Math.round(avg * 10) / 10;
+}
+
 export async function unfollowUser(targetId: string): Promise<void> {
   if (!supabase) return;
   const { data: userData } = await supabase.auth.getUser();
