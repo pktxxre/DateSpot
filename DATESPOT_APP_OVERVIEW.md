@@ -31,7 +31,7 @@ The app is also a **discovery tool** for people who need a place to take someone
 | Backend (optional) | Supabase | Used for photo uploads, canonical place resolution, community top spots |
 | Photos | expo-image-picker | Up to 3 photos per spot, uploaded to Supabase Storage |
 | Auth | Supabase Auth (or local mock) | Email/password, magic link, Apple Sign-In |
-| Fonts | InstrumentSerif-Regular | Used for headings throughout |
+| Fonts | Fraunces-Regular / DMSans | Fraunces for headings, DM Sans for body and UI |
 | Icons | @expo/vector-icons (Ionicons) | All iconography |
 
 ---
@@ -75,8 +75,8 @@ Each activity type has a rich earthy color used as the hero background on spot d
 - Other → `#8B7255` (warm taupe)
 
 ### Typography
-- **Headings/titles:** `InstrumentSerif-Regular` — gives the app a personal, editorial feel
-- **Body/UI:** System font, various weights (500, 600, 700, 800)
+- **Headings/titles:** `Fraunces-Regular` — editorial serif, gives the app a personal, warm feel
+- **Body/UI:** `DMSans` — clean geometric sans, various weights (500, 600, 700, 800)
 - **Labels:** All-caps, letter-spacing 1.2–1.5, size 10–12
 
 ### Layout patterns
@@ -109,8 +109,17 @@ Tab Bar (bottom)
 - `/onboarding` — first-launch onboarding
 - `/auth/index`, `/auth/login`, `/auth/signup` — auth screens
 - `/settings` — app settings
+- `/account-details` — name, email, and city (accessible from Settings)
+- `/change-password` — update password with inline strength validation (accessible from Settings)
 - `/edit-profile` — edit name, bio, city, photo
 - `/friends` — friends list
+- `/user/[id]` — another user's profile: top spots, visit count, follow button
+- `/my-spots` — your full personal visit history
+- `/my-future` — your saved want-to-visit spots
+- `/my-date-nights` — your date night stacks history
+- `/follow-list` — stacks curated by people you follow
+- `/inbox` — notifications: friend requests, accepted friends, reactions, activity likes
+- `/walkthrough` — onboarding walkthrough introduced on first launch
 
 ---
 
@@ -643,27 +652,24 @@ The app treats your dating life as something worth documenting — not to optimi
 
 ---
 
-## Current Branch Status (as of May 2026)
+## Current Release Status
 
-Branch: `pktxxre/p1-core-loop-polish`
+**Version:** v0.4.0.0 (2026-05-27)
 
-**Recently merged:**
-- S/A/B/C/F tier rating system for stacks
-- Shimmer skeleton loading, compare polish, stack card cleanup
-- Log resume prompt, pin label collision fix, search locality fix
-- P0 bug fixes (tier entry navigation, etc.)
-
-**Modified files (uncommitted):**
-- `app/(tabs)/index.tsx` — home screen
-- `app/(tabs)/lists.tsx` — lists/stacks
-- `app/(tabs)/map.tsx` — map + log flow
-- `app/(tabs)/profile.tsx` — profile
-- `app/spot/[id].tsx` — spot detail
-- `app/spots.tsx` — all spots browse
-- `app/stack/[id].tsx` — stack detail
-- `lib/db.ts` — SQLite schema/init
-- `lib/visits.ts` — visit data layer
-- `supabase/seed_user_2_evan_lin.sql` — seed data
+**What shipped in v0.4.0.0:**
+- Calendar picker in the logging flow
+- Map auto-switches view after logging (Been To / Want To Go)
+- Emoticon profile pictures (deterministic, stored per profile)
+- Account Details and Change Password screens (accessible from Settings)
+- User profile screens (`/user/[id]`) with follow button
+- My Spots, My Future, My Date Nights personal history pages
+- Follow lists: browse stacks from people you follow
+- Friends activity redesign: unified cards, Like button, FriendsSheet modal
+- Recommended spots in Friends tab
+- SlidingPills animated component — used across Friends, Lists, and other tabs
+- Been To pin hierarchy: higher-rated pins render above lower-rated ones
+- Loading spinner in search bar
+- Headspace reminder prompt in compare step
 
 ---
 
