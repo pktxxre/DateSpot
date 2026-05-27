@@ -45,7 +45,7 @@ const H_PAD = 20;
 const MAP_HERO_H = 290;
 const SAVE_BLUE = '#5856d6';
 const PHOTO_COLS = 3;
-const PHOTO_GAP = 1;
+const PHOTO_GAP = 6;
 const PHOTO_SIZE = (SCREEN_W - H_PAD * 2 - PHOTO_GAP * (PHOTO_COLS - 1)) / PHOTO_COLS;
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -541,29 +541,68 @@ function SpotDetailSkeleton() {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ backgroundColor: '#8B7B6B', paddingTop: 96, paddingBottom: 10 }}>
-        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-          {sk(100, 11, 3, { marginBottom: 6 })}
-          {sk(200, 26, 4, { marginBottom: 4 })}
-          {sk(80, 13, 3)}
+
+      {/* Sticky nav */}
+      <SafeAreaView style={sd.stickyNav} edges={['top']}>
+        <View style={sd.stickyNavInner}>
+          {sk(22, 22, 4)}
+          <View style={{ flex: 1 }} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {sk(20, 20, 4)}
+            {sk(18, 18, 4)}
+            {sk(18, 18, 4)}
+          </View>
         </View>
-      </View>
-      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          {sk(100, 30, 20)}
-          {sk(54, 28, 99)}
+      </SafeAreaView>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Map hero */}
+        <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed', justifyContent: 'flex-end' }}>
+          <View style={{ paddingHorizontal: 16, paddingBottom: 36, flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+            <View style={{ flex: 1, gap: 4 }}>
+              {sk('75%', 46, 4)}
+              {sk('85%', 46, 4)}
+              {sk('50%', 46, 4)}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, paddingBottom: 4 }}>
+              {sk(104, 28, 20)}
+              {sk(32, 32, 16)}
+            </View>
+          </View>
         </View>
-        <View style={{ height: 20 }} />
-        {sk(70, 10, 3, { marginBottom: 8 })}
-        {sk('100%', 160, 14)}
-        {sk(180, 12, 3, { marginTop: 8, marginLeft: 2 })}
-        <View style={{ height: 20 }} />
-        {sk(55, 10, 3, { marginBottom: 8 })}
-        <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
-          {sk(28, 28, 14)}
-          {sk(100, 13, 3)}
+
+        {/* White card */}
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24, paddingHorizontal: 20, paddingTop: 20 }}>
+          {sk('50%', 13, 3, { marginBottom: 4 })}
+          {sk('65%', 13, 3)}
+
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginVertical: 20 }} />
+
+          {/* SCORES */}
+          {sk(52, 10, 2, { marginBottom: 8 })}
+          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 4 }}>
+            <View style={{ flex: 1, borderRadius: 16, borderWidth: 1, borderColor: T.border, padding: 16, gap: 3 }}>
+              {sk(40, 32, 3)}
+              {sk('75%', 12, 3)}
+              {sk('55%', 11, 3)}
+            </View>
+            <View style={{ flex: 1, borderRadius: 16, borderWidth: 1, borderColor: T.border, padding: 16, gap: 3 }}>
+              {sk(40, 32, 3)}
+              {sk('75%', 12, 3)}
+              {sk('55%', 11, 3)}
+            </View>
+          </View>
+
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginVertical: 20 }} />
+
+          {/* PHOTOS */}
+          {sk(48, 10, 2, { marginBottom: 8 })}
+          <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+            {sk(28, 28, 14)}
+            {sk(90, 13, 3)}
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -673,68 +712,66 @@ export default function SpotDetailScreen() {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Map hero — fixed, behind floating nav */}
+      {/* Sticky nav — always visible */}
+      <SafeAreaView style={sd.stickyNav} edges={['top']}>
+        <View style={sd.stickyNavInner}>
+          <View style={sd.stickyNavTitleWrap} pointerEvents="none">
+            <Text style={sd.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
+              {visit.venue_name}
+            </Text>
+          </View>
+          <Pressable onPress={() => router.back()} hitSlop={8} style={sd.floatingNavBtn}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable onPress={handleShare} hitSlop={8} style={sd.navBtnCompact}>
+              <Ionicons name="share-outline" size={20} color={T.primary} />
+            </Pressable>
+            <Pressable onPress={() => setEditing(true)} hitSlop={8} style={sd.navBtnCompact}>
+              <Ionicons name="pencil-outline" size={18} color={T.primary} />
+            </Pressable>
+            <Pressable onPress={handleDelete} hitSlop={8} style={sd.navBtnCompact}>
+              <Ionicons name="trash-outline" size={18} color={T.primary} />
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* Map hero — scrolls with content */}
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
         <MapView
           style={StyleSheet.absoluteFill}
-          region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+          region={{ latitude: visit.lat - 0.00375, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
           scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
           pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
           showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
         >
-          <Marker coordinate={{ latitude: visit.lat, longitude: visit.lng }}>
-            <View style={[styles.pin, { borderColor: color }]}>
-              <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
-            </View>
-          </Marker>
         </MapView>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
-        <View style={sd.heroOverlay} pointerEvents="none">
-          <Text style={sd.heroName} numberOfLines={3}>{visit.venue_name}</Text>
+        <View pointerEvents="none" style={sd.mapPinOverlay}>
+          <View style={[styles.pin, { borderColor: color }]}>
+            <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
+          </View>
+        </View>
+        <View style={sd.heroOverlay}>
+          <View style={sd.heroActionsRow}>
+            <Text style={sd.heroName} numberOfLines={3}>{visit.venue_name}</Text>
+            <View style={sd.heroBtns}>
+              <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
+                <Ionicons name="git-compare-outline" size={13} color={T.accent} />
+                <Text style={styles.rankAgainText}>Rank again</Text>
+              </Pressable>
+              <View style={sd.checkBadge}>
+                <Ionicons name="checkmark" size={14} color="#34c759" />
+              </View>
+            </View>
+          </View>
         </View>
       </View>
 
-      {/* Floating nav — absolutely over map, 75% opacity */}
-      <SafeAreaView style={sd.floatingNav} edges={['top']}>
-        <View style={sd.floatingNavInner}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
-            <Ionicons name="chevron-back" size={22} color={T.primary} />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          <Pressable onPress={handleShare} hitSlop={12} style={sd.floatingNavBtn}>
-            <Ionicons name="share-outline" size={20} color={T.primary} />
-          </Pressable>
-          <Pressable onPress={() => setEditing(true)} hitSlop={12} style={sd.floatingNavBtn}>
-            <Ionicons name="pencil-outline" size={18} color={T.primary} />
-          </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={12} style={sd.floatingNavBtn}>
-            <Ionicons name="trash-outline" size={18} color={T.primary} />
-          </Pressable>
-        </View>
-      </SafeAreaView>
-
-      {/* White card — scrollable, overlaps map by 24px */}
-      <ScrollView
-        style={sd.beliCard}
-        contentContainerStyle={sd.beliCardContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Rating + action row */}
-        <View style={sd.beliTopRow}>
-          <View style={[sd.ratingBadge, { borderColor: color }]}>
-            <Text style={[sd.ratingBadgeText, { color }]}>{formatRating(visit.rating)}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
-              <Ionicons name="git-compare-outline" size={13} color={T.accent} />
-              <Text style={styles.rankAgainText}>Rank again</Text>
-            </Pressable>
-            <View style={sd.checkBadge}>
-              <Ionicons name="checkmark" size={14} color="#34c759" />
-            </View>
-          </View>
-        </View>
-
+      <View style={sd.beliCardContent}>
         {/* Tags + price */}
         {(tagParts.length > 0 || priceLabel) && (
           <Text style={sd.beliTags}>
@@ -755,21 +792,25 @@ export default function SpotDetailScreen() {
         <Text style={sd.sectionLabel}>SCORES</Text>
         <View style={sd.scoresRow}>
           <View style={sd.scoreCard}>
-            <Text style={[sd.scoreNumber, { color }]}>{formatRating(visit.rating)}</Text>
+            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
+              <Text style={sd.scoreNumber}>{formatRating(visit.rating)}</Text>
+            </View>
             <Text style={sd.scoreCardTitle}>Your Rating</Text>
             {rank > 0 && <Text style={sd.scoreCardSub}>#{rank} on your list</Text>}
           </View>
           {friendScore !== 'loading' && friendScore !== null ? (
             <View style={sd.scoreCard}>
-              <Text style={[sd.scoreNumber, { color: ratingColor(friendScore) }]}>
-                {formatRating(friendScore)}
-              </Text>
+              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(friendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
+                <Text style={sd.scoreNumber}>{formatRating(friendScore)}</Text>
+              </View>
               <Text style={sd.scoreCardTitle}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
           ) : (
             <View style={[sd.scoreCard, sd.scoreCardLocked]}>
-              <Text style={[sd.scoreNumber, { color: T.border }]}>–</Text>
+              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
+                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
+              </View>
               <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
             </View>
@@ -803,6 +844,7 @@ export default function SpotDetailScreen() {
         )}
 
         <View style={{ height: 40 }} />
+      </View>
       </ScrollView>
 
       {editing && (
@@ -827,7 +869,6 @@ export default function SpotDetailScreen() {
 function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
   const [savedFutureId, setSavedFutureId] = useState<string | null>(null);
   const [spotPhotos, setSpotPhotos] = useState<string[]>([]);
-  const [spotRank, setSpotRank] = useState<number | null>(null);
   const [alreadyLogged, setAlreadyLogged] = useState(() =>
     getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim())
   );
@@ -847,15 +888,6 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
     setAlreadyLogged(getAllVisits().some(v => v.venue_name.toLowerCase().trim() === spot.venue_name.toLowerCase().trim()));
     getFriendScoreForVenue(spot.venue_name).then(score => setSeedFriendScore(score));
   }, [spot.id]);
-
-  // Determine this spot's overall rank (by rating) to gate Editor's Pick
-  useEffect(() => {
-    getSeedSpotsRaw().then(all => {
-      const sorted = [...all].sort((a, b) => b.rating - a.rating);
-      const idx = sorted.findIndex(s => s.venue_name === spot.venue_name);
-      setSpotRank(idx >= 0 ? idx + 1 : null);
-    });
-  }, [spot.venue_name]);
 
   // Fetch any user-uploaded photos for this venue
   useEffect(() => {
@@ -889,11 +921,19 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
     }, 1500);
   }
 
+  function popSave() {
+    Animated.sequence([
+      Animated.timing(saveScale, { toValue: 1.2, duration: 80, useNativeDriver: true }),
+      Animated.spring(saveScale, { toValue: 1, friction: 4, tension: 200, useNativeDriver: true }),
+    ]).start();
+  }
+
   function toggleSave() {
     if (savedFutureId) {
       deleteFutureSpot(savedFutureId);
       setSavedFutureId(null);
     } else {
+      popSave();
       const newId = Crypto.randomUUID();
       insertFutureSpot({
         id: newId,
@@ -914,8 +954,6 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
     scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng, spot.activity_type, spot.occasion_type);
     router.dismissTo('/(tabs)/map');
   }
-
-  const isEditorsPick = spotRank !== null && spotRank <= 10;
 
   const activityInfo = ACTIVITY_TYPES.find(a => a.value === spot.activity_type);
   const seedTagParts = [activityInfo?.label].filter(Boolean);
@@ -939,30 +977,14 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         <Text style={sd.savedBannerText}>Saved! Check it out on your map.</Text>
       </Animated.View>
 
-      {/* Map hero — fixed, behind floating nav */}
-      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
-        <MapView
-          style={StyleSheet.absoluteFill}
-          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
-        >
-          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-            <View style={[styles.pin, { borderColor: color }]}>
-              <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
-            </View>
-          </Marker>
-        </MapView>
-        <View pointerEvents="none" style={sd.mapSolidOverlay} />
-        <View style={sd.heroOverlay} pointerEvents="none">
-          <Text style={sd.heroName} numberOfLines={3}>{spot.venue_name}</Text>
-        </View>
-      </View>
-
-      {/* Floating nav — absolutely over map, 75% opacity */}
-      <SafeAreaView style={sd.floatingNav} edges={['top']}>
-        <View style={sd.floatingNavInner}>
+      {/* Sticky nav — always visible */}
+      <SafeAreaView style={sd.stickyNav} edges={['top']}>
+        <View style={sd.stickyNavInner}>
+          <View style={sd.stickyNavTitleWrap} pointerEvents="none">
+            <Text style={sd.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
+              {spot.venue_name}
+            </Text>
+          </View>
           <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
             <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
@@ -973,39 +995,45 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         </View>
       </SafeAreaView>
 
-      {/* White card */}
-      <ScrollView
-        style={sd.beliCard}
-        contentContainerStyle={sd.beliCardContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Rating + action row */}
-        <View style={sd.beliTopRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={[sd.ratingBadge, { borderColor: color }]}>
-              <Text style={[sd.ratingBadgeText, { color }]}>{spot.rating.toFixed(1)}</Text>
-            </View>
-            {isEditorsPick && (
-              <View style={sd.editorBadge}>
-                <Ionicons name="star" size={11} color="#E76F51" style={{ marginRight: 4 }} />
-                <Text style={sd.editorBadgeText}>EDITOR'S PICK</Text>
-              </View>
-            )}
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <Pressable
-              onPress={alreadyLogged ? undefined : handleLogVisit}
-              style={[sd.actionCircleBtn, alreadyLogged && { borderColor: '#34c759', backgroundColor: '#eefff0' }]}
-              disabled={alreadyLogged}
-            >
-              <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color={alreadyLogged ? '#34c759' : T.accent} />
-            </Pressable>
-            <Pressable onPress={toggleSave} style={[sd.actionCircleBtn, { backgroundColor: savedFutureId ? SAVE_BLUE : `${SAVE_BLUE}18`, borderColor: SAVE_BLUE }]}>
-              <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color={savedFutureId ? '#fff' : SAVE_BLUE} />
-            </Pressable>
+      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* Map hero — scrolls with content */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <MapView
+          style={StyleSheet.absoluteFill}
+          region={{ latitude: spot.lat - 0.00375, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
+          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+        >
+        </MapView>
+        <View pointerEvents="none" style={sd.mapSolidOverlay} />
+        <View pointerEvents="none" style={sd.mapPinOverlay}>
+          <View style={[styles.pin, { borderColor: color }]}>
+            <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
           </View>
         </View>
+        <View style={sd.heroOverlay}>
+          <View style={sd.heroActionsRow}>
+            <Text style={sd.heroName} numberOfLines={3}>{spot.venue_name}</Text>
+            <View style={sd.heroBtns}>
+              <Pressable
+                onPress={alreadyLogged ? undefined : handleLogVisit}
+                style={[sd.actionCircleBtn, alreadyLogged && { borderColor: '#34c759', backgroundColor: '#eefff0' }]}
+                disabled={alreadyLogged}
+              >
+                <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color={alreadyLogged ? '#34c759' : T.accent} />
+              </Pressable>
+              <Animated.View style={{ transform: [{ scale: saveScale }] }}>
+                <Pressable onPress={toggleSave} style={[sd.actionCircleBtn, { backgroundColor: savedFutureId ? SAVE_BLUE : `${SAVE_BLUE}18`, borderColor: SAVE_BLUE }]}>
+                  <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color={savedFutureId ? '#fff' : SAVE_BLUE} />
+                </Pressable>
+              </Animated.View>
+            </View>
+          </View>
+        </View>
+      </View>
 
+      <View style={sd.beliCardContent}>
         {/* Tags + price */}
         {(seedTagParts.length > 0 || priceLabel) && (
           <Text style={sd.beliTags}>
@@ -1015,7 +1043,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
 
         {/* Address */}
         {spot.address ? (
-          <Text style={sd.beliAddress} numberOfLines={2}>{spot.address}</Text>
+          <Text style={sd.beliAddress} numberOfLines={2}>{cleanAddress(spot.address)}</Text>
         ) : null}
 
         <View style={sd.divider} />
@@ -1024,21 +1052,25 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         <Text style={sd.sectionLabel}>SCORES</Text>
         <View style={sd.scoresRow}>
           <View style={sd.scoreCard}>
-            <Text style={[sd.scoreNumber, { color }]}>{spot.rating.toFixed(1)}</Text>
+            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
+              <Text style={sd.scoreNumber}>{spot.rating.toFixed(1)}</Text>
+            </View>
             <Text style={sd.scoreCardTitle}>Rec Score</Text>
             <Text style={sd.scoreCardSub}>Avg. of all logs</Text>
           </View>
           {seedFriendScore !== 'loading' && seedFriendScore !== null ? (
             <View style={sd.scoreCard}>
-              <Text style={[sd.scoreNumber, { color: ratingColor(seedFriendScore) }]}>
-                {formatRating(seedFriendScore)}
-              </Text>
+              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(seedFriendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
+                <Text style={sd.scoreNumber}>{formatRating(seedFriendScore)}</Text>
+              </View>
               <Text style={sd.scoreCardTitle}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
           ) : (
             <View style={[sd.scoreCard, sd.scoreCardLocked]}>
-              <Text style={[sd.scoreNumber, { color: T.border }]}>–</Text>
+              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
+                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
+              </View>
               <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
             </View>
@@ -1085,6 +1117,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         </View>
 
         <View style={{ height: 40 }} />
+      </View>
       </ScrollView>
     </View>
   );
@@ -1151,6 +1184,7 @@ const sd = StyleSheet.create({
     marginBottom: 6,
   },
   heroName: {
+    flex: 1,
     fontSize: 45,
     fontWeight: '700',
     color: '#000',
@@ -1243,12 +1277,13 @@ const sd = StyleSheet.create({
   photosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 1,
+    gap: PHOTO_GAP,
   },
   photoThumb: {
     width: PHOTO_SIZE,
     height: PHOTO_SIZE,
     backgroundColor: '#f2f2f7',
+    borderRadius: 6,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
@@ -1285,29 +1320,39 @@ const sd = StyleSheet.create({
   },
   mapSolidOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.75)',
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  heroOverlay: {
+  mapPinOverlay: {
     position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 16, paddingBottom: 16,
+    top: MAP_HERO_H * 0.25 - 11,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   heroOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 30,
+    paddingHorizontal: 16,
+    paddingBottom: 36,
   },
-  beliCard: {
-    flex: 1,
+  heroActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  heroBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingBottom: 4,
+  },
+  beliCardContent: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     marginTop: -24,
-  },
-  beliCardContent: {
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 60,
@@ -1331,9 +1376,9 @@ const sd = StyleSheet.create({
     lineHeight: 18,
   },
   checkBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#eefff0',
     borderWidth: 1.5,
     borderColor: '#34c759',
@@ -1365,9 +1410,17 @@ const sd = StyleSheet.create({
     lineHeight: 34,
     marginBottom: 10,
   },
+  scoreNumberPill: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
   scoreNumber: {
-    fontSize: 26,
+    fontSize: 19,
     fontWeight: '800',
+    color: '#fff',
   },
   scoreCardTitle: {
     fontSize: 12,
@@ -1380,9 +1433,9 @@ const sd = StyleSheet.create({
     lineHeight: 15,
   },
   actionCircleBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: T.accentTint,
     borderWidth: 1.5,
     borderColor: T.accent,
@@ -1404,6 +1457,32 @@ const sd = StyleSheet.create({
     paddingVertical: 16,
   },
   logCtaText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  stickyNav: {
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
+    zIndex: 10,
+  },
+  stickyNavInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    gap: 2,
+  },
+  stickyNavTitleWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    paddingHorizontal: 92,
+    overflow: 'hidden',
+  },
+  stickyNavTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: T.primary,
+    fontFamily: 'Fraunces-Regular',
+    textAlign: 'center',
+  },
   floatingNav: {
     position: 'absolute',
     top: 0,
@@ -1423,6 +1502,13 @@ const sd = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navBtnCompact: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },

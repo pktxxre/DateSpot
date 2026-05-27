@@ -17,9 +17,10 @@ interface Props {
   value: string;
   onChange: (value: string) => void;
   style?: ViewStyle;
+  fullWidth?: boolean;
 }
 
-export function SlidingPills({ options, value, onChange, style }: Props) {
+export function SlidingPills({ options, value, onChange, style, fullWidth }: Props) {
   const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
   const slideX = useRef(new Animated.Value(PADDING)).current;
   const slideW = useRef(new Animated.Value(60)).current;
@@ -46,12 +47,12 @@ export function SlidingPills({ options, value, onChange, style }: Props) {
   }, [value, layouts]);
 
   return (
-    <View style={[s.container, style]}>
+    <View style={[s.container, fullWidth && s.containerFullWidth, style]}>
       <Animated.View style={[s.indicator, { left: slideX, width: slideW }]} />
       {options.map(opt => (
         <Pressable
           key={opt.value}
-          style={s.pill}
+          style={[s.pill, fullWidth && s.pillFullWidth]}
           onLayout={e => {
             const { x, width } = e.nativeEvent.layout;
             setLayouts(prev => ({ ...prev, [opt.value]: { x, width } }));
@@ -77,6 +78,9 @@ const s = StyleSheet.create({
     borderColor: BORDER,
     alignSelf: 'flex-start',
   },
+  containerFullWidth: {
+    alignSelf: 'stretch',
+  },
   indicator: {
     position: 'absolute',
     top: PADDING,
@@ -89,6 +93,10 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 19,
     zIndex: 1,
+  },
+  pillFullWidth: {
+    flex: 1,
+    alignItems: 'center',
   },
   text: { fontSize: 14, fontWeight: '600', color: MUTED },
   textActive: { color: '#fff' },

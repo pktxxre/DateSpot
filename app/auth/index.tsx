@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated, Dimensions, Keyboard, KeyboardAvoidingView, Platform,
   Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -87,6 +87,8 @@ export default function OnboardingFlow() {
   const [handle, setHandle] = useState('');
   const [bio, setBio] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [handleTaken, setHandleTaken] = useState(false);
+  const [handleChecking, setHandleChecking] = useState(false);
 
   // City
   const [city, setCity] = useState('');
@@ -122,6 +124,7 @@ export default function OnboardingFlow() {
 
   function goBack() {
     if (step === 'signup' || step === 'login') go('welcome', 'back');
+    else if (step === 'verify-email') go('signup', 'back');
     else if (step === 'name') go('signup', 'back');
     else if (step === 'profile') go('name', 'back');
     else if (step === 'city') go('profile', 'back');
@@ -145,10 +148,8 @@ export default function OnboardingFlow() {
 
     const { error } = await supabase!.auth.signUp({ email: email.trim(), password });
     if (error) { setLoading(false); Alert.alert('Sign Up Failed', error.message); return; }
-    // Try immediate sign-in (works when Supabase email confirmation is disabled)
-    await supabase!.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
-    go('name');
+    go('verify-email');
   }
 
   async function handleVerifyEmail() {
@@ -186,6 +187,22 @@ export default function OnboardingFlow() {
       allowsEditing: true, aspect: [1, 1], quality: 0.8,
     });
     if (!result.canceled) setPhotoUri(result.assets[0].uri);
+  }
+
+  async function handleCheckHandle() {
+    if (!supabase) { go('city'); return; }
+    setLoading(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('handle')
+      .eq('handle', handle.trim().toLowerCase())
+      .maybeSingle();
+    setLoading(false);
+    if (data) {
+      Alert.alert('Username taken', 'That username is already in use. Please choose a different one.');
+      return;
+    }
+    go('city');
   }
 
   async function handleFinish() {
@@ -228,8 +245,8 @@ export default function OnboardingFlow() {
     canContinue = firstName.trim().length > 0 && lastName.trim().length > 0;
     onContinue = () => go('profile');
   } else if (step === 'profile') {
-    canContinue = handle.trim().length > 0;
-    onContinue = () => go('city');
+    canContinue = handle.trim().length > 0 && !handleTaken && !handleChecking;
+    onContinue = handleCheckHandle;
   } else if (step === 'city') {
     canContinue = city.length > 0;
     onContinue = handleFinish;
@@ -306,6 +323,8 @@ export default function OnboardingFlow() {
                   photoUri={photoUri} onPickPhoto={pickPhoto}
                   handle={handle} setHandle={setHandle}
                   bio={bio} setBio={setBio}
+                  handleTaken={handleTaken} setHandleTaken={setHandleTaken}
+                  setHandleChecking={setHandleChecking}
                 />
               )}
               {step === 'city' && (
@@ -389,7 +408,7 @@ function SignupContent({ email, setEmail, password, setPassword, showPassword, s
           <Text style={c.label}>PASSWORD</Text>
           <View>
             <TextInput style={c.input} value={password} onChangeText={setPassword}
-              placeholder="Min 8 chars, uppercase, number, symbol" placeholderTextColor={c.ph.color as string}
+              placeholder="" placeholderTextColor={c.ph.color as string}
               secureTextEntry={!showPassword} autoComplete="new-password" />
             <Pressable style={c.eyeBtn} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="rgba(255,255,255,0.5)" />
@@ -437,11 +456,29 @@ function NameContent({ firstName, setFirstName, lastName, setLastName, onSubmit 
   );
 }
 
-function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio }: {
+function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio, handleTaken, setHandleTaken, setHandleChecking }: {
   photoUri: string | null; onPickPhoto: () => void;
   handle: string; setHandle: (v: string) => void;
   bio: string; setBio: (v: string) => void;
+  handleTaken: boolean; setHandleTaken: (v: boolean) => void;
+  setHandleChecking: (v: boolean) => void;
 }) {
+  useEffect(() => {
+    if (!handle.trim()) { setHandleTaken(false); setHandleChecking(false); return; }
+    setHandleChecking(true);
+    const timer = setTimeout(async () => {
+      if (!supabase) { setHandleChecking(false); return; }
+      const { data } = await supabase
+        .from('profiles')
+        .select('handle')
+        .eq('handle', handle.trim().toLowerCase())
+        .maybeSingle();
+      setHandleTaken(!!data);
+      setHandleChecking(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [handle]);
+
   return (
     <View style={c.formWrap}>
       <Text style={c.stepTitle}>Set up your profile</Text>
@@ -464,17 +501,22 @@ function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio 
       <View style={c.fields}>
         <View style={c.fieldWrap}>
           <Text style={c.label}>USERNAME</Text>
-          <View style={c.prefixWrap}>
-            <Text style={c.prefix}>@</Text>
-            <TextInput
-              style={[c.input, c.inputNoLeftPad]}
-              value={handle}
-              onChangeText={t => setHandle(t.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase())}
-              placeholder="yourname"
-              placeholderTextColor={c.ph.color as string}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+          <View style={{ position: 'relative' }}>
+            <View style={[c.prefixWrap, handleTaken && c.prefixWrapError]}>
+              <Text style={c.prefix}>@</Text>
+              <TextInput
+                style={[c.input, c.inputNoLeftPad]}
+                value={handle}
+                onChangeText={t => setHandle(t.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase())}
+                placeholder="yourname"
+                placeholderTextColor={c.ph.color as string}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            {handleTaken && (
+              <Text style={c.takenError}>Username already taken</Text>
+            )}
           </View>
         </View>
         <View style={c.fieldWrap}>
@@ -682,6 +724,8 @@ const c = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.28)', borderRadius: 12,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', paddingLeft: 14,
   },
+  prefixWrapError: { borderColor: '#FF4D4D', borderWidth: 1.5 },
+  takenError: { position: 'absolute', bottom: -17, right: 0, fontSize: 12, color: '#FF4D4D' },
   prefix: { fontSize: 16, color: 'rgba(255,255,255,0.55)', marginRight: 2 },
   inputNoLeftPad: {
     flex: 1, backgroundColor: 'transparent', borderWidth: 0,

@@ -209,64 +209,6 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Friend referral unlock card */}
-        {(() => {
-          const friendCount = 1; // visual-only placeholder
-          const tiers = [
-            { n: 1, label: 'Friends tab' },
-            { n: 2, label: 'Top spots' },
-            { n: 3, label: 'Filter top spots' },
-            { n: 4, label: 'Filter saved & been-to' },
-            { n: 5, label: 'Friends activity' },
-            { n: 6, label: 'Date calendar' },
-          ];
-          return (
-            <View style={s.goalCard}>
-              <View style={s.goalCardTop}>
-                <Text style={s.goalLabel}>INVITE FRIENDS TO UNLOCK FEATURES</Text>
-                <Text style={s.goalCount}>{friendCount}/6</Text>
-              </View>
-              <View style={s.goalPills}>
-                {tiers.map((_, i) => (
-                  <View
-                    key={i}
-                    style={[s.goalPill, i < friendCount ? s.goalPillFilled : s.goalPillEmpty]}
-                  />
-                ))}
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.unlockScroll}
-              >
-                {tiers.map((tier) => {
-                  const unlocked = friendCount >= tier.n;
-                  return (
-                    <View key={tier.n} style={[s.unlockChip, unlocked && s.unlockChipUnlocked]}>
-                      <Ionicons
-                        name={unlocked ? 'checkmark-circle' : 'lock-closed-outline'}
-                        size={16}
-                        color={unlocked ? '#E76F51' : '#C4B9AD'}
-                        style={{ marginBottom: 6 }}
-                      />
-                      <Text style={[s.unlockChipCount, unlocked && s.unlockChipCountUnlocked]}>
-                        {tier.n} friend{tier.n > 1 ? 's' : ''}
-                      </Text>
-                      <Text style={[s.unlockChipLabel, unlocked && s.unlockChipLabelUnlocked]}>
-                        {tier.label}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-              <Pressable style={s.inviteButton}>
-                <Ionicons name="person-add-outline" size={15} color="#fff" style={{ marginRight: 7 }} />
-                <Text style={s.inviteButtonText}>Invite your Friends</Text>
-              </Pressable>
-            </View>
-          );
-        })()}
-
         {/* Top date spots header */}
         <View style={s.sectionHeaderRow}>
           <View>
@@ -368,10 +310,33 @@ export default function HomeScreen() {
 
 function HomeCategorySkeleton() {
   const { shimmer, screenW } = useShimmer();
+  const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
+    <SkBox shimmer={shimmer} w={w} h={h} r={r ?? 4} style={style} screenW={screenW} />
+  );
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 12, paddingVertical: 4 }} scrollEnabled={false}>
-      {[140, 160, 140, 155].map((w, i) => (
-        <SkBox key={i} shimmer={shimmer} screenW={screenW} w={w} h={180} r={16} />
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      scrollEnabled={false}
+      contentContainerStyle={{ paddingLeft: 16, paddingRight: 16, gap: 12, paddingTop: 4, paddingBottom: 8 }}
+    >
+      {[0, 1].map(ci => (
+        <View key={ci} style={{ width: CARD_W, borderRadius: 16, overflow: 'hidden', backgroundColor: T.card, borderWidth: 1, borderColor: T.border }}>
+          {sk(CARD_W, 130, 0)}
+          {[0, 1, 2].map(i => (
+            <View key={i}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 }}>
+                {sk(24, 13, 3)}
+                <View style={{ flex: 1, marginLeft: 8, marginRight: 10 }}>
+                  {sk('65%', 14, 3)}
+                  {sk('25%', 12, 3, { marginTop: 1 })}
+                </View>
+                {sk(42, 24, 10)}
+              </View>
+              {i < 2 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 46 }} />}
+            </View>
+          ))}
+        </View>
       ))}
     </ScrollView>
   );
@@ -400,8 +365,8 @@ function HomeStackCard({ stack }: { stack: StackSummary }) {
         </Text>
       )}
       {stack.rating > 0 && (
-        <View style={[s.stackQuality, { backgroundColor: color }]}>
-          <Text style={s.stackQualityText}>{formatRating(stack.rating)}</Text>
+        <View style={[s.stackQuality, { borderColor: color }]}>
+          <Text style={[s.stackQualityText, { color }]}>{formatRating(stack.rating)}</Text>
         </View>
       )}
     </Pressable>
@@ -788,8 +753,8 @@ const s = StyleSheet.create({
   stackSpotBadgeText: { fontSize: 11, fontWeight: '700', color: T.muted },
   stackCardDate: { fontSize: 11, color: T.muted, marginBottom: 4 },
   stackJourney: { fontSize: 11, color: T.muted, fontStyle: 'italic', marginBottom: 8 },
-  stackQuality: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
-  stackQualityText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+  stackQuality: { borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
+  stackQualityText: { fontSize: 12, fontWeight: '800' },
 
   recentSection: {
     marginTop: 24,

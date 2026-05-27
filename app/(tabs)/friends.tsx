@@ -18,7 +18,7 @@ import {
   getFriendRecommendations,
   FriendProfile, FriendWithStats, FriendActivityItem, FriendRecommendation,
 } from '@/lib/friends';
-import { getUnreadCount, notifyActivity } from '@/lib/notifications';
+import { getUnreadCount, notifyActivity, removeNotifyActivity } from '@/lib/notifications';
 import { ratingColor, getAllVisits } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
@@ -271,6 +271,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
     if (saved) {
       deleteFutureSpotsByVenueName(item.venueName);
       setSaved(false);
+      removeNotifyActivity(item.friend.id, 'save', item.visitId);
     } else {
       insertFutureSpot({
         id: Crypto.randomUUID(),
@@ -298,6 +299,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
       notifyActivity(item.friend.id, 'like', item.visitId);
     } else {
       unlikeActivity(item.visitId);
+      removeNotifyActivity(item.friend.id, 'like', item.visitId);
     }
   }
 
@@ -327,7 +329,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
         </View>
         {showRating && rColor && (
           <View style={[s.ratingPill, { borderColor: rColor }]}>
-            <Text style={[s.ratingPillText, { color: rColor }]}>{item.rating.toFixed(1)}</Text>
+            <Text style={[s.ratingPillText, { color: rColor }]}>{item.rating === 10 ? '10' : item.rating.toFixed(1)}</Text>
           </View>
         )}
       </View>
@@ -369,13 +371,13 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
           )}
           <Pressable
             style={[s.actionCircleBtn, {
-              backgroundColor: alreadyVisited ? LOG_CLR : `${LOG_CLR}18`,
-              borderColor: LOG_CLR,
+              backgroundColor: alreadyVisited ? '#34c75918' : `${LOG_CLR}18`,
+              borderColor: alreadyVisited ? '#34c759' : LOG_CLR,
             }]}
             onPress={alreadyVisited ? undefined : handleLog}
             disabled={alreadyVisited}
           >
-            <Ionicons name={alreadyVisited ? 'checkmark' : 'add'} size={16} color={alreadyVisited ? '#fff' : LOG_CLR} />
+            <Ionicons name={alreadyVisited ? 'checkmark' : 'add'} size={16} color={alreadyVisited ? '#34c759' : LOG_CLR} />
           </Pressable>
 
           <Pressable
@@ -424,7 +426,7 @@ function RecCard({ rec }: { rec: FriendRecommendation }) {
         <Text style={s.recCat}>{actLabel}</Text>
         {(() => { const c = ratingColor(rec.avgRating); return (
           <View style={[s.ratingPill, { borderColor: c }]}>
-            <Text style={[s.ratingPillText, { color: c }]}>{rec.avgRating.toFixed(1)}</Text>
+            <Text style={[s.ratingPillText, { color: c }]}>{rec.avgRating === 10 ? '10' : rec.avgRating.toFixed(1)}</Text>
           </View>
         ); })()}
       </View>
@@ -828,10 +830,11 @@ const s = StyleSheet.create({
   // Rating pill — matches app-wide spots list style
   ratingPill: {
     borderWidth: 1.5, borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 3,
+    paddingHorizontal: 9, paddingVertical: 3,
+    minWidth: 42, alignItems: 'center',
     backgroundColor: 'transparent',
   },
-  ratingPillText: { fontSize: 12, fontWeight: '800' },
+  ratingPillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
   noteText: {
     fontSize: 12, fontStyle: 'italic', color: NOTE_CLR,
     lineHeight: 16, marginTop: 5, minHeight: 22,

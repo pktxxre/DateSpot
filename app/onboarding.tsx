@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   StyleSheet, View, Text, TextInput, Pressable,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,6 +48,8 @@ export default function OnboardingScreen() {
   const [city, setCity] = useState('');
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
+  const [handleTaken, setHandleTaken] = useState(false);
+  const [handleChecking, setHandleChecking] = useState(false);
 
   const step = STEPS[stepIndex];
   const meta = STEP_META[step];
@@ -63,7 +65,23 @@ export default function OnboardingScreen() {
 
   const currentValue = valueMap[step];
   const canSkip = false;
-  const canContinue = currentValue.trim().length > 0;
+  const canContinue = currentValue.trim().length > 0 && !(step === 'handle' && (handleTaken || handleChecking));
+
+  useEffect(() => {
+    if (!handle.trim()) { setHandleTaken(false); setHandleChecking(false); return; }
+    setHandleChecking(true);
+    const timer = setTimeout(async () => {
+      if (!supabase) { setHandleChecking(false); return; }
+      const { data } = await supabase
+        .from('profiles')
+        .select('handle')
+        .eq('handle', handle.trim().toLowerCase())
+        .maybeSingle();
+      setHandleTaken(!!data);
+      setHandleChecking(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [handle]);
 
   function goBack() {
     if (stepIndex === 0) router.back();
@@ -72,6 +90,19 @@ export default function OnboardingScreen() {
 
   async function handleNext() {
     if (!isLast) {
+      if (step === 'handle' && supabase) {
+        setLoading(true);
+        const { data } = await supabase
+          .from('profiles')
+          .select('handle')
+          .eq('handle', handle.trim().toLowerCase())
+          .maybeSingle();
+        setLoading(false);
+        if (data) {
+          Alert.alert('Username taken', 'That username is already in use. Please choose a different one.');
+          return;
+        }
+      }
       setStepIndex(i => i + 1);
       return;
     }
@@ -144,18 +175,23 @@ export default function OnboardingScreen() {
                   returnKeyType="default"
                 />
               ) : (
-                <TextInput
-                  style={styles.input}
-                  value={currentValue}
-                  onChangeText={setterMap[step]}
-                  placeholder={meta.placeholder}
-                  placeholderTextColor={T.placeholder}
-                  autoFocus
-                  autoCapitalize={step === 'name' || step === 'city' ? 'words' : 'none'}
-                  keyboardType="default"
-                  returnKeyType="done"
-                  onSubmitEditing={() => canContinue && handleNext()}
-                />
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    style={[styles.input, step === 'handle' && handleTaken && styles.inputError]}
+                    value={currentValue}
+                    onChangeText={setterMap[step]}
+                    placeholder={meta.placeholder}
+                    placeholderTextColor={T.placeholder}
+                    autoFocus
+                    autoCapitalize={step === 'name' || step === 'city' ? 'words' : 'none'}
+                    keyboardType="default"
+                    returnKeyType="done"
+                    onSubmitEditing={() => canContinue && handleNext()}
+                  />
+                  {step === 'handle' && handleTaken && (
+                    <Text style={styles.takenError}>Username already taken</Text>
+                  )}
+                </View>
               )}
 
               {meta.hint && (
@@ -224,6 +260,8 @@ const styles = StyleSheet.create({
     minHeight: 100, fontSize: 16, paddingTop: 14,
   },
   hint: { fontSize: 12, color: T.placeholder, textAlign: 'center', marginTop: -4 },
+  inputError: { borderWidth: 1.5, borderColor: T.danger },
+  takenError: { position: 'absolute', bottom: -17, right: 0, fontSize: 12, color: T.danger },
 
   btn: {
     backgroundColor: T.accent, borderRadius: 14,

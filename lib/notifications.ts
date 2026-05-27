@@ -117,12 +117,43 @@ export async function notifyActivity(
   const myUserId = userData.user?.id;
   if (!myUserId || myUserId === recipientId) return;
 
+  // For save/like, skip if a notification already exists to avoid duplicates
+  const { data: existing } = await supabase
+    .from('notifications')
+    .select('id')
+    .eq('user_id', recipientId)
+    .eq('actor_id', myUserId)
+    .eq('type', type)
+    .eq('ref_id', refId)
+    .maybeSingle();
+
+  if (existing) return;
+
   await supabase.from('notifications').insert({
     user_id: recipientId,
     actor_id: myUserId,
     type,
     ref_id: refId,
   });
+}
+
+export async function removeNotifyActivity(
+  recipientId: string,
+  type: 'like' | 'log' | 'save',
+  refId: string,
+): Promise<void> {
+  if (!supabase) return;
+  const { data: userData } = await supabase.auth.getUser();
+  const myUserId = userData.user?.id;
+  if (!myUserId || myUserId === recipientId) return;
+
+  await supabase
+    .from('notifications')
+    .delete()
+    .eq('user_id', recipientId)
+    .eq('actor_id', myUserId)
+    .eq('type', type)
+    .eq('ref_id', refId);
 }
 
 export async function markAllRead(): Promise<void> {
