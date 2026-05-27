@@ -1,4 +1,4 @@
-import { ratingColor, formatRating } from '../lib/visits';
+import { ratingColor, formatRating, friendlyDate } from '../lib/visits';
 
 describe('ratingColor', () => {
   it('returns green for ratings >= 6.8', () => {
@@ -25,5 +25,40 @@ describe('formatRating', () => {
     expect(formatRating(7)).toBe('7.0');
     expect(formatRating(8.55)).toBe('8.6');
     expect(formatRating(0.1)).toBe('0.1');
+  });
+});
+
+describe('friendlyDate', () => {
+  const today = new Date();
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  it('returns Today for today\'s date', () => {
+    expect(friendlyDate(fmt(today))).toBe('Today');
+  });
+
+  it('returns Yesterday for yesterday\'s date', () => {
+    const d = new Date(today); d.setDate(d.getDate() - 1);
+    expect(friendlyDate(fmt(d))).toBe('Yesterday');
+  });
+
+  it('returns weekday name for dates within the past week', () => {
+    const d = new Date(today); d.setDate(d.getDate() - 3);
+    const expected = d.toLocaleDateString('en-US', { weekday: 'long' });
+    expect(friendlyDate(fmt(d))).toBe(expected);
+  });
+
+  it('returns month/day for dates 7+ days ago', () => {
+    const d = new Date(today); d.setDate(d.getDate() - 10);
+    const expected = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    expect(friendlyDate(fmt(d))).toBe(expected);
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(friendlyDate('')).toBe('');
+  });
+
+  it('returns raw string for non-date input', () => {
+    expect(friendlyDate('not-a-date')).toBe('not-a-date');
   });
 });

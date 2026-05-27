@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Animated, FlatList, Modal,
+  Alert, Animated, Easing, FlatList, Modal,
   Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,26 +28,28 @@ function ListsSkeleton({ tab }: { tab: ActiveTab }) {
   );
   return (
     <View style={{ flex: 1 }}>
-      {/* Shimmer filter strip */}
+      {/* Filter strip */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border }}>
-        {sk(76, 30, 20)}
+        {sk(82, 30, 20)}
       </View>
-      {/* First row */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16 }}>
-        <View style={{ flex: 1, marginRight: 12, gap: 5 }}>
-          {sk('70%', 17, 3)}
-          {tab === 'stacks' ? (
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: 1 }}>
-              {sk(58, 20, 8)}
-              {sk(48, 20, 8)}
-            </View>
-          ) : sk('40%', 13, 3)}
-          {sk('30%', 12, 3, { marginTop: 2 })}
+      {/* Rows */}
+      {Array.from({ length: 6 }).map((_, i) => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border }}>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            {sk('70%', 17, 3, { marginBottom: 4 })}
+            {tab === 'stacks' ? (
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 2 }}>
+                {sk(58, 20, 8)}
+                {sk(48, 20, 8)}
+              </View>
+            ) : sk('40%', 13, 3, { marginBottom: 2 })}
+            {sk('28%', 12, 3, { marginTop: 4 })}
+          </View>
+          {tab === 'saved'
+            ? sk(27, 20, 8)
+            : sk(42, 26, 10)}
         </View>
-        {tab === 'saved'
-          ? sk(24, 24, 8)
-          : sk(42, 26, 10)}
-      </View>
+      ))}
     </View>
   );
 }
@@ -225,7 +227,7 @@ function SortSheet({ visible, selected, onSelect, onClose }: {
   useEffect(() => {
     if (visible) {
       sheetY.setValue(300);
-      Animated.spring(sheetY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
+      Animated.timing(sheetY, { toValue: 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     }
   }, [visible]);
 

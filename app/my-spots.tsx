@@ -441,7 +441,7 @@ export default function MySpotsScreen() {
         )}
 
         {showSortPicker && (
-          <Modal visible transparent animationType="fade" onRequestClose={() => setShowSortPicker(false)}>
+          <Modal visible transparent animationType="none" onRequestClose={() => setShowSortPicker(false)}>
             <Pressable style={cp.backdrop} onPress={() => setShowSortPicker(false)}>
               <Pressable style={cp.card} onPress={() => {}}>
                 <Text style={cp.title}>Sort by</Text>

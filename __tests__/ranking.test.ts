@@ -1,4 +1,4 @@
-import { startComparison, advance, resolveRankOrder, currentComparison } from '../lib/ranking';
+import { startComparison, advance, resolveRankOrder, resolveAtMid, currentComparison } from '../lib/ranking';
 import type { Visit } from '../lib/visits';
 
 function makeVisit(id: string, rankOrder: number, triage: 'bad' | 'okay' | 'great' = 'okay'): Visit {
@@ -82,6 +82,29 @@ describe('advance', () => {
       expect(next.lo).toBeGreaterThanOrEqual(state.mid + 1);
     }
   });
+
+  it('returns null when lo >= hi (window exhausted)', () => {
+    // Force a two-item pool: mid=1, lo=0, hi=2. After 'worse': lo=2, hi=2 → done
+    const twoItems = [makeVisit('x', 2000), makeVisit('y', 1000)];
+    const state = startComparison(twoItems, () => true)!;
+    const next = advance(state, 'worse');
+    expect(next).toBeNull();
+  });
+
+  it('returns null when MAX_COMPARISONS is reached', () => {
+    // Build a large pool (8 items) and drive 7 advances without exhausting window
+    const pool = Array.from({ length: 16 }, (_, i) =>
+      makeVisit(`v${i}`, (16 - i) * 1000)
+    );
+    let state = startComparison(pool, () => true)!;
+    for (let i = 0; i < 6; i++) {
+      const next = advance(state, 'better');
+      if (!next) break;
+      state = next;
+    }
+    const final = advance(state, 'better');
+    expect(final).toBeNull();
+  });
 });
 
 describe('resolveRankOrder', () => {
@@ -89,11 +112,24 @@ describe('resolveRankOrder', () => {
     expect(resolveRankOrder(null, [])).toBe(1000);
   });
 
+  it('returns above the highest existing rank_order when state is null', () => {
+    const result = resolveRankOrder(null, threeOkay);
+    expect(result).toBeGreaterThan(3000);
+  });
+
   it('returns a value between neighbors when inserting at mid', () => {
     const state = startComparison(threeOkay, (v) => v.triage === 'okay')!;
     const resolved = resolveRankOrder(state, threeOkay);
     expect(typeof resolved).toBe('number');
     expect(isFinite(resolved)).toBe(true);
+  });
+});
+
+describe('resolveAtMid', () => {
+  it('returns the rank_order of the current mid comparison target (tie)', () => {
+    const state = startComparison(threeOkay, (v) => v.triage === 'okay')!;
+    const midRankOrder = state.sorted[state.mid].rank_order;
+    expect(resolveAtMid(state, threeOkay)).toBe(midRankOrder);
   });
 });
 

@@ -7,6 +7,7 @@ import { clearUserData } from '@/lib/db';
 import { clearProfile, clearLastUserId } from '@/lib/profile';
 import { T } from '@/lib/theme';
 
+
 type SettingRowProps = {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -97,21 +98,15 @@ export default function SettingsScreen() {
         <SectionHeader title="Account" />
         <View style={styles.card}>
           <SettingRow
-            icon="mail-outline"
-            label="Change Email"
-            onPress={stub('Change Email')}
-          />
-          <View style={styles.divider} />
-          <SettingRow
-            icon="call-outline"
-            label="Change Phone Number"
-            onPress={stub('Change Phone Number')}
+            icon="person-outline"
+            label="Account Details"
+            onPress={() => router.push('/account-details' as any)}
           />
           <View style={styles.divider} />
           <SettingRow
             icon="lock-closed-outline"
             label="Change Password"
-            onPress={stub('Change Password')}
+            onPress={() => router.push('/change-password' as any)}
           />
         </View>
 

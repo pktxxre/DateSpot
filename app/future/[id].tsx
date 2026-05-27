@@ -111,30 +111,14 @@ export default function FutureSpotDetailScreen() {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Map hero — fixed, behind floating nav */}
-      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
-        <MapView
-          style={StyleSheet.absoluteFill}
-          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
-        >
-          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-            <View style={styles.pin}>
-              <Ionicons name="bookmark" size={14} color="#fff" />
-            </View>
-          </Marker>
-        </MapView>
-        <View pointerEvents="none" style={styles.mapSolidOverlay} />
-        <View style={styles.heroOverlay} pointerEvents="none">
-          <Text style={styles.heroName}>{spot.venue_name}</Text>
-        </View>
-      </View>
-
-      {/* Floating nav — absolutely over map, 75% opacity */}
-      <SafeAreaView style={styles.floatingNav} edges={['top']}>
-        <View style={styles.floatingNavInner}>
+      {/* Sticky nav — always visible */}
+      <SafeAreaView style={styles.stickyNav} edges={['top']}>
+        <View style={styles.stickyNavInner}>
+          <View style={styles.stickyNavTitleWrap} pointerEvents="none">
+            <Text style={styles.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
+              {spot.venue_name}
+            </Text>
+          </View>
           <Pressable onPress={() => router.back()} hitSlop={12} style={styles.floatingNavBtn}>
             <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
@@ -151,12 +135,29 @@ export default function FutureSpotDetailScreen() {
         </View>
       </SafeAreaView>
 
-      {/* White card */}
-      <ScrollView
-        style={styles.beliCard}
-        contentContainerStyle={styles.beliCardContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* Map hero — scrolls with content */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <MapView
+          style={StyleSheet.absoluteFill}
+          region={{ latitude: spot.lat - 0.0015, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
+          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
+          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
+          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+        >
+          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
+            <View style={styles.pin}>
+              <Ionicons name="bookmark" size={14} color="#fff" />
+            </View>
+          </Marker>
+        </MapView>
+        <View pointerEvents="none" style={styles.mapSolidOverlay} />
+        <View style={styles.heroOverlay} pointerEvents="none">
+          <Text style={styles.heroName}>{spot.venue_name}</Text>
+        </View>
+      </View>
+
+      <View style={styles.beliCardContent}>
         {/* Want-to-go badge + log button */}
         <View style={styles.beliTopRow}>
           <View style={styles.wantToGoTag}>
@@ -191,6 +192,7 @@ export default function FutureSpotDetailScreen() {
         ) : null}
 
         <View style={{ height: 40 }} />
+      </View>
       </ScrollView>
 
       {/* Edit types modal */}
@@ -246,6 +248,27 @@ export default function FutureSpotDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  stickyNav: {
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: T.border,
+    zIndex: 10,
+  },
+  stickyNavInner: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 4, paddingVertical: 4, gap: 2,
+  },
+  stickyNavTitleWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    paddingHorizontal: 92,
+    overflow: 'hidden',
+  },
+  stickyNavTitle: {
+    fontSize: 15, fontWeight: '600', color: T.primary,
+    fontFamily: 'Fraunces-Regular',
+    textAlign: 'center',
+  },
   floatingNav: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
@@ -346,23 +369,18 @@ const styles = StyleSheet.create({
 
   mapSolidOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.75)',
-  },
-  heroOverlay: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 16, paddingBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.50)',
   },
   heroOverlay: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     paddingHorizontal: 20, paddingBottom: 30,
   },
-  beliCard: {
-    flex: 1, backgroundColor: '#fff',
+  beliCardContent: {
+    backgroundColor: '#fff',
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     marginTop: -24,
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 60,
   },
-  beliCardContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 60 },
   beliTopRow: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 10,

@@ -2,6 +2,42 @@
 
 All notable changes to DateSpot are documented here.
 
+## [0.4.0.0] - 2026-05-27
+
+### Added
+- **Calendar picker** — date entry in the logging flow now uses a month-grid calendar with prev/next navigation and today pre-selected
+- **Map auto-switches after logging** — after saving a Been To spot the map automatically switches to the Been To view; Want To Go spots switch to the Want To Go view
+- **Loading spinner in search** — spinner appears inside the search bar while a query is in flight
+- **Headspace reminder in compare step** — subtle italicized prompt below "Step 4 of 5" sets the frame: "Which would you want to take someone on a date?"
+- **Emoticon profile pictures** — users without a profile photo receive a deterministic emoticon (stored in profile); shown consistently across all friend cards and activity views
+- **Stack cover photo** — stacks support an uploadable cover photo; letter tile fallback when none is set
+- **Been To pin hierarchy** — higher-rated spots render on top of lower-rated ones when pins overlap on the map
+- **Account Details screen** — accessible from Settings; shows name, email, and city
+- **Change Password screen** — accessible from Settings; validates current password and enforces strength requirements inline
+- **Friends activity redesign** — Friends tab rebuilt with unified activity cards, Like button (with floating hearts), "Add to list" action, and FriendsSheet modal for viewing a friend's full spot history
+- **Recommended spots** — Friends tab surfaces places your friends have liked that you haven't visited yet
+- **SlidingPills component** — animated pill slides to the selected item; used across Friends, Lists, and other tabs
+- **User profiles** — dedicated `/user/[id]` screen showing a friend's top spots, visit count, and follow button
+- **My Spots, My Future, My Date Nights screens** — personal history pages accessible from your profile
+- **Follow lists** — browse stacks curated by the people you follow
+- **Inbox** — notifications screen shows friend requests, accepted friends, emoji reactions, and activity likes; bell icon with unread badge in the Friends header
+
+### Changed
+- Spot name shown at top of logging flow as a passive header — no longer auto-focused for editing
+- "Clear all" in the map filter sheet now immediately applies empty filters and closes the sheet
+- Unlike on a friend's activity card now cleans up the corresponding notification
+- Password field in signup now shows no placeholder text (requirements shown as inline checklist below the field)
+- Onboarding last name is required; both first and last name are validated before allowing Continue
+
+### Fixed
+- Share, edit, and delete nav buttons on the spot detail sticky nav are now tappable — missing `navBtnCompact` style definition made them invisible touch targets
+- Log from card opens directly at the correct logging step without triggering the resume prompt
+- Map pin labels no longer overlap — positioned east or west based on longitude; label color always black including selected state
+- Search results geo-biased to the user's current GPS location (~5-mile radius)
+- Bulge animation feedback on This or That comparison card tap
+
+---
+
 ## [0.2.0.0] - 2026-05-22
 
 ### Added

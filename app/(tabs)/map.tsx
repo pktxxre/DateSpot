@@ -8,6 +8,7 @@ import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 // Direct callbacks allow immediate response when map tab is already focused.
@@ -71,6 +72,20 @@ interface NominatimResult {
   address?: NominatimAddress;
 }
 
+const STREET_ABBREV: [RegExp, string][] = [
+  [/\bAvenue\b/g, 'Ave'], [/\bBoulevard\b/g, 'Blvd'], [/\bDrive\b/g, 'Dr'],
+  [/\bStreet\b/g, 'St'], [/\bRoad\b/g, 'Rd'], [/\bLane\b/g, 'Ln'],
+  [/\bCourt\b/g, 'Ct'], [/\bPlace\b/g, 'Pl'], [/\bCircle\b/g, 'Cir'],
+  [/\bHighway\b/g, 'Hwy'], [/\bNortheast\b/g, 'NE'], [/\bNorthwest\b/g, 'NW'],
+  [/\bSoutheast\b/g, 'SE'], [/\bSouthwest\b/g, 'SW'],
+  [/\bNorth\b/g, 'N'], [/\bSouth\b/g, 'S'], [/\bEast\b/g, 'E'], [/\bWest\b/g, 'W'],
+];
+function abbreviateStreet(s: string): string {
+  let r = s;
+  for (const [pat, abbr] of STREET_ABBREV) r = r.replace(pat, abbr);
+  return r;
+}
+
 const STATE_ABBREV: Record<string, string> = {
   'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
   'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
@@ -97,20 +112,60 @@ function buildAddressString(a?: NominatimAddress): string {
   return [street, line2].filter(Boolean).join('\n');
 }
 
+const STATE_CODES = new Set(Object.values(STATE_ABBREV));
+
 export function cleanAddress(addr: string): string {
-  return addr
-    .split('\n')
-    .map(line => {
-      let l = line.trim();
-      // Abbreviate full state names
-      for (const [full, abbr] of Object.entries(STATE_ABBREV)) {
-        l = l.replace(new RegExp(`\\b${full}\\b`, 'g'), abbr);
-      }
-      return l;
-    })
-    .filter(line => !/^United States$/i.test(line))
-    .filter(line => !/^[A-Za-z\s]+County$/.test(line.trim()))
-    .join('\n');
+  const parts = addr.split(/[\n,]/).map(p => p.trim()).filter(Boolean);
+
+  // Find state abbreviation (handles "WA", "WA 98109", or full "Washington")
+  let stateIdx = -1, stateAbbr = '', zip = '';
+  for (let i = 0; i < parts.length; i++) {
+    const m = parts[i].match(/^([A-Z]{2})(\s+\d{5})?$/);
+    if (m && STATE_CODES.has(m[1])) {
+      stateIdx = i; stateAbbr = m[1];
+      if (m[2]) zip = m[2].trim();
+      break;
+    }
+    const abbr = STATE_ABBREV[parts[i]];
+    if (abbr) { stateIdx = i; stateAbbr = abbr; break; }
+  }
+
+  // Find zip if not already extracted
+  if (!zip) {
+    for (let i = Math.max(0, stateIdx); i < parts.length; i++) {
+      const m = parts[i].match(/\b(\d{5})\b/);
+      if (m) { zip = m[1]; break; }
+    }
+  }
+
+  // City: last non-county item before state
+  let city = '';
+  const searchTo = stateIdx >= 0 ? stateIdx - 1 : parts.length - 1;
+  for (let i = searchTo; i >= 0; i--) {
+    if (!/County$/i.test(parts[i]) && !/^\d{5}/.test(parts[i])) {
+      city = parts[i]; break;
+    }
+  }
+
+  // Street: find a pure number (house num) + next part as street name,
+  // or a "number words" combined part
+  let street = '';
+  for (let i = 0; i < parts.length && i <= searchTo; i++) {
+    if (/^\d+$/.test(parts[i]) && i + 1 < parts.length) {
+      street = `${parts[i]} ${abbreviateStreet(parts[i + 1])}`;
+      break;
+    }
+    if (/^\d+\s+\S/.test(parts[i])) {
+      street = abbreviateStreet(parts[i]);
+      break;
+    }
+  }
+
+  if (!street) return addr; // couldn't parse — return original unchanged
+
+  const cityState = [city, stateAbbr].filter(Boolean).join(', ');
+  const tail = zip ? `${cityState} ${zip}` : cityState;
+  return [street, tail].filter(Boolean).join(', ');
 }
 
 
@@ -130,7 +185,6 @@ const CITY_REGIONS: Record<string, Region> = {
 
 type Step = 'mode-select' | 'location' | 'details' | 'triage' | 'compare' | 'done' | 'future-pin' | 'future-name' | 'future-details';
 type MapFilter = 'been' | 'want' | 'spots';
-type SpotsCategory = string;
 
 const SEED_VENUE_TYPES = [
   { value: 'food',          label: 'Food' },
@@ -142,6 +196,13 @@ const SEED_VENUE_TYPES = [
   { value: 'entertainment', label: 'Entertainment' },
   { value: 'shopping',      label: 'Shopping' },
   { value: 'other',         label: 'Other' },
+];
+
+const PRICE_FILTER_OPTIONS = [
+  { value: 1, label: '$' },
+  { value: 2, label: '$$' },
+  { value: 3, label: '$$$' },
+  { value: 0, label: 'Free' },
 ];
 
 interface DraftVisit {
@@ -177,7 +238,9 @@ export default function MapScreen() {
   const [futureSpots, setFutureSpots] = useState<FutureSpot[]>([]);
   const [seedSpots, setSeedSpots] = useState<SeedSpot[]>([]);
   const [mapFilter, setMapFilter] = useState<MapFilter>('been');
-  const [spotsCategories, setSpotsCategories] = useState<string[]>([]);
+  const [mapCategoryFilters, setMapCategoryFilters] = useState<string[]>([]);
+  const [mapPriceFilters, setMapPriceFilters] = useState<number[]>([]);
+  const [showMapFilter, setShowMapFilter] = useState(false);
   const [selectedSeedSpot, setSelectedSeedSpot] = useState<SeedSpot | null>(null);
   const [region, setRegion] = useState<Region>(SEATTLE_REGION);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
@@ -600,9 +663,12 @@ export default function MapScreen() {
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
-  const displayedSeedSpots = spotsCategories.length === 0
-    ? seedSpots.slice(0, 100)
-    : seedSpots.filter(s => spotsCategories.includes(s.activity_type ?? ''));
+  const activeMapFilterCount = mapCategoryFilters.length + mapPriceFilters.length;
+
+  const displayedSeedSpots = seedSpots
+    .filter(s => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(s.activity_type ?? ''))
+    .filter(s => mapPriceFilters.length === 0 || mapPriceFilters.includes(s.price))
+    .slice(0, activeMapFilterCount === 0 ? 100 : undefined);
 
   type ClusterItem =
     | { kind: 'spot'; spot: SeedSpot }
@@ -703,10 +769,13 @@ export default function MapScreen() {
         onRegionChangeComplete={(r) => setRegion(r)}
       >
         {mapFilter === 'been' && (() => {
+          const filteredVisits = visits
+            .filter(v => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(v.activity_type))
+            .filter(v => mapPriceFilters.length === 0 || mapPriceFilters.includes(v.price));
           const top3ids = new Set(
-            [...visits].sort((a, b) => b.rating - a.rating).slice(0, 3).map(v => v.id)
+            [...filteredVisits].sort((a, b) => b.rating - a.rating).slice(0, 3).map(v => v.id)
           );
-          return visits.map((v) => {
+          return filteredVisits.map((v) => {
             const isSelected = selectedVisit?.id === v.id;
             const isTop3 = top3ids.has(v.id);
             const color = ratingColor(v.rating);
@@ -746,7 +815,9 @@ export default function MapScreen() {
             );
           });
         })()}
-        {mapFilter === 'want' && futureSpots.map((s) => {
+        {mapFilter === 'want' && futureSpots
+          .filter(s => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(s.activity_type ?? ''))
+          .map((s) => {
           const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
           const labelSide = wantLabelSides.get(s.id) ?? 'right';
           const isSelected = selectedFuture?.id === s.id;
@@ -825,8 +896,9 @@ export default function MapScreen() {
       {/* Filter toggle */}
       {step === null && (
         <View style={styles.filterRow} pointerEvents="box-none">
-          <View pointerEvents="auto">
+          <View pointerEvents="auto" style={styles.filterPillsWrap}>
             <SlidingPills
+              fullWidth
               options={[
                 { label: 'Been To', value: 'been' },
                 { label: 'Want to Go', value: 'want' },
@@ -838,46 +910,30 @@ export default function MapScreen() {
                 setSelectedFuture(null);
                 setSelectedVisit(null);
                 setSelectedSeedSpot(null);
-                if (v === 'spots') setSpotsCategories([]);
               }}
               style={styles.filterPillsShadow}
             />
           </View>
-          {mapFilter === 'spots' && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.categoryRow}
-              contentContainerStyle={styles.categoryRowContent}
-              pointerEvents="auto"
-            >
-              <Pressable
-                style={[styles.categoryPill, spotsCategories.length === 0 && styles.categoryPillActive]}
-                onPress={() => { setSpotsCategories([]); setSelectedSeedSpot(null); }}
-              >
-                <Text style={[styles.categoryPillText, spotsCategories.length === 0 && styles.categoryPillTextActive]}>All</Text>
+          <View pointerEvents="auto" style={styles.filterBtnRow}>
+            <View style={[styles.mapFilterBtn, activeMapFilterCount > 0 && styles.mapFilterBtnActive]}>
+              <Pressable style={styles.mapFilterBtnMain} onPress={() => setShowMapFilter(true)}>
+                <Ionicons name="options-outline" size={14} color={activeMapFilterCount > 0 ? T.accent : T.primary} />
+                <Text style={[styles.mapFilterBtnText, activeMapFilterCount > 0 && styles.mapFilterBtnTextActive]}>Filter</Text>
               </Pressable>
-              {SEED_VENUE_TYPES.map(a => {
-                const isActive = spotsCategories.includes(a.value);
-                return (
+              {activeMapFilterCount > 0 && (
+                <>
+                  <View style={styles.mapFilterBtnDivider} />
                   <Pressable
-                    key={a.value}
-                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                    onPress={() => {
-                      setSpotsCategories(prev =>
-                        prev.includes(a.value) ? prev.filter(c => c !== a.value) : [...prev, a.value]
-                      );
-                      setSelectedSeedSpot(null);
-                    }}
+                    style={styles.mapFilterClearBtn}
+                    onPress={() => { setMapCategoryFilters([]); setMapPriceFilters([]); }}
+                    hitSlop={6}
                   >
-                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                      {a.label}
-                    </Text>
+                    <Ionicons name="close" size={14} color={T.accent} />
                   </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
+                </>
+              )}
+            </View>
+          </View>
         </View>
       )}
 
@@ -1035,8 +1091,120 @@ export default function MapScreen() {
           onSaved={() => setFutureSpots(getAllFutureSpots())}
         />
       )}
+      <MapFilterSheet
+        visible={showMapFilter}
+        currentCategory={mapCategoryFilters}
+        currentPrice={mapPriceFilters}
+        onApply={(category, price) => {
+          setMapCategoryFilters(category);
+          setMapPriceFilters(price);
+        }}
+        onClose={() => setShowMapFilter(false)}
+      />
     </View>
     </TabSlideWrapper>
+  );
+}
+
+function MapFilterSheet({ visible, currentCategory, currentPrice, onApply, onClose }: {
+  visible: boolean;
+  currentCategory: string[];
+  currentPrice: number[];
+  onApply: (category: string[], price: number[]) => void;
+  onClose: () => void;
+}) {
+  const [draftCategory, setDraftCategory] = useState<string[]>(currentCategory);
+  const [draftPrice, setDraftPrice] = useState<number[]>(currentPrice);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['category']));
+
+  useEffect(() => {
+    if (visible) {
+      setDraftCategory(currentCategory);
+      setDraftPrice(currentPrice);
+    }
+  }, [visible]);
+
+  function toggleArr<T>(arr: T[], val: T): T[] {
+    return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+  }
+
+  function toggleSection(key: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={mfs.root} edges={['top', 'bottom']}>
+        <View style={mfs.header}>
+          <Pressable onPress={onClose} hitSlop={10}>
+            <Ionicons name="close" size={22} color={T.primary} />
+          </Pressable>
+          <Text style={mfs.title}>Filter</Text>
+          <View style={{ width: 30 }} />
+        </View>
+
+        <ScrollView style={mfs.scroll} contentContainerStyle={mfs.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Category accordion */}
+          <Pressable style={mfs.accordionHeader} onPress={() => toggleSection('category')}>
+            <Ionicons name="restaurant-outline" size={18} color={T.primary} />
+            <Text style={mfs.accordionLabel}>Category</Text>
+            <View style={[mfs.activeBadge, draftCategory.length === 0 && { opacity: 0 }]}>
+              <Text style={mfs.activeBadgeText}>{draftCategory.length}</Text>
+            </View>
+            <Ionicons name={expanded.has('category') ? 'chevron-up' : 'chevron-down'} size={16} color={T.muted} />
+          </Pressable>
+          {expanded.has('category') && (
+            <View style={mfs.chipGrid}>
+              {SEED_VENUE_TYPES.map(a => {
+                const sel = draftCategory.includes(a.value);
+                return (
+                  <Pressable key={a.value} style={[mfs.chip, sel && mfs.chipActive]} onPress={() => setDraftCategory(toggleArr(draftCategory, a.value))}>
+                    <Text style={[mfs.chipText, sel && mfs.chipTextActive]}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={mfs.divider} />
+
+          {/* Price accordion */}
+          <Pressable style={mfs.accordionHeader} onPress={() => toggleSection('price')}>
+            <Ionicons name="cash-outline" size={18} color={T.primary} />
+            <Text style={mfs.accordionLabel}>Price</Text>
+            <View style={[mfs.activeBadge, draftPrice.length === 0 && { opacity: 0 }]}>
+              <Text style={mfs.activeBadgeText}>{draftPrice.length}</Text>
+            </View>
+            <Ionicons name={expanded.has('price') ? 'chevron-up' : 'chevron-down'} size={16} color={T.muted} />
+          </Pressable>
+          {expanded.has('price') && (
+            <View style={mfs.chipGrid}>
+              {PRICE_FILTER_OPTIONS.map(p => {
+                const sel = draftPrice.includes(p.value);
+                return (
+                  <Pressable key={p.value} style={[mfs.chip, sel && mfs.chipActive]} onPress={() => setDraftPrice(toggleArr(draftPrice, p.value))}>
+                    <Text style={[mfs.chipText, sel && mfs.chipTextActive]}>{p.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={mfs.footer}>
+          <Pressable onPress={() => { onApply([], []); onClose(); }}>
+            <Text style={mfs.clearAll}>Clear all</Text>
+          </Pressable>
+          <Pressable style={mfs.applyBtn} onPress={() => { onApply(draftCategory, draftPrice); onClose(); }}>
+            <Text style={mfs.applyBtnText}>Apply</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -1942,6 +2110,7 @@ function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWors
       <ProgressDots currentStep={4} />
       <Text style={styles.stepTitle}>Which was better?</Text>
       <Text style={styles.stepSubtitle}>Step 4 of 5</Text>
+      <Text style={styles.stepHeadspace}>Which would you want to take someone on a date?</Text>
       <View style={styles.compareRow}>
         <Animated.View style={[styles.compareCardWrap, { transform: [{ scale: thisScaleAnim }] }]}>
           <Pressable
@@ -1949,7 +2118,7 @@ function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWors
             onPress={() => animateTap(thisScaleAnim, setThisBorder, onBetter)}
           >
             <View style={[styles.compareCardHeader, { backgroundColor: thisColor }]}>
-              <Text style={styles.compareCardCategory}>{thisLabel.toUpperCase()}</Text>
+              <Text style={styles.compareCardCategory} numberOfLines={1}>{thisLabel.toUpperCase()}</Text>
               <View style={styles.compareNewPill}>
                 <Text style={styles.compareNewPillText}>?</Text>
               </View>
@@ -1967,7 +2136,7 @@ function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWors
             onPress={() => animateTap(thatScaleAnim, setThatBorder, onWorse)}
           >
             <View style={[styles.compareCardHeader, { backgroundColor: thatColor }]}>
-              <Text style={styles.compareCardCategory}>{thatLabel.toUpperCase()}</Text>
+              <Text style={styles.compareCardCategory} numberOfLines={1}>{thatLabel.toUpperCase()}</Text>
               {opponent.rating > 0 && (
                 <View style={[styles.compareRatingPill, { borderColor: opponentColor }]}>
                   <Text style={[styles.compareRatingPillText, { color: opponentColor }]}>{formatRating(opponent.rating)}</Text>
@@ -1997,7 +2166,7 @@ function DoneStep({ venueName, onAnother, onClose }: {
   return (
     <View style={[styles.stepContainer, styles.doneContainer]}>
       <ProgressDots currentStep={5} />
-      <Text style={styles.doneEmoji}>📍</Text>
+      <Ionicons name="checkmark-circle" size={56} color={T.accent} style={{ marginBottom: 12 }} />
       <Text style={styles.doneTitle}>Logged!</Text>
       <Text style={styles.doneSub}>{venueName} is on your map.</Text>
       <View style={styles.btnRow}>
@@ -2071,30 +2240,34 @@ const styles = StyleSheet.create({
 
   filterRow: {
     position: 'absolute', top: 56, left: 0, right: 0,
-    alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, gap: 8,
+  },
+  filterPillsWrap: {
+    alignSelf: 'stretch',
+  },
+  filterBtnRow: {
+    alignSelf: 'flex-start',
   },
   filterPillsShadow: {
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12, shadowRadius: 6,
+    backgroundColor: '#fff',
+    borderColor: 'rgba(0,0,0,0.2)',
   },
 
-  categoryRow: { maxHeight: 40 },
-  categoryRowContent: {
-    paddingHorizontal: 12, gap: 6, flexDirection: 'row', alignItems: 'center',
+  mapFilterBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: '#fff', overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 6,
   },
-  categoryPill: {
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1, borderColor: '#ffffff',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08, shadowRadius: 3,
-  },
-  categoryPillActive: {
-    backgroundColor: '#E76F51',
-    borderColor: '#E76F51',
-  },
-  categoryPillText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  categoryPillTextActive: { color: '#fff' },
+  mapFilterBtnActive: { borderColor: T.accent, backgroundColor: T.accentTint },
+  mapFilterBtnMain: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6 },
+  mapFilterBtnDivider: { width: StyleSheet.hairlineWidth, height: 14, backgroundColor: T.accent },
+  mapFilterClearBtn: { paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
+  mapFilterBtnText: { fontSize: 13, fontWeight: '600', color: T.primary },
+  mapFilterBtnTextActive: { color: T.accent },
 
 
   pinHint: {
@@ -2180,7 +2353,8 @@ const styles = StyleSheet.create({
   detailsScroll: { flex: 1 },
   stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
   stepTitle: { fontSize: 18, fontWeight: '400', color: T.primary, textAlign: 'center', fontFamily: 'Fraunces-Regular', },
-  stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 28 },
+  stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 6 },
+  stepHeadspace: { fontSize: 12, color: T.placeholder, textAlign: 'center', marginBottom: 24, fontStyle: 'italic' },
 
   modeCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
@@ -2267,18 +2441,20 @@ const styles = StyleSheet.create({
   triageLabel: { fontSize: 15, fontWeight: '700' },
 
   compareRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  compareCardWrap: { flex: 1, height: 140 },
+  compareCardWrap: { flex: 1, aspectRatio: 1 },
   compareCard: { flex: 1, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
   compareCardNew: { borderColor: T.accent },
   compareCardOld: { borderColor: T.border },
-  compareCardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  compareCardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8 },
+  compareCardHeader: { height: 47, paddingLeft: 8, paddingRight: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  compareCardCategory: { flex: 1, fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.3 },
   compareNewPill: {
+    flexShrink: 0, marginLeft: 4,
     backgroundColor: 'rgba(255,255,255,0.2)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
     borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
   },
   compareNewPillText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.8)' },
   compareRatingPill: {
+    flexShrink: 0, marginLeft: 4,
     backgroundColor: '#fff', borderWidth: 1.5,
     borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
   },
@@ -2340,7 +2516,6 @@ const styles = StyleSheet.create({
   btnSecondaryText: { color: T.primary, fontSize: 16, fontWeight: '600' },
 
   doneContainer: { alignItems: 'center', paddingTop: 16 },
-  doneEmoji: { fontSize: 48, marginBottom: 12 },
   doneTitle: { fontSize: 24, fontWeight: '800', color: T.primary, marginBottom: 6 },
   doneSub: { fontSize: 15, color: T.muted, marginBottom: 24 },
 
@@ -2359,4 +2534,44 @@ const styles = StyleSheet.create({
   suggestionName: { fontSize: 20, fontWeight: '700', color: T.primary, textAlign: 'center', marginBottom: 8 },
 
   geocodeHint: { fontSize: 11, color: T.muted, marginTop: -6, marginBottom: 8, marginLeft: 2 },
+});
+
+const mfs = StyleSheet.create({
+  root: { flex: 1, backgroundColor: T.bg },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border,
+  },
+  title: { fontSize: 17, fontWeight: '700', color: T.primary },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
+  accordionHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16, gap: 10,
+  },
+  accordionLabel: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1 },
+  activeBadge: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: T.accent, alignItems: 'center', justifyContent: 'center',
+  },
+  activeBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 16 },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: T.border, backgroundColor: T.bg,
+  },
+  chipActive: { backgroundColor: T.accentTint, borderColor: T.accent },
+  chipText: { fontSize: 13, fontWeight: '600', color: T.primary },
+  chipTextActive: { color: T.accent },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginTop: 16 },
+  footer: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border,
+  },
+  clearAll: { fontSize: 15, color: T.accent, fontWeight: '600' },
+  applyBtn: { backgroundColor: T.accent, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 14 },
+  applyBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });
