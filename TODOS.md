@@ -18,7 +18,15 @@ Deferred items from planning and review sessions. Each item has context on why i
 
 ## Testing (added v0.2.0.0, 2026-05-22)
 
-- [ ] **P2: Unit test coverage for lib/sync.ts and lib/friends.ts** — Both are new files (267 and 295 lines) with 0% test coverage. Requires Supabase mock setup. Current coverage: ~27% of changed units.
+- [ ] **P2: Unit test coverage for lib/sync.ts and lib/friends.ts** — Both are new files (267 and 295 lines) with 0% test coverage. Requires Supabase mock setup. **Updated v0.4.0.0:** Coverage improved to ~65% on pure logic paths (added tests for friendlyDate, stackTier, stackCreation, ranking edge cases, cleanAddress); Supabase-dependent modules still need mock setup.
+
+## Deferred from v0.4.0.0 review (added 2026-05-27)
+
+- [ ] **P2: `handleCheckHandle` error not surfaced** — In `app/auth/index.tsx` and `app/onboarding.tsx`, the handle-availability Supabase query doesn't check the `error` field; a query failure silently allows the user through. Add `if (error) { setHandleChecking(false); return; }` before `setHandleTaken(!!data)`.
+
+- [ ] **P2: Notifications non-atomic dedup** — `notifyActivity` in `lib/notifications.ts` does a select-then-insert for deduplication; two rapid calls can both pass the guard. Add a unique constraint on `(user_id, actor_id, type, ref_id)` in Supabase and handle the 409/23505 error in the insert path.
+
+- [ ] **P3: Supabase JWT stored in unencrypted AsyncStorage** — Session tokens are readable on rooted devices. Consider migrating to `expo-secure-store` for the auth storage adapter (low urgency for early-stage).
 
 ## Canonical Place Resolution (deferred from autoplan review, 2026-05-15)
 
