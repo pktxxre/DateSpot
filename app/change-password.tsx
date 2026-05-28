@@ -37,7 +37,11 @@ export default function ChangePasswordScreen() {
     /[0-9]/.test(newPassword) &&
     /[^a-zA-Z0-9]/.test(newPassword);
 
-  const canSubmit = currentPassword.length > 0 && pwValid && newPassword === confirmPassword;
+  const sameAsCurrentError =
+    newPassword.length > 0 && currentPassword.length > 0 && newPassword === currentPassword;
+
+  const canSubmit =
+    currentPassword.length > 0 && pwValid && newPassword === confirmPassword && !sameAsCurrentError;
 
   async function handleChangePassword() {
     if (!supabase) {
@@ -133,19 +137,24 @@ export default function ChangePasswordScreen() {
             {/* New password */}
             <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>NEW PASSWORD</Text>
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={styles.input}
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  placeholder="Enter new password"
-                  placeholderTextColor={T.placeholder}
-                  secureTextEntry={!showNew}
-                  autoComplete="new-password"
-                />
-                <Pressable onPress={() => setShowNew(v => !v)} hitSlop={8} style={styles.eyeBtn}>
-                  <Ionicons name={showNew ? 'eye-off-outline' : 'eye-outline'} size={20} color={T.muted} />
-                </Pressable>
+              <View style={{ position: 'relative' }}>
+                <View style={[styles.inputRow, sameAsCurrentError && styles.inputRowError]}>
+                  <TextInput
+                    style={styles.input}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Enter new password"
+                    placeholderTextColor={T.placeholder}
+                    secureTextEntry={!showNew}
+                    autoComplete="new-password"
+                  />
+                  <Pressable onPress={() => setShowNew(v => !v)} hitSlop={8} style={styles.eyeBtn}>
+                    <Ionicons name={showNew ? 'eye-off-outline' : 'eye-outline'} size={20} color={T.muted} />
+                  </Pressable>
+                </View>
+                {sameAsCurrentError && (
+                  <Text style={styles.samePasswordError}>Must differ from current password</Text>
+                )}
               </View>
               {newPassword.length > 0 && (
                 <View style={styles.pwReqs}>
@@ -251,6 +260,8 @@ const styles = StyleSheet.create({
   eyeBtn: { paddingLeft: 8 },
   pwReqs: { gap: 4, paddingTop: 4 },
   matchError: { fontSize: 12, color: T.danger, marginTop: 2 },
+  inputRowError: { borderWidth: 1.5, borderColor: T.danger },
+  samePasswordError: { position: 'absolute', bottom: -17, right: 0, fontSize: 12, color: T.danger },
 
   divider: { height: 1, backgroundColor: T.border, marginLeft: 16 },
 

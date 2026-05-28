@@ -202,6 +202,7 @@ export default function UserProfileScreen() {
   }
 
   const isFollowing = followStatus === 'friends' || followStatus === 'following';
+  const showPrivateState = !loading && (userProfile?.isPrivate ?? false) && !isFollowing;
 
   if (loading) {
     return (
@@ -212,6 +213,52 @@ export default function UserProfileScreen() {
           </Pressable>
         </View>
         <UserProfileSkeleton />
+      </SafeAreaView>
+    );
+  }
+
+  if (showPrivateState) {
+    return (
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={s.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={s.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={T.primary} />
+          </Pressable>
+          <Text style={s.headerName} numberOfLines={1}>{userProfile?.username ?? ''}</Text>
+          <View style={s.dotsBtn} />
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={s.avatarSection}>
+            <View style={s.avatarWrap}>
+              {userProfile?.profilePhotoUri ? (
+                <Image source={{ uri: userProfile.profilePhotoUri }} style={s.avatar} />
+              ) : (
+                <View style={[s.avatar, { backgroundColor: avatarBg(id ?? ''), alignItems: 'center', justifyContent: 'center' }]}>
+                  <Text style={s.avatarEmoticon}>{userProfile?.avatarEmoticon || ':)'}</Text>
+                </View>
+              )}
+            </View>
+            {!!userProfile?.handle && <Text style={s.handle}>@{userProfile.handle}</Text>}
+          </View>
+          <View style={s.privateWrap}>
+            <View style={s.privateLockCircle}>
+              <Ionicons name="lock-closed" size={24} color={T.muted} />
+            </View>
+            <Text style={s.privateTitle}>This account is private</Text>
+            <Text style={s.privateSub}>Follow to see their spots</Text>
+          </View>
+          <View style={s.actionRow}>
+            <Pressable
+              style={({ pressed }) => [s.followBtn, pressed && { opacity: 0.8 }]}
+              onPress={handleFollow}
+            >
+              <Text style={s.followBtnText}>
+                {followStatus === 'follow_back' ? 'Follow Back' : 'Follow'}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={{ height: 40 }} />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -441,6 +488,19 @@ const s = StyleSheet.create({
   scoreText: { fontSize: 12, fontWeight: '800' },
   emptyActivity: { alignItems: 'center', paddingVertical: 20 },
   emptyText: { fontSize: 14, color: T.muted, textAlign: 'center' },
+
+  privateWrap: { alignItems: 'center', paddingHorizontal: 40, paddingTop: 8, paddingBottom: 24 },
+  privateLockCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: T.inputBg,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 14,
+  },
+  privateTitle: {
+    fontSize: 16, fontWeight: '600', color: T.primary,
+    marginBottom: 6, textAlign: 'center',
+  },
+  privateSub: { fontSize: 14, color: T.muted, textAlign: 'center' },
 });
 
 const opt = StyleSheet.create({

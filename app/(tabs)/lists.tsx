@@ -734,8 +734,15 @@ export default function ListsScreen() {
             <ListsSkeleton tab="been" />
           ) : visits.length === 0 ? (
             <View style={s.empty}>
+              <View style={s.emptyIconCircle}>
+                <Ionicons name="checkmark" size={20} color="#fff" />
+              </View>
               <Text style={s.emptyTitle}>No spots logged yet</Text>
-              <Text style={s.emptyHint}>Tap + to log your first date spot</Text>
+              <View style={s.emptyHintRow}>
+                <Text style={s.emptyHint}>Tap </Text>
+                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                <Text style={s.emptyHint}> to log your first date spot</Text>
+              </View>
             </View>
           ) : filteredVisits.length === 0 ? (
             <View style={s.empty}>
@@ -770,7 +777,9 @@ export default function ListsScreen() {
             <ListsSkeleton tab="saved" />
           ) : futureSpots.length === 0 ? (
             <View style={s.empty}>
-              <Ionicons name="bookmark-outline" size={36} color={T.muted} style={{ marginBottom: 12 }} />
+              <View style={s.emptyIconCircle}>
+                <Ionicons name="bookmark" size={20} color="#fff" />
+              </View>
               <Text style={s.emptyTitle}>No saved spots yet</Text>
               <Text style={s.emptyHint}>Save spots from the map or Discover tab</Text>
             </View>
@@ -798,9 +807,15 @@ export default function ListsScreen() {
             <ListsSkeleton tab="stacks" />
           ) : stacks.length === 0 ? (
             <View style={s.empty}>
-              <Ionicons name="layers-outline" size={36} color={T.muted} style={{ marginBottom: 12 }} />
+              <View style={s.emptyIconCircle}>
+                <Ionicons name="layers" size={20} color="#fff" />
+              </View>
               <Text style={s.emptyTitle}>No stacks yet</Text>
-              <Text style={s.emptyHint}>Tap + and choose "Create a Stack" to group a date night.</Text>
+              <View style={s.emptyHintRow}>
+                <Text style={s.emptyHint}>Tap </Text>
+                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                <Text style={s.emptyHint}> and choose "Create a Stack" to group a date night</Text>
+              </View>
             </View>
           ) : (
             <FlatList
@@ -1028,11 +1043,24 @@ const s = StyleSheet.create({
   },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 12 },
+  emptyIconCircle: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: T.muted,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
   emptyTitle: {
     fontSize: 16, fontWeight: '400', color: T.primary,
     fontFamily: 'Fraunces-Regular', textAlign: 'center',
   },
   emptyHint: { fontSize: 14, color: T.muted, textAlign: 'center' },
+  emptyHintRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'center' },
+  plusCircle: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#E76F51', borderWidth: 2, borderColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  plusCircleText: { color: '#fff', fontSize: 14, fontWeight: '700', lineHeight: 14, includeFontPadding: false },
   clearFilter: { fontSize: 14, color: T.accent, fontWeight: '600' },
 
   stackCategoryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, marginBottom: 2 },

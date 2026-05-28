@@ -325,19 +325,21 @@ export interface PublicUserProfile {
   avatarEmoticon: string;
   profilePhotoUri: string | null;
   city: string;
+  isPrivate: boolean;
 }
 
 export async function getUserProfile(userId: string): Promise<PublicUserProfile | null> {
   if (!supabase) return null;
   const { data } = await supabase
     .from('profiles')
-    .select('id, username, handle, bio, avatar_emoticon, profile_photo_uri, city')
+    .select('id, username, handle, bio, avatar_emoticon, profile_photo_uri, city, is_private')
     .eq('id', userId)
     .single();
   if (!data) return null;
   return {
     id: data.id, username: data.username, handle: data.handle, bio: data.bio ?? '',
     avatarEmoticon: data.avatar_emoticon ?? ':)', profilePhotoUri: data.profile_photo_uri, city: data.city ?? '',
+    isPrivate: data.is_private ?? false,
   };
 }
 
