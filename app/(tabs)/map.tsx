@@ -15,9 +15,13 @@ import { Ionicons } from '@expo/vector-icons';
 let _openLogCallback: (() => void) | null = null;
 let _openFutureCallback: (() => void) | null = null;
 let _openLogWithLocationCallback: ((name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) => void) | null = null;
+let _selectVisitCallback: ((visitId: string) => void) | null = null;
+let _selectSeedSpotCallback: ((spotId: string) => void) | null = null;
 let _pendingOpenLog = false;
 let _pendingOpenFuture = false;
 let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number; activityType?: string | null; occasionType?: string | null } | null = null;
+let _pendingSelectVisit: string | null = null;
+let _pendingSelectSeedSpot: string | null = null;
 let _skipNextResumePrompt = false;
 
 export function scheduleOpenLog() {
@@ -30,6 +34,14 @@ export function scheduleOpenFutureDate() {
 }
 export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) {
   _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType };
+}
+export function scheduleSelectVisit(visitId: string) {
+  if (_selectVisitCallback) { _selectVisitCallback(visitId); }
+  else { _pendingSelectVisit = visitId; }
+}
+export function scheduleSelectSeedSpot(spotId: string) {
+  if (_selectSeedSpotCallback) { _selectSeedSpotCallback(spotId); }
+  else { _pendingSelectSeedSpot = spotId; }
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -283,10 +295,35 @@ export default function MapScreen() {
       toModalRef.current = true;
       setStep('details');
     };
+    _selectVisitCallback = (visitId: string) => {
+      _skipNextResumePrompt = true;
+      const visit = getAllVisits().find(v => v.id === visitId);
+      if (!visit) return;
+      setMapFilter('been');
+      setSelectedVisit(visit);
+      setTimeout(() => {
+        mapRef.current?.animateToRegion({ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+      }, 300);
+    };
+    _selectSeedSpotCallback = (spotId: string) => {
+      _skipNextResumePrompt = true;
+      getSeedSpotsRaw().then(spots => {
+        const spot = spots.find(s => s.id === spotId);
+        if (!spot) return;
+        setSeedSpots(spots);
+        setMapFilter('spots');
+        setSelectedSeedSpot(spot);
+        setTimeout(() => {
+          mapRef.current?.animateToRegion({ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+        }, 300);
+      });
+    };
     return () => {
       _openLogCallback = null;
       _openFutureCallback = null;
       _openLogWithLocationCallback = null;
+      _selectVisitCallback = null;
+      _selectSeedSpotCallback = null;
     };
   }, []);
 
@@ -318,6 +355,38 @@ export default function MapScreen() {
         toModalRef.current = true;
         setStep('details');
         sheetRef.current?.close();
+        return;
+      }
+      if (_pendingSelectVisit) {
+        const visitId = _pendingSelectVisit;
+        _pendingSelectVisit = null;
+        _skipNextResumePrompt = true;
+        const allVisits = getAllVisits();
+        const visit = allVisits.find(v => v.id === visitId);
+        if (visit) {
+          setVisits(allVisits);
+          setMapFilter('been');
+          setSelectedVisit(visit);
+          setTimeout(() => {
+            mapRef.current?.animateToRegion({ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+          }, 400);
+        }
+        return;
+      }
+      if (_pendingSelectSeedSpot) {
+        const spotId = _pendingSelectSeedSpot;
+        _pendingSelectSeedSpot = null;
+        _skipNextResumePrompt = true;
+        getSeedSpotsRaw().then(spots => {
+          const spot = spots.find(s => s.id === spotId);
+          if (!spot) return;
+          setSeedSpots(spots);
+          setMapFilter('spots');
+          setSelectedSeedSpot(spot);
+          setTimeout(() => {
+            mapRef.current?.animateToRegion({ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+          }, 400);
+        });
         return;
       }
       if (_skipNextResumePrompt) {
@@ -1941,9 +2010,12 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
           contentContainerStyle={styles.photoScrollContent}
         >
           {photos.map((uri, i) => (
-            <Pressable key={i} style={styles.photoThumb} onLongPress={() => removePhoto(i)}>
+            <View key={i} style={styles.photoThumbWrap}>
               <Image source={{ uri }} style={styles.photoThumbImg} />
-            </Pressable>
+              <Pressable style={styles.photoRemoveBtn} onPress={() => removePhoto(i)} hitSlop={6}>
+                <Text style={styles.photoRemoveBtnText}>−</Text>
+              </Pressable>
+            </View>
           ))}
           <Pressable style={styles.photoAdd} onPress={pickPhoto}>
             <Ionicons name="camera-outline" size={22} color={T.muted} />
@@ -2381,11 +2453,20 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 12, fontWeight: '600', color: T.muted, marginBottom: 7, textTransform: 'uppercase', letterSpacing: 0.5 },
   photoScroll: { marginBottom: 12, marginHorizontal: -24 },
   photoScrollContent: { paddingHorizontal: 24, alignItems: 'center' },
+  photoThumbWrap: {
+    width: 64, height: 64, marginRight: 7,
+  },
   photoThumb: {
     width: 64, height: 64, borderRadius: 9, overflow: 'hidden',
-    marginRight: 7,
   },
-  photoThumbImg: { width: '100%', height: '100%' },
+  photoThumbImg: { width: '100%', height: '100%', borderRadius: 9 },
+  photoRemoveBtn: {
+    position: 'absolute', top: -5, right: -5,
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: '#8E8E93',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  photoRemoveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700', lineHeight: 16, includeFontPadding: false },
   photoAdd: {
     width: 64, height: 64, borderRadius: 9,
     borderWidth: 1.5, borderColor: T.border,

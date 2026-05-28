@@ -257,15 +257,25 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
-        {/* Your Stacks — only shown when stacks exist */}
-        {stacks.length > 0 && (
-          <View style={s.stacksSection}>
-            <View style={s.stacksSectionHeader}>
-              <Text style={s.stacksSectionTitle}>Your stacks</Text>
+        {/* Your Stacks */}
+        <View style={s.stacksSection}>
+          <View style={s.stacksSectionHeader}>
+            <Text style={s.stacksSectionTitle}>Your stacks</Text>
+            {stacks.length > 0 && (
               <Pressable onPress={() => router.push({ pathname: '/(tabs)/lists', params: { tab: 'stacks' } } as any)}>
                 <Text style={s.seeAll}>See all →</Text>
               </Pressable>
+            )}
+          </View>
+          {stacks.length === 0 ? (
+            <View style={s.emptyStacks}>
+              <View style={s.emptyDatesRow}>
+                <Text style={s.emptyStacksText}>Log spots, then tap </Text>
+                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                <Text style={s.emptyStacksText}> to group them into a stack</Text>
+              </View>
             </View>
+          ) : (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -275,8 +285,8 @@ export default function HomeScreen() {
                 <HomeStackCard key={stack.id} stack={stack} />
               ))}
             </ScrollView>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* Recent dates section */}
         <View style={s.recentSection}>
@@ -506,17 +516,20 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: T.inputBg,
-    borderRadius: 14,
+    borderRadius: 12,
     marginHorizontal: 16,
     marginBottom: 16,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: T.border,
   },
   searchIcon: { marginRight: 8 },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: T.primary,
+    padding: 0,
   },
 
   goalCard: {
@@ -734,6 +747,15 @@ const s = StyleSheet.create({
     paddingRight: 16,
     gap: 10,
     paddingBottom: 8,
+  },
+  emptyStacks: {
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  emptyStacksText: {
+    fontSize: 14,
+    color: T.muted,
   },
   stackCard: {
     width: 180,

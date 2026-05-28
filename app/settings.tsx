@@ -35,10 +35,6 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 export default function SettingsScreen() {
-  const stub = (label: string) => () => {
-    Alert.alert(label, 'This feature is coming soon.');
-  };
-
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -116,7 +112,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="eye-outline"
             label="Privacy Settings"
-            onPress={stub('Privacy Settings')}
+            onPress={() => router.push('/privacy-settings' as any)}
           />
         </View>
 

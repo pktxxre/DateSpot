@@ -22,7 +22,7 @@ import { getSeedSpotById, SeedSpot } from '@/lib/seeds';
 import { supabase } from '@/lib/supabase';
 import { getReactionsForVisit, addReaction, removeReaction, Reaction } from '@/lib/reactions';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot } from '@/lib/future';
-import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
+import { scheduleOpenLogWithLocation, scheduleSelectVisit, scheduleSelectSeedSpot, cleanAddress } from '@/app/(tabs)/map';
 import * as Crypto from 'expo-crypto';
 import { T } from '@/lib/theme';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
@@ -743,7 +743,7 @@ export default function SpotDetailScreen() {
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
         <MapView
           style={StyleSheet.absoluteFill}
-          region={{ latitude: visit.lat - 0.00375, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
+          region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
           scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
           pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
           showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
@@ -755,9 +755,28 @@ export default function SpotDetailScreen() {
             <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
           </View>
         </View>
-        <View style={sd.heroOverlay}>
-          <View style={sd.heroActionsRow}>
-            <Text style={sd.heroName} numberOfLines={3}>{visit.venue_name}</Text>
+        <Pressable
+          style={sd.openInMapBtn}
+          onPress={() => {
+            scheduleSelectVisit(visit.id);
+            router.dismissTo('/(tabs)/map');
+          }}
+        >
+          <Ionicons name="map-outline" size={12} color={T.muted} />
+          <Text style={sd.openInMapText}>View Map</Text>
+        </Pressable>
+      </View>
+
+      <View style={sd.beliCardContent}>
+        {/* Venue name */}
+        <Text style={sd.heroName} numberOfLines={3}>{visit.venue_name}</Text>
+
+        {/* Tags + price with rank actions */}
+        {(tagParts.length > 0 || priceLabel) && (
+          <View style={sd.tagsActionsRow}>
+            <Text style={sd.beliTags}>
+              {[...tagParts, priceLabel].filter(Boolean).join(' · ')}
+            </Text>
             <View style={sd.heroBtns}>
               <Pressable style={styles.rankAgainBtn} onPress={() => setRankingAgain(true)}>
                 <Ionicons name="git-compare-outline" size={13} color={T.accent} />
@@ -768,15 +787,6 @@ export default function SpotDetailScreen() {
               </View>
             </View>
           </View>
-        </View>
-      </View>
-
-      <View style={sd.beliCardContent}>
-        {/* Tags + price */}
-        {(tagParts.length > 0 || priceLabel) && (
-          <Text style={sd.beliTags}>
-            {[...tagParts, priceLabel].filter(Boolean).join(' · ')}
-          </Text>
         )}
 
         {/* Address */}
@@ -1000,7 +1010,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
         <MapView
           style={StyleSheet.absoluteFill}
-          region={{ latitude: spot.lat - 0.00375, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
+          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
           scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
           pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
           showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
@@ -1012,9 +1022,28 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
             <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
           </View>
         </View>
-        <View style={sd.heroOverlay}>
-          <View style={sd.heroActionsRow}>
-            <Text style={sd.heroName} numberOfLines={3}>{spot.venue_name}</Text>
+        <Pressable
+          style={sd.openInMapBtn}
+          onPress={() => {
+            scheduleSelectSeedSpot(spot.id);
+            router.dismissTo('/(tabs)/map');
+          }}
+        >
+          <Ionicons name="map-outline" size={12} color={T.muted} />
+          <Text style={sd.openInMapText}>View Map</Text>
+        </Pressable>
+      </View>
+
+      <View style={sd.beliCardContent}>
+        {/* Venue name */}
+        <Text style={sd.heroName} numberOfLines={3}>{spot.venue_name}</Text>
+
+        {/* Tags + price with save/add actions */}
+        {(seedTagParts.length > 0 || priceLabel) && (
+          <View style={sd.tagsActionsRow}>
+            <Text style={sd.beliTags}>
+              {[...seedTagParts, priceLabel].filter(Boolean).join(' · ')}
+            </Text>
             <View style={sd.heroBtns}>
               <Pressable
                 onPress={alreadyLogged ? undefined : handleLogVisit}
@@ -1030,15 +1059,6 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
               </Animated.View>
             </View>
           </View>
-        </View>
-      </View>
-
-      <View style={sd.beliCardContent}>
-        {/* Tags + price */}
-        {(seedTagParts.length > 0 || priceLabel) && (
-          <Text style={sd.beliTags}>
-            {[...seedTagParts, priceLabel].filter(Boolean).join(' · ')}
-          </Text>
         )}
 
         {/* Address */}
@@ -1184,12 +1204,12 @@ const sd = StyleSheet.create({
     marginBottom: 6,
   },
   heroName: {
-    flex: 1,
     fontSize: 45,
     fontWeight: '700',
     color: '#000',
     fontFamily: 'Fraunces-Regular',
     lineHeight: 50,
+    marginBottom: 6,
   },
   heroCity: {
     fontSize: 13,
@@ -1322,12 +1342,29 @@ const sd = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  mapPinOverlay: {
+  openInMapBtn: {
     position: 'absolute',
-    top: MAP_HERO_H * 0.25 - 11,
-    left: 0,
-    right: 0,
+    bottom: 32,
+    right: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  openInMapText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: T.muted,
+  },
+  mapPinOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroOverlay: {
     position: 'absolute',
@@ -1363,11 +1400,17 @@ const sd = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
+  tagsActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   beliTags: {
     fontSize: 13,
     color: T.muted,
-    marginBottom: 4,
     lineHeight: 19,
+    flex: 1,
   },
   beliAddress: {
     fontSize: 13,

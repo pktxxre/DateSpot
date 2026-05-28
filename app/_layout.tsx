@@ -119,6 +119,9 @@ export default function RootLayout() {
         <Stack.Screen name="follow-list" options={{ headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="user-spots" options={{ headerShown: false }} />
+        <Stack.Screen name="account-details" options={{ headerShown: false }} />
+        <Stack.Screen name="change-password" options={{ headerShown: false }} />
+        <Stack.Screen name="privacy-settings" options={{ headerShown: false }} />
       </Stack>
     </GestureHandlerRootView>
   );
