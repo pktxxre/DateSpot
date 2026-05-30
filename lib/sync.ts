@@ -1,7 +1,5 @@
 import { supabase } from './supabase';
 import { getDb } from './db';
-import { recomputeRatings } from './visits';
-import { recomputeStackRatings } from './stacks';
 import type { UserProfile } from './profile';
 
 async function getUserId(): Promise<string | null> {
@@ -31,7 +29,7 @@ export async function syncVisitToCloud(visitId: string): Promise<void> {
     notes: row.notes,
     activity_type: row.activity_type,
     occasion_type: row.occasion_type ?? 'romantic',
-    price: row.price,
+    price: row.price ?? 0,
     triage: row.triage,
     date_type: row.date_type,
     photos: row.photos ?? '[]',
@@ -267,6 +265,8 @@ export async function restoreFromCloud(userId: string): Promise<void> {
     }
   });
 
+  const { recomputeRatings } = await import('./visits');
+  const { recomputeStackRatings } = await import('./stacks');
   recomputeRatings();
   recomputeStackRatings();
 }

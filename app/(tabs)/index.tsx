@@ -257,6 +257,31 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
+        {/* Recent dates + Stacks hide while searching so results own the screen */}
+        {!isSearching && (<>
+        {/* Recent dates section */}
+        <View style={s.recentSection}>
+          <View style={s.recentHeader}>
+            <Text style={s.recentTitle}>Recent dates</Text>
+            {recentVisits.length > 0 && (
+              <Pressable onPress={() => router.push('/(tabs)/lists')}>
+                <Text style={s.seeAll}>See all →</Text>
+              </Pressable>
+            )}
+          </View>
+          {recentVisits.length === 0 ? (
+            <View style={s.emptyDates}>
+              <View style={s.emptyDatesRow}>
+                <Text style={s.emptyDatesText}>Tap </Text>
+                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                <Text style={s.emptyDatesText}> to log your first date spot</Text>
+              </View>
+            </View>
+          ) : (
+            recentVisits.map(v => <RecentRow key={v.id} visit={v} />)
+          )}
+        </View>
+
         {/* Your Stacks */}
         <View style={s.stacksSection}>
           <View style={s.stacksSectionHeader}>
@@ -287,29 +312,7 @@ export default function HomeScreen() {
             </ScrollView>
           )}
         </View>
-
-        {/* Recent dates section */}
-        <View style={s.recentSection}>
-          <View style={s.recentHeader}>
-            <Text style={s.recentTitle}>Recent dates</Text>
-            {recentVisits.length > 0 && (
-              <Pressable onPress={() => router.push('/(tabs)/lists')}>
-                <Text style={s.seeAll}>See all →</Text>
-              </Pressable>
-            )}
-          </View>
-          {recentVisits.length === 0 ? (
-            <View style={s.emptyDates}>
-              <View style={s.emptyDatesRow}>
-                <Text style={s.emptyDatesText}>Tap </Text>
-                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
-                <Text style={s.emptyDatesText}> to log your first date spot</Text>
-              </View>
-            </View>
-          ) : (
-            recentVisits.map(v => <RecentRow key={v.id} visit={v} />)
-          )}
-        </View>
+        </>)}
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -441,20 +444,23 @@ function SearchResultRow({ spot }: { spot: SeedSpot }) {
   const color = ratingColor(spot.rating);
   const priceLabel = PRICE_LABELS[spot.price as Price] ?? '';
   const catLabel = CATEGORY_LABELS[spot.activity_type] ?? spot.activity_type;
-  const meta = [catLabel, priceLabel].filter(Boolean).join(' · ');
-
+  // Mirror the Recent dates row: left color accent, name, category · price meta,
+  // full-width with a score badge on the right.
   return (
     <Pressable
-      style={({ pressed }) => [s.searchResultRow, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [s.recentRow, pressed && { opacity: 0.7 }]}
       onPress={() => router.push(`/spot/${spot.id}` as any)}
     >
-      <View style={s.searchResultInfo}>
-        <Text style={s.spotName}>{spot.venue_name}</Text>
-        <Text style={s.spotMeta}>{meta}</Text>
+      <View style={[s.recentAccent, { backgroundColor: color }]} />
+      <View style={s.recentRowLeft}>
+        <Text style={s.recentName}>{spot.venue_name}</Text>
+        <Text style={s.recentMeta}>{[catLabel, priceLabel].filter(Boolean).join(' · ')}</Text>
       </View>
-      <View style={[s.ratingPill, { borderColor: color }]}>
-        <Text style={[s.ratingPillText, { color }]}>{formatRating(spot.rating)}</Text>
-      </View>
+      {spot.rating > 0 && (
+        <View style={[s.recentScore, { borderColor: color }]}>
+          <Text style={[s.recentScoreText, { color }]}>{formatRating(spot.rating)}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -686,7 +692,6 @@ const s = StyleSheet.create({
   spotInfo: { flex: 1, marginRight: 10 },
   spotName: { fontSize: 14, fontWeight: '300', color: T.primary },
   spotPrice: { fontSize: 12, color: T.muted, marginTop: 1 },
-  spotMeta: { fontSize: 12, color: T.muted },
   rowDivider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 46 },
 
   // Rating pill
@@ -698,24 +703,8 @@ const s = StyleSheet.create({
 
   // Search results
   searchResultsList: {
-    marginHorizontal: 16,
-    backgroundColor: T.card,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
+    paddingTop: 4,
   },
-  searchResultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: T.border,
-  },
-  searchResultInfo: { flex: 1, marginRight: 10 },
 
   loadingWrap: { paddingVertical: 60, alignItems: 'center' },
   emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 10 },

@@ -222,11 +222,13 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
   onLongPress: () => void;
 }) {
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
-  const priceLabel = visit.price > 0 ? PRICE_LABELS[visit.price as Price] : null;
+  const priceLabel = visit.price != null && visit.price > 0 ? PRICE_LABELS[visit.price as Price] : null;
   const occasionInfo = OCCASION_TYPES.find(a => a.value === visit.occasion_type);
+  const occasionDisplay = visit.occasion_type === 'other' && visit.occasion_label
+    ? `Other (${visit.occasion_label})` : occasionInfo?.label;
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const color = ratingColor(visit.rating);
-  const metaLine = [priceLabel, info?.label, occasionInfo?.label].filter(Boolean).join(' · ');
+  const metaLine = [priceLabel, info?.label, occasionDisplay].filter(Boolean).join(' · ');
 
   return (
     <Pressable

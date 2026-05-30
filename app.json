@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#FAF7F2"
     },
     "ios": {
       "supportsTablet": false,
@@ -50,7 +50,8 @@
           "photosPermission": "DateSpot needs photo access to add photos to your date spots."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true
