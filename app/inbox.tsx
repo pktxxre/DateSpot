@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Image,
+  View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Image, AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
@@ -208,7 +208,7 @@ function LogRow({ notification }: { notification: Notification }) {
       <View style={s.rowContent}>
         <Text style={s.rowText}>
           <Text style={s.rowBold}>{actorName}</Text>
-          {' wants to log your spot'}
+          {' logged your spot'}
           {venueName ? <Text>{' at '}<Text style={s.rowBold}>{venueName}</Text></Text> : null}
         </Text>
         <Text style={s.rowTime}>{timeAgo(notification.createdAt)}</Text>
@@ -263,6 +263,12 @@ export default function InboxScreen() {
 
   useFocusEffect(useCallback(() => {
     load();
+    // Keep notifications live while the screen is open.
+    const interval = setInterval(load, 15000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') load();
+    });
+    return () => { clearInterval(interval); sub.remove(); };
   }, [load]));
 
   function handleAccepted(notifId: string) {

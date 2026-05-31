@@ -436,6 +436,13 @@ create policy "insert own notification" on public.notifications
 create policy "update own notification" on public.notifications
   for update using (auth.uid() = user_id);
 
+-- At most one activity notification per (recipient, actor, type, spot).
+-- Makes save/like/log notifications idempotent so repeated taps can't create
+-- duplicates. friend_request/friend_accepted are excluded (each is a distinct row).
+create unique index if not exists notifications_activity_unique
+  on public.notifications (user_id, actor_id, type, ref_id)
+  where type in ('save', 'like', 'log');
+
 -- Security-definer RPC for accepting a friend request
 -- (bypasses RLS so the acceptor can insert the reverse row)
 create or replace function public.accept_friend_request(request_id uuid)

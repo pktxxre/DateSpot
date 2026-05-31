@@ -498,7 +498,7 @@ const s = StyleSheet.create({
   rowMeta: { fontSize: 13, color: T.muted, marginBottom: 2 },
   rowDate: { fontSize: 12, color: T.muted, marginTop: 4 },
   scorePill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
     backgroundColor: 'transparent', minWidth: 42, alignItems: 'center', flexShrink: 0,
   },
   scoreText: { fontSize: 12, fontWeight: '800' },

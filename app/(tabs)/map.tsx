@@ -1238,6 +1238,14 @@ export default function MapScreen() {
               onBeenTo={() => setStep('location')}
               onWantToGo={() => { setMapFilter('want'); setStep('future-pin'); }}
               onCreateStack={() => {
+                const loggedCount = getAllVisits().filter(v => !(v as any).is_seed).length;
+                if (loggedCount < 2) {
+                  Alert.alert(
+                    'Log more dates first',
+                    'You need more than 1 logged date to create a stack. Log a few spots, then come back to stack them.'
+                  );
+                  return;
+                }
                 scheduleNewStack();
                 resetFlow();
                 sheetRef.current?.close();

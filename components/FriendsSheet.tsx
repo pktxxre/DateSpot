@@ -13,20 +13,14 @@ const BORDER      = '#EDE8E0';
 const CARD        = '#FCF9F2';
 const PLACEHOLDER = '#B0A090';
 
-const PALETTE = ['#F2C18B', '#B5D5C5', '#E8B4D8', '#C9B6E4', '#F4C2A1'];
-
-function avatarBg(id: string) {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(h) % PALETTE.length];
-}
+const AVATAR_BG = '#E8C5B8';
 
 function Avatar({ person }: { person: AcceptedFriend }) {
   if (person.profilePhotoUri) {
     return <Image source={{ uri: person.profilePhotoUri }} style={s.avatar} resizeMode="cover" />;
   }
   return (
-    <View style={[s.avatar, { backgroundColor: avatarBg(person.id), alignItems: 'center', justifyContent: 'center' }]}>
+    <View style={[s.avatar, { backgroundColor: AVATAR_BG, alignItems: 'center', justifyContent: 'center' }]}>
       <Text style={s.avatarText}>{person.avatarEmoticon || (person.username?.[0] ?? '?').toUpperCase()}</Text>
     </View>
   );
