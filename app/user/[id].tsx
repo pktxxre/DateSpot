@@ -99,12 +99,7 @@ import {
 import { ACTIVITY_TYPES, friendlyDate, formatRating, ratingColor } from '@/lib/visits';
 import { T } from '@/lib/theme';
 
-const AVATAR_PALETTE = ['#F2C18B', '#B5D5C5', '#E8B4D8', '#C9B6E4', '#F4C2A1'];
-function avatarBg(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
-}
+const AVATAR_BG = '#E8C5B8';
 
 // ─── Options Sheet ────────────────────────────────────────────────────────────
 
@@ -233,7 +228,7 @@ export default function UserProfileScreen() {
               {userProfile?.profilePhotoUri ? (
                 <Image source={{ uri: userProfile.profilePhotoUri }} style={s.avatar} />
               ) : (
-                <View style={[s.avatar, { backgroundColor: avatarBg(id ?? ''), alignItems: 'center', justifyContent: 'center' }]}>
+                <View style={[s.avatar, { backgroundColor: AVATAR_BG, alignItems: 'center', justifyContent: 'center' }]}>
                   <Text style={s.avatarEmoticon}>{userProfile?.avatarEmoticon || ':)'}</Text>
                 </View>
               )}
@@ -285,7 +280,7 @@ export default function UserProfileScreen() {
             {userProfile?.profilePhotoUri ? (
               <Image source={{ uri: userProfile.profilePhotoUri }} style={s.avatar} />
             ) : (
-              <View style={[s.avatar, { backgroundColor: avatarBg(id ?? ''), alignItems: 'center', justifyContent: 'center' }]}>
+              <View style={[s.avatar, { backgroundColor: AVATAR_BG, alignItems: 'center', justifyContent: 'center' }]}>
                 <Text style={s.avatarEmoticon}>{userProfile?.avatarEmoticon || ':)'}</Text>
               </View>
             )}
@@ -482,7 +477,7 @@ const s = StyleSheet.create({
   activityLabel: { fontSize: 14, fontWeight: '600', color: T.primary, marginBottom: 2 },
   activitySub: { fontSize: 12, color: T.muted },
   scorePill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
     minWidth: 42, alignItems: 'center', flexShrink: 0,
   },
   scoreText: { fontSize: 12, fontWeight: '800' },

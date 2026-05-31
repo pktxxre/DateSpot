@@ -363,8 +363,8 @@ const s = StyleSheet.create({
   spotName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 2 },
   spotMeta: { fontSize: 12, color: T.muted, textTransform: 'capitalize' },
   scorePill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', minWidth: 44, alignItems: 'center',
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
+    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
   scorePillText: { fontSize: 12, fontWeight: '800' },
 

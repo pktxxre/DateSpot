@@ -181,7 +181,7 @@ export async function getFriendActivity(): Promise<FriendActivityItem[]> {
     .select('id, venue_name, lat, lng, visited_at, triage, activity_type, occasion_type, rating, notes, user_id')
     .in('user_id', friendIds)
     .eq('is_seed', false)
-    .order('visited_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(50);
 
   if (!visits) return [];

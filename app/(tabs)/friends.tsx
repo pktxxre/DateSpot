@@ -3,7 +3,7 @@ import {
   StyleSheet, View, Text, Pressable, Share, Modal,
   TextInput, FlatList, ActivityIndicator, KeyboardAvoidingView,
   Platform, Image, ScrollView, useWindowDimensions,
-  Animated as RNAnimated,
+  Animated as RNAnimated, AppState,
 } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
@@ -19,7 +19,7 @@ import {
   FriendProfile, FriendWithStats, FriendActivityItem, FriendRecommendation,
 } from '@/lib/friends';
 import { getUnreadCount, notifyActivity, removeNotifyActivity } from '@/lib/notifications';
-import { ratingColor, getAllVisits } from '@/lib/visits';
+import { ratingColor, getAllVisits, friendlyDate } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
@@ -42,13 +42,7 @@ const ACCENT   = '#E76F51';
 const NOTE_CLR = '#A0927E';
 
 // Avatar palette — rotated by deterministic index from id
-const AVATAR_PALETTE = ['#F2C18B', '#B5D5C5', '#E8B4D8', '#C9B6E4', '#F4C2A1'];
-
-function avatarColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
-}
+const AVATAR_BG = '#E8C5B8';
 
 function initial(name: string): string {
   return (name?.[0] ?? '?').toUpperCase();
@@ -61,27 +55,14 @@ const ACTIVITY_LABEL: Record<string, string> = {
   entertainment: 'Entertainment', shopping: 'Shopping', other: 'Other',
 };
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${Math.max(1, mins)}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString();
-}
-
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ id, name, photoUri, emoticon, size }: { id: string; name: string; photoUri: string | null; emoticon?: string; size: number }) {
-  const color = avatarColor(id);
+function Avatar({ name, photoUri, emoticon, size }: { id?: string; name: string; photoUri: string | null; emoticon?: string; size: number }) {
   if (photoUri) {
     return <Image source={{ uri: photoUri }} style={{ width: size, height: size, borderRadius: size / 2 }} resizeMode="cover" />;
   }
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: AVATAR_BG, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ fontSize: size * 0.42 }}>{emoticon || initial(name)}</Text>
     </View>
   );
@@ -239,6 +220,15 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
   const [floatingHearts, setFloatingHearts] = useState<number[]>([]);
   const heartIdRef = useRef(0);
 
+  // Serialize notification writes so rapid taps resolve in order — the final
+  // DB state always matches the final UI state (no duplicates, and no orphan
+  // notification left behind if the user ends on "not saved" / "not liked").
+  const saveOpChain = useRef<Promise<unknown>>(Promise.resolve());
+  const likeOpChain = useRef<Promise<unknown>>(Promise.resolve());
+  function runSerial(chain: { current: Promise<unknown> }, fn: () => Promise<void>) {
+    chain.current = chain.current.then(fn, fn);
+  }
+
   const heartScale = useRef(new RNAnimated.Value(1)).current;
   const saveScale  = useRef(new RNAnimated.Value(1)).current;
   const toastOpacity = useRef(new RNAnimated.Value(0)).current;
@@ -271,7 +261,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
     if (saved) {
       deleteFutureSpotsByVenueName(item.venueName);
       setSaved(false);
-      removeNotifyActivity(item.friend.id, 'save', item.visitId);
+      runSerial(saveOpChain, () => removeNotifyActivity(item.friend.id, 'save', item.visitId));
     } else {
       insertFutureSpot({
         id: Crypto.randomUUID(),
@@ -284,7 +274,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
       });
       setSaved(true);
       showToast('Saved');
-      notifyActivity(item.friend.id, 'save', item.visitId);
+      runSerial(saveOpChain, () => notifyActivity(item.friend.id, 'save', item.visitId));
     }
   }
 
@@ -296,10 +286,10 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
       likeActivity(item.visitId);
       const id = ++heartIdRef.current;
       setFloatingHearts(h => [...h, id]);
-      notifyActivity(item.friend.id, 'like', item.visitId);
+      runSerial(likeOpChain, () => notifyActivity(item.friend.id, 'like', item.visitId));
     } else {
       unlikeActivity(item.visitId);
-      removeNotifyActivity(item.friend.id, 'like', item.visitId);
+      runSerial(likeOpChain, () => removeNotifyActivity(item.friend.id, 'like', item.visitId));
     }
   }
 
@@ -324,7 +314,7 @@ function ActivityCard({ item, isLast, alreadyVisited }: {
           </Text>
           <View style={s.metaRow}>
             <Text style={s.metaCat}>{actLabel}</Text>
-            <Text style={s.cardTime}>{timeAgo(item.visitedAt)}</Text>
+            <Text style={s.cardTime}>{friendlyDate(item.visitedAt)}</Text>
           </View>
         </View>
         {showRating && rColor && (
@@ -586,26 +576,30 @@ export default function FriendsScreen() {
       setLoading(false);
     }
 
-    const [fr, act, recs, count, myVisits] = await Promise.all([
+    const [fr, act, count, myVisits] = await Promise.all([
       getFriendsWithStats(),
       getFriendActivity(),
-      getFriendRecommendations(),
       getUnreadCount(),
       getAllVisits(),
     ]);
     const sorted = fr.sort((a, b) => a.username.localeCompare(b.username));
     setFriends(sorted);
     setActivity(act);
-    setRecommendations(recs);
     setUnreadCount(count);
     setMyVisitedNames(new Set(myVisits.map(v => v.venue_name.toLowerCase().trim())));
     setLoading(false);
-    AsyncStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify({ friends: sorted, activity: act, recommendations: recs, unreadCount: count, visitedNames: myVisits.map(v => v.venue_name.toLowerCase().trim()) }));
+    AsyncStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify({ friends: sorted, activity: act, unreadCount: count, visitedNames: myVisits.map(v => v.venue_name.toLowerCase().trim()) }));
   }, []);
 
   useFocusEffect(useCallback(() => {
     scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
     load();
+    // Keep friends + notifications live while the tab is focused.
+    const interval = setInterval(load, 15000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') load();
+    });
+    return () => { clearInterval(interval); sub.remove(); };
   }, [load]));
 
   const hasFriends = friends.length > 0;
@@ -724,25 +718,6 @@ export default function FriendsScreen() {
                 )}
               </View>
 
-              {/* ── Recommended by friends ── */}
-              {recommendations.length > 0 && (
-                <View style={s.sectionWrap}>
-                  <SectionHeader
-                    title="Recommended by friends"
-                    subtitle="Loved by people you trust"
-                    action="See all"
-                  />
-                  <ScrollView
-                    horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={s.recScroll}
-                  >
-                    {recommendations.map((rec, i) => (
-                      <RecCard key={i} rec={rec} />
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
               {/* ── Your friends ── */}
               <View style={s.sectionWrap}>
                 <SectionHeader
@@ -829,7 +804,7 @@ const s = StyleSheet.create({
   metaCat:  { fontSize: 11, color: MUTED },
   // Rating pill — matches app-wide spots list style
   ratingPill: {
-    borderWidth: 1.5, borderRadius: 10,
+    borderWidth: 1.5, borderRadius: 999,
     paddingHorizontal: 9, paddingVertical: 3,
     minWidth: 42, alignItems: 'center',
     backgroundColor: 'transparent',

@@ -629,10 +629,12 @@ const s = StyleSheet.create({
 
   ratingPill: {
     borderWidth: 1.5,
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    borderRadius: 999,
+    paddingHorizontal: 9,
     paddingVertical: 3,
     backgroundColor: 'transparent',
+    minWidth: 42,
+    alignItems: 'center',
   },
   ratingPillText: { fontSize: 12, fontWeight: '800' },
 

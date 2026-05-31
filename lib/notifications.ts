@@ -66,7 +66,21 @@ export async function fetchNotifications(): Promise<Notification[] | null> {
     }
   }
 
-  return notifs.map((row: any) => {
+  // Collapse duplicate save/like/log notifications (same actor + spot) into the
+  // most recent one. `notifs` is already ordered created_at desc, so the first
+  // occurrence is the newest. Guards against any duplicates already in the DB
+  // or that slip past the client-side dedupe.
+  const seenActivity = new Set<string>();
+  const deduped = notifs.filter((row: any) => {
+    if (row.type === 'save' || row.type === 'like' || row.type === 'log') {
+      const key = `${row.actor_id}|${row.type}|${row.ref_id}`;
+      if (seenActivity.has(key)) return false;
+      seenActivity.add(key);
+    }
+    return true;
+  });
+
+  return deduped.map((row: any) => {
     const p = profileMap.get(row.actor_id);
     const result: Notification = {
       id: row.id,
@@ -117,24 +131,15 @@ export async function notifyActivity(
   const myUserId = userData.user?.id;
   if (!myUserId || myUserId === recipientId) return;
 
-  // For save/like, skip if a notification already exists to avoid duplicates
-  const { data: existing } = await supabase
+  // Idempotent insert: the `notifications_activity_unique` partial index
+  // guarantees at most one row per (recipient, actor, type, spot), so repeated
+  // taps can't create duplicates. ignoreDuplicates makes the conflict a no-op.
+  await supabase
     .from('notifications')
-    .select('id')
-    .eq('user_id', recipientId)
-    .eq('actor_id', myUserId)
-    .eq('type', type)
-    .eq('ref_id', refId)
-    .maybeSingle();
-
-  if (existing) return;
-
-  await supabase.from('notifications').insert({
-    user_id: recipientId,
-    actor_id: myUserId,
-    type,
-    ref_id: refId,
-  });
+    .upsert(
+      { user_id: recipientId, actor_id: myUserId, type, ref_id: refId },
+      { onConflict: 'user_id,actor_id,type,ref_id', ignoreDuplicates: true },
+    );
 }
 
 export async function removeNotifyActivity(

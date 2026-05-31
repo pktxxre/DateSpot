@@ -1491,7 +1491,7 @@ const sd = StyleSheet.create({
     marginBottom: 10,
   },
   scoreNumberPill: {
-    borderRadius: 10,
+    borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,

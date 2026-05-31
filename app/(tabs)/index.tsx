@@ -696,7 +696,7 @@ const s = StyleSheet.create({
 
   // Rating pill
   ratingPill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
     backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
   ratingPillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
@@ -764,7 +764,7 @@ const s = StyleSheet.create({
   stackSpotBadgeText: { fontSize: 11, fontWeight: '700', color: T.muted },
   stackCardDate: { fontSize: 11, color: T.muted, marginBottom: 4 },
   stackJourney: { fontSize: 11, color: T.muted, fontStyle: 'italic', marginBottom: 8 },
-  stackQuality: { borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
+  stackQuality: { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
   stackQualityText: { fontSize: 12, fontWeight: '800' },
 
   recentSection: {
@@ -838,7 +838,7 @@ const s = StyleSheet.create({
   recentName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 3 },
   recentMeta: { fontSize: 12, color: T.muted },
   recentScore: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
     backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
   },
   recentScoreText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },

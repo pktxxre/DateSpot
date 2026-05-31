@@ -29,13 +29,7 @@ function FollowListSkeleton() {
 
 type TabKey = 'followers' | 'following';
 
-const AVATAR_PALETTE = ['#F2C18B', '#B5D5C5', '#E8B4D8', '#C9B6E4', '#F4C2A1'];
-
-function avatarColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
-}
+const AVATAR_BG = '#E8C5B8';
 
 function Avatar({ userId, photoUri, emoticon, username }: {
   userId: string; photoUri: string | null; emoticon: string; username: string;
@@ -44,7 +38,7 @@ function Avatar({ userId, photoUri, emoticon, username }: {
     return <Image source={{ uri: photoUri }} style={s.avatar} resizeMode="cover" />;
   }
   return (
-    <View style={[s.avatar, { backgroundColor: avatarColor(userId), alignItems: 'center', justifyContent: 'center' }]}>
+    <View style={[s.avatar, { backgroundColor: AVATAR_BG, alignItems: 'center', justifyContent: 'center' }]}>
       <Text style={s.avatarText}>{emoticon || (username?.[0] ?? '?').toUpperCase()}</Text>
     </View>
   );

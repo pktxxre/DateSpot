@@ -1050,7 +1050,7 @@ const s = StyleSheet.create({
   rowDate: { fontSize: 12, color: T.muted, marginTop: 4 },
   scorePill: {
     borderWidth: 1.5,
-    borderRadius: 10,
+    borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 3,
     backgroundColor: 'transparent',

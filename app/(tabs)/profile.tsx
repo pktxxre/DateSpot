@@ -15,6 +15,10 @@ import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
 const FOLLOW_CACHE_KEY = 'profile_follow_counts_v2';
 
+// In-session cache so re-entering the profile shows the last known counts
+// immediately (no "—" flash / visible re-count on every focus).
+let memFollowCounts: { followers: number; following: number } | null = null;
+
 function ProfileSkeleton() {
   const { shimmer, screenW } = useShimmer();
   return (
@@ -76,13 +80,15 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [futureCount, setFutureCount] = useState(0);
-  const [followers, setFollowers] = useState<number | null>(null);
-  const [following, setFollowing] = useState<number | null>(null);
+  const [followers, setFollowers] = useState<number | null>(memFollowCounts?.followers ?? null);
+  const [following, setFollowing] = useState<number | null>(memFollowCounts?.following ?? null);
 
   useEffect(() => {
+    if (memFollowCounts) return; // already have counts in memory this session
     AsyncStorage.getItem(FOLLOW_CACHE_KEY).then(val => {
       if (val) {
         const cached = JSON.parse(val);
+        memFollowCounts = cached;
         setFollowers(cached.followers);
         setFollowing(cached.following);
       }
@@ -99,6 +105,7 @@ export default function ProfileScreen() {
       setVisits(allVisits);
       setFutureCount(getAllFutureSpots().length);
       getFollowCounts().then(counts => {
+        memFollowCounts = counts;
         setFollowers(counts.followers);
         setFollowing(counts.following);
         AsyncStorage.setItem(FOLLOW_CACHE_KEY, JSON.stringify(counts));
@@ -339,7 +346,7 @@ const s = StyleSheet.create({
   activityLabel: { fontSize: 14, fontWeight: '600', color: T.primary, marginBottom: 2 },
   activitySub: { fontSize: 12, color: T.muted },
   scorePill: {
-    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
     minWidth: 42, alignItems: 'center', flexShrink: 0,
   },
   scoreText: { fontSize: 12, fontWeight: '800' },
