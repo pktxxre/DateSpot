@@ -955,10 +955,13 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
 
   function showSavedBanner() {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    Animated.spring(bannerAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
-    bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-    }, 1500);
+    // Mirror the friends-tab micro-toast: quick fade in, brief hold, fade out.
+    bannerAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(bannerAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.delay(700),
+      Animated.timing(bannerAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]).start();
   }
 
   function popSave() {
@@ -1001,21 +1004,6 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
-
-      {/* Saved banner */}
-      <Animated.View
-        style={[
-          sd.savedBanner,
-          {
-            opacity: bannerAnim,
-            transform: [{ translateY: bannerAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }],
-          },
-        ]}
-        pointerEvents="none"
-      >
-        <Ionicons name="bookmark" size={13} color="#5856d6" />
-        <Text style={sd.savedBannerText}>Saved</Text>
-      </Animated.View>
 
       {/* Sticky nav — always visible */}
       <SafeAreaView style={sd.stickyNav} edges={['top']}>
@@ -1094,6 +1082,12 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
                   <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color={savedFutureId ? '#fff' : SAVE_BLUE} />
                 </Pressable>
               </Animated.View>
+              <Animated.Text
+                pointerEvents="none"
+                style={[sd.savedMicroToast, { opacity: bannerAnim, position: 'absolute', bottom: 40, right: 0 }]}
+              >
+                Saved
+              </Animated.Text>
             </View>
           </View>
         )}
@@ -1203,25 +1197,8 @@ const sd = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  savedBanner: {
-    position: 'absolute',
-    top: 96,
-    alignSelf: 'center',
-    zIndex: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-  },
-  savedBannerText: {
-    fontSize: 13,
+  savedMicroToast: {
+    fontSize: 11,
     fontWeight: '600',
     color: '#5856d6',
   },

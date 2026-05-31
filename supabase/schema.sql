@@ -435,6 +435,8 @@ create policy "insert own notification" on public.notifications
   for insert with check (auth.uid() = actor_id);
 create policy "update own notification" on public.notifications
   for update using (auth.uid() = user_id);
+create policy "delete own notification" on public.notifications
+  for delete using (auth.uid() = user_id);
 
 -- At most one activity notification per (recipient, actor, type, spot).
 -- Makes save/like/log notifications idempotent so repeated taps can't create
