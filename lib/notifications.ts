@@ -72,6 +72,13 @@ export async function fetchNotifications(): Promise<Notification[] | null> {
   // or that slip past the client-side dedupe.
   const seenActivity = new Set<string>();
   const deduped = notifs.filter((row: any) => {
+    // Only keep friend requests still awaiting a response. Accepted ones are
+    // redundant (the "accepted your friend request" notice covers it, and a
+    // mutual request would otherwise leave a contradictory pair); declined ones
+    // should disappear entirely — no "declined" notification cluttering the inbox.
+    if (row.type === 'friend_request' && friendStatusMap.get(row.ref_id) !== 'pending') {
+      return false;
+    }
     if (row.type === 'save' || row.type === 'like' || row.type === 'log') {
       const key = `${row.actor_id}|${row.type}|${row.ref_id}`;
       if (seenActivity.has(key)) return false;
@@ -131,15 +138,26 @@ export async function notifyActivity(
   const myUserId = userData.user?.id;
   if (!myUserId || myUserId === recipientId) return;
 
-  // Idempotent insert: the `notifications_activity_unique` partial index
-  // guarantees at most one row per (recipient, actor, type, spot), so repeated
-  // taps can't create duplicates. ignoreDuplicates makes the conflict a no-op.
+  // Idempotent insert. We can't use upsert/onConflict here: the dedupe index
+  // (`notifications_activity_unique`) is PARTIAL (`where type in
+  // ('save','like','log')`), and PostgREST can't emit the partial-index
+  // predicate, so `ON CONFLICT (...)` is rejected (42P10) and the row never
+  // gets inserted. Instead, check for an existing row first. Callers serialize
+  // save/like writes per card, so this can't race within a card, and
+  // fetchNotifications collapses any residual duplicates in the read path.
+  const { data: existing } = await supabase
+    .from('notifications')
+    .select('id')
+    .eq('user_id', recipientId)
+    .eq('actor_id', myUserId)
+    .eq('type', type)
+    .eq('ref_id', refId)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+
   await supabase
     .from('notifications')
-    .upsert(
-      { user_id: recipientId, actor_id: myUserId, type, ref_id: refId },
-      { onConflict: 'user_id,actor_id,type,ref_id', ignoreDuplicates: true },
-    );
+    .insert({ user_id: recipientId, actor_id: myUserId, type, ref_id: refId });
 }
 
 export async function removeNotifyActivity(

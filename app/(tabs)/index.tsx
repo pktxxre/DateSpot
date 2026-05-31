@@ -215,9 +215,6 @@ export default function HomeScreen() {
             <Text style={s.sectionTitle}>Top date spots</Text>
             <Text style={s.sectionSubtitle}>Your next date spot is waiting</Text>
           </View>
-          <Pressable onPress={() => router.push('/spots' as any)}>
-            <Text style={s.seeAll}>See all →</Text>
-          </Pressable>
         </View>
 
         {/* Search results OR category cards */}
@@ -263,11 +260,6 @@ export default function HomeScreen() {
         <View style={s.recentSection}>
           <View style={s.recentHeader}>
             <Text style={s.recentTitle}>Recent dates</Text>
-            {recentVisits.length > 0 && (
-              <Pressable onPress={() => router.push('/(tabs)/lists')}>
-                <Text style={s.seeAll}>See all →</Text>
-              </Pressable>
-            )}
           </View>
           {recentVisits.length === 0 ? (
             <View style={s.emptyDates}>
@@ -286,11 +278,6 @@ export default function HomeScreen() {
         <View style={s.stacksSection}>
           <View style={s.stacksSectionHeader}>
             <Text style={s.stacksSectionTitle}>Your stacks</Text>
-            {stacks.length > 0 && (
-              <Pressable onPress={() => router.push({ pathname: '/(tabs)/lists', params: { tab: 'stacks' } } as any)}>
-                <Text style={s.seeAll}>See all →</Text>
-              </Pressable>
-            )}
           </View>
           {stacks.length === 0 ? (
             <View style={s.emptyStacks}>
@@ -657,7 +644,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     color: T.muted,
   },
-  seeAll: { fontSize: 13, color: T.accent, fontWeight: '600' },
 
   cardsScroll: {
     paddingLeft: 16,

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable, Image,
   Animated, Modal, ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
@@ -178,22 +178,42 @@ export default function UserProfileScreen() {
     });
   }, [id]);
 
+  // Pull the live follower/following counts from the DB. Used after every
+  // follow action and whenever the screen regains focus, so the numbers always
+  // reflect reality instead of stale in-memory state.
+  const refreshCounts = useCallback(async () => {
+    if (!id) return;
+    const counts = await getUserFollowCounts(id);
+    setFollowCounts(counts);
+  }, [id]);
+
+  // Re-fetch counts on focus so returning to a profile (e.g. after unfollowing)
+  // shows the current numbers, not the ones from when it first mounted.
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    if (id) getUserFollowCounts(id).then(c => { if (active) setFollowCounts(c); });
+    return () => { active = false; };
+  }, [id]));
+
   async function handleFollow() {
     if (!id) return;
     await followUser(id);
     setFollowStatus(prev => prev === 'follow_back' ? 'friends' : 'following');
+    refreshCounts();
   }
 
   async function handleUnfollow() {
     if (!id) return;
     await unfollowUser(id);
     setFollowStatus(prev => prev === 'friends' ? 'follow_back' : 'none');
+    refreshCounts();
   }
 
   async function handleRemoveFollower() {
     if (!id) return;
     await removeFollower(id);
     setFollowStatus(prev => prev === 'friends' ? 'following' : prev);
+    refreshCounts();
   }
 
   const isFollowing = followStatus === 'friends' || followStatus === 'following';

@@ -170,50 +170,6 @@ function StackRow({ stack }: { stack: StackSummary }) {
 
 // ─── Occasion Sheet ───────────────────────────────────────────────────────────
 
-function OccasionSheet({ visible, selected, onToggle, onClose }: {
-  visible: boolean;
-  selected: string[];
-  onToggle: (val: string) => void;
-  onClose: () => void;
-}) {
-  const sheetY = useRef(new Animated.Value(300)).current;
-
-  useEffect(() => {
-    if (visible) {
-      sheetY.setValue(300);
-      Animated.spring(sheetY, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }).start();
-    }
-  }, [visible]);
-
-  return (
-    <Modal visible={visible} animationType="none" transparent onRequestClose={onClose}>
-      <View style={sh.container}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <Animated.View style={[sh.sheet, { transform: [{ translateY: sheetY }] }]}>
-          <View style={sh.handle} />
-          <Text style={sh.title}>Date type</Text>
-          {OCCASION_TYPES.map(opt => {
-            const sel = selected.includes(opt.value);
-            return (
-              <Pressable
-                key={opt.value}
-                style={[sh.option, sel && sh.optionActive]}
-                onPress={() => onToggle(opt.value)}
-              >
-                <Text style={[sh.optionText, sel && sh.optionTextActive]}>{opt.label}</Text>
-                {sel && <Ionicons name="checkmark" size={18} color={T.accent} />}
-              </Pressable>
-            );
-          })}
-          <Pressable style={sh.doneBtn} onPress={onClose}>
-            <Text style={sh.doneBtnText}>Done</Text>
-          </Pressable>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-}
-
 // ─── Sort Sheet ───────────────────────────────────────────────────────────────
 
 const SORT_LABELS: Record<SortOption, string> = { score: 'Score', date: 'Date Added' };
@@ -515,7 +471,6 @@ export default function ListsScreen() {
   const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => getTabFromParam(tabParam));
   const [occasionFilters, setOccasionFilters] = useState<string[]>([]);
-  const [showOccasionSheet, setShowOccasionSheet] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [showSortSheet, setShowSortSheet] = useState(false);
 
@@ -596,13 +551,6 @@ export default function ListsScreen() {
 
   const activeFilterCount = activityFilters.length + priceFilters.length + occasionFilters.length;
 
-  const occasionTitle = useMemo(() => {
-    if (occasionFilters.length === 0 || occasionFilters.length === OCCASION_TYPES.length) return 'All dates';
-    const labels = occasionFilters.map(v => OCCASION_TYPES.find(o => o.value === v)?.label ?? v);
-    if (labels.length === 1) return labels[0];
-    return labels.join(' and ');
-  }, [occasionFilters]);
-
   function handleTabSwitch(tab: ActiveTab) {
     if (tab === activeTab) return;
     setActiveTab(tab);
@@ -629,13 +577,12 @@ export default function ListsScreen() {
 
         {/* Header */}
         <View style={s.header}>
-          <Pressable style={s.occasionSelector} onPress={() => setShowOccasionSheet(true)}>
+          <View style={s.occasionSelector}>
             <View>
               <Text style={s.occasionSubtitle}> </Text>
-              <Text style={s.occasionTitle}>{occasionTitle}</Text>
+              <Text style={s.occasionTitle}>All Dates</Text>
             </View>
-            <Ionicons name="chevron-down" size={18} color={T.primary} style={{ marginTop: 5 }} />
-          </Pressable>
+          </View>
           <ProfileAvatar onPress={() => router.push('/(tabs)/profile')} />
         </View>
 
@@ -874,15 +821,6 @@ export default function ListsScreen() {
         )}
 
       </SafeAreaView>
-
-      <OccasionSheet
-        visible={showOccasionSheet}
-        selected={occasionFilters}
-        onToggle={val => setOccasionFilters(prev =>
-          prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]
-        )}
-        onClose={() => setShowOccasionSheet(false)}
-      />
 
       <SortSheet
         visible={showSortSheet}

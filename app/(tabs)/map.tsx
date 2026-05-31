@@ -364,6 +364,10 @@ export default function MapScreen() {
   // lat/lng — no overlay coordinate math, no drift. Shared between been-to and want-to-go
   // since only one save flow is active at a time.
   const sproutAnim = useRef(new Animated.Value(1)).current;
+  // Slight pop applied to whichever pin is currently selected. Only one pin is
+  // selected at a time, so a single shared value is enough. Fires on select-in
+  // only (deselect just snaps back, no animation).
+  const selectPopAnim = useRef(new Animated.Value(1)).current;
   const stepAnim = useRef(new Animated.Value(0)).current;
 
   const selectedVisitRef = useRef<Visit | null>(null);
@@ -445,8 +449,12 @@ export default function MapScreen() {
     useCallback(() => {
       const fromDetail = _mapNavigatedToDetail;
       _mapNavigatedToDetail = false;
-      // Only reset the filter when entering from another tab, not returning from a card or using View Map
-      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot && !_pendingSelectFuture) setMapFilter('been');
+      // Only reset filters when entering from another tab, not returning from a card or using View Map
+      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot && !_pendingSelectFuture) {
+        setMapFilter('been');
+        setMapCategoryFilters([]);
+        setMapPriceFilters([]);
+      }
       const freshVisits = getAllVisits();
       setVisits(freshVisits);
       const freshFuture = getAllFutureSpots();
@@ -917,9 +925,21 @@ export default function MapScreen() {
     });
   }
 
+  // Very slight expand-then-settle, like the heart pop but subtler — just
+  // enough to register the tap. Only call this when selecting a pin (not when
+  // deselecting).
+  function popSelect() {
+    selectPopAnim.setValue(1);
+    Animated.sequence([
+      Animated.timing(selectPopAnim, { toValue: 1.07, duration: 110, useNativeDriver: true }),
+      Animated.spring(selectPopAnim, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }),
+    ]).start();
+  }
+
   function handlePinPress(visit: Visit) {
     if (step !== null) return;
     lastPinPressAt.current = Date.now();
+    if (selectedVisitRef.current?.id !== visit.id) popSelect();
     setSelectedVisit((prev) => (prev?.id === visit.id ? null : visit));
   }
 
@@ -1004,6 +1024,10 @@ export default function MapScreen() {
         logo={false}
         attribution={true}
         compass={false}
+        // Without this, a single tap waits out the double-tap-zoom window before
+        // firing, so selecting/deselecting a pin feels laggy. Pinch-to-zoom still
+        // works; we just trade away double-tap-to-zoom for immediate taps.
+        doubleTapZoom={false}
         onPress={handleMapPress as any}
         onRegionDidChange={(e: any) => {
           const b = e?.nativeEvent?.bounds;
@@ -1048,7 +1072,7 @@ export default function MapScreen() {
                 onPress={() => handlePinPress(v)}
                 anchor="center"
               >
-                <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : 1 }] }}>
+                <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : (isSelected ? selectPopAnim : 1) }] }}>
                   {inner}
                 </Animated.View>
               </Marker>
@@ -1081,11 +1105,12 @@ export default function MapScreen() {
               onPress={() => {
                 if (step === null) {
                   lastPinPressAt.current = Date.now();
+                  if (!isSelected) popSelect();
                   setSelectedFuture((p) => p?.id === s.id ? null : s);
                 }
               }}
             >
-              <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : 1 }] }}>
+              <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : (isSelected ? selectPopAnim : 1) }] }}>
                 {inner}
               </Animated.View>
             </Marker>
@@ -1122,17 +1147,18 @@ export default function MapScreen() {
                 onPress={() => {
                   if (step === null) {
                     lastPinPressAt.current = Date.now();
+                    if (!isSelected) popSelect();
                     setSelectedSeedSpot(p => p?.id === s.id ? null : s);
                   }
                 }}
                 anchor="center"
               >
-                <View pointerEvents="none" style={{ overflow: 'visible' }}>
+                <Animated.View pointerEvents="none" style={{ overflow: 'visible', transform: [{ scale: isSelected ? selectPopAnim : 1 }] }}>
                   <View style={[styles.seedPinBadge, { borderColor: pinColor }, isSelected && { backgroundColor: pinColor }]}>
                     <Text style={[styles.seedPinScore, { color: isSelected ? '#fff' : pinColor }]}>{formatRating(s.rating)}</Text>
                   </View>
                   {showLabel && <PinLabel name={s.venue_name} side={labelSide} />}
-                </View>
+                </Animated.View>
               </Marker>
             );
           });

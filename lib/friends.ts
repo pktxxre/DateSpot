@@ -33,6 +33,25 @@ export async function sendFriendRequest(
   friendId: string,
 ): Promise<{ error?: string }> {
   if (!supabase) return { error: 'Not connected' };
+
+  // Auto-accept on mutual intent: if they already have a *pending* request out
+  // to me, following/adding them back accepts it instead of creating a second
+  // request. Both sides become friends instantly, and we avoid the contradictory
+  // "sent you a friend request" + "accepted your friend request" pair.
+  const { data: reverse } = await supabase
+    .from('friends')
+    .select('id, status')
+    .eq('user_id', friendId)
+    .eq('friend_id', myUserId)
+    .maybeSingle();
+  if (reverse?.status === 'pending') {
+    const { error: acceptError } = await supabase.rpc('accept_friend_request', { request_id: reverse.id });
+    if (acceptError) return { error: acceptError.message };
+    // Let them know their pending request just turned into a friendship.
+    await notifyFriendAccepted(friendId, reverse.id);
+    return {};
+  }
+
   const { data, error } = await supabase
     .from('friends')
     .insert({ user_id: myUserId, friend_id: friendId, status: 'pending' })
@@ -88,6 +107,19 @@ export async function declineFriendRequest(
     .delete()
     .eq('id', friendRowId);
   if (error) return { error: error.message };
+  // Delete the request notification outright — a declined request leaves no
+  // trace in the inbox. (Requires the notifications delete RLS policy; the
+  // fetchNotifications filter hides it regardless.)
+  const { data: userData } = await supabase.auth.getUser();
+  const myId = userData.user?.id;
+  if (myId) {
+    await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', myId)
+      .eq('type', 'friend_request')
+      .eq('ref_id', friendRowId);
+  }
   return {};
 }
 
@@ -389,9 +421,13 @@ export async function getUserFutureSpots(userId: string): Promise<PublicFutureSp
 
 export async function getUserFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
   if (!supabase) return { followers: 0, following: 0 };
+  // Count both 'pending' and 'accepted' rows: the UI treats a follow as
+  // immediate (the button flips the instant you tap it), so the counts must
+  // too. Declined requests are deleted, not left as rows, so every row here is
+  // a live follow in one direction.
   const [fr, fo] = await Promise.all([
-    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId).eq('status', 'accepted'),
-    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'accepted'),
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId),
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('user_id', userId),
   ]);
   return { followers: fr.count ?? 0, following: fo.count ?? 0 };
 }

@@ -40,15 +40,28 @@ export async function addReaction(
     .upsert({ visit_id: visitId, user_id: myUserId, emoji }, { onConflict: 'visit_id,user_id' });
   if (error) return { error: error.message };
 
-  // Write notification to visit owner (skip if reacting to own visit)
+  // Write notification to visit owner (skip if reacting to own visit).
+  // Can't use upsert/onConflict: there's no full unique index on these columns
+  // (the dedupe index is partial and excludes 'reaction'), so ON CONFLICT is
+  // rejected (42P10) and the row never inserts. Check-then-insert instead.
   if (visitOwnerId !== myUserId) {
-    const { error: notifError } = await supabase.from('notifications').upsert({
-      user_id: visitOwnerId,
-      actor_id: myUserId,
-      type: 'reaction',
-      ref_id: visitId,
-    }, { onConflict: 'user_id,actor_id,type,ref_id', ignoreDuplicates: true });
-    if (notifError) console.warn('[reactions] notification insert:', notifError.message);
+    const { data: existing } = await supabase
+      .from('notifications')
+      .select('id')
+      .eq('user_id', visitOwnerId)
+      .eq('actor_id', myUserId)
+      .eq('type', 'reaction')
+      .eq('ref_id', visitId)
+      .limit(1);
+    if (!existing || existing.length === 0) {
+      const { error: notifError } = await supabase.from('notifications').insert({
+        user_id: visitOwnerId,
+        actor_id: myUserId,
+        type: 'reaction',
+        ref_id: visitId,
+      });
+      if (notifError) console.warn('[reactions] notification insert:', notifError.message);
+    }
   }
 
   return {};
