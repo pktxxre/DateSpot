@@ -408,7 +408,7 @@ function SignupContent({ email, setEmail, password, setPassword, showPassword, s
           <Text style={c.label}>PASSWORD</Text>
           <View>
             <TextInput style={c.input} value={password} onChangeText={setPassword}
-              placeholder="" placeholderTextColor={c.ph.color as string}
+              placeholder="Create a password" placeholderTextColor={c.ph.color as string}
               secureTextEntry={!showPassword} autoComplete="new-password" />
             <Pressable style={c.eyeBtn} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="rgba(255,255,255,0.5)" />
@@ -715,7 +715,7 @@ const c = StyleSheet.create({
   input: {
     backgroundColor: 'rgba(0,0,0,0.28)',
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
-    fontSize: 16, color: '#fff',
+    fontSize: 16, color: '#fff', fontFamily: 'System',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
   },
   eyeBtn: { position: 'absolute', right: 14, top: 0, bottom: 0, justifyContent: 'center' },

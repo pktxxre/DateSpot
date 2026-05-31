@@ -12,7 +12,7 @@ import {
 } from '@/lib/future';
 import { friendlyDate, ACTIVITY_TYPES, OCCASION_TYPES } from '@/lib/visits';
 import { T } from '@/lib/theme';
-import { scheduleOpenLogWithLocation, cleanAddress } from '@/app/(tabs)/map';
+import { scheduleOpenLogWithLocation, scheduleSelectFutureSpot, cleanAddress } from '@/app/(tabs)/map';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
 const FUTURE_BLUE = '#5856d6';
@@ -175,6 +175,16 @@ export default function FutureSpotDetailScreen() {
             <Ionicons name="bookmark" size={14} color="#fff" />
           </View>
         </View>
+        <Pressable
+          style={styles.openInMapBtn}
+          onPress={() => {
+            scheduleSelectFutureSpot(spot.id);
+            router.dismissTo('/(tabs)/map');
+          }}
+        >
+          <Ionicons name="map-outline" size={12} color={T.muted} />
+          <Text style={styles.openInMapText}>View Map</Text>
+        </Pressable>
       </View>
 
       <View style={styles.beliCardContent}>
@@ -410,6 +420,25 @@ const styles = StyleSheet.create({
   mapSolidOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  openInMapBtn: {
+    position: 'absolute',
+    bottom: 32,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  openInMapText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: T.muted,
   },
   mapPinOverlay: {
     ...StyleSheet.absoluteFillObject,

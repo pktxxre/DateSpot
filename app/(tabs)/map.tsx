@@ -36,11 +36,13 @@ let _openFutureCallback: (() => void) | null = null;
 let _openLogWithLocationCallback: ((name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) => void) | null = null;
 let _selectVisitCallback: ((visitId: string) => void) | null = null;
 let _selectSeedSpotCallback: ((spotId: string) => void) | null = null;
+let _selectFutureCallback: ((spotId: string) => void) | null = null;
 let _pendingOpenLog = false;
 let _pendingOpenFuture = false;
 let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number; activityType?: string | null; occasionType?: string | null } | null = null;
 let _pendingSelectVisit: string | null = null;
 let _pendingSelectSeedSpot: string | null = null;
+let _pendingSelectFuture: string | null = null;
 let _skipNextResumePrompt = false;
 
 export function scheduleOpenLog() {
@@ -62,6 +64,10 @@ export function scheduleSelectVisit(visitId: string) {
 export function scheduleSelectSeedSpot(spotId: string) {
   if (_selectSeedSpotCallback) { _selectSeedSpotCallback(spotId); }
   else { _pendingSelectSeedSpot = spotId; }
+}
+export function scheduleSelectFutureSpot(spotId: string) {
+  if (_selectFutureCallback) { _selectFutureCallback(spotId); }
+  else { _pendingSelectFuture = spotId; }
 }
 import * as Crypto from 'expo-crypto';
 import {
@@ -413,12 +419,25 @@ export default function MapScreen() {
         }, 300);
       });
     };
+    _selectFutureCallback = (spotId: string) => {
+      _skipNextResumePrompt = true;
+      const freshFuture = getAllFutureSpots();
+      const spot = freshFuture.find(s => s.id === spotId);
+      if (!spot) return;
+      setFutureSpots(freshFuture);
+      setMapFilter('want');
+      setSelectedFuture(spot);
+      setTimeout(() => {
+        flyToRegion(cameraRef,{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+      }, 300);
+    };
     return () => {
       _openLogCallback = null;
       _openFutureCallback = null;
       _openLogWithLocationCallback = null;
       _selectVisitCallback = null;
       _selectSeedSpotCallback = null;
+      _selectFutureCallback = null;
     };
   }, []);
 
@@ -427,7 +446,7 @@ export default function MapScreen() {
       const fromDetail = _mapNavigatedToDetail;
       _mapNavigatedToDetail = false;
       // Only reset the filter when entering from another tab, not returning from a card or using View Map
-      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot) setMapFilter('been');
+      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot && !_pendingSelectFuture) setMapFilter('been');
       const freshVisits = getAllVisits();
       setVisits(freshVisits);
       const freshFuture = getAllFutureSpots();
@@ -500,6 +519,20 @@ export default function MapScreen() {
             flyToRegion(cameraRef,{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
           }, 400);
         });
+        return;
+      }
+      if (_pendingSelectFuture) {
+        const spotId = _pendingSelectFuture;
+        _pendingSelectFuture = null;
+        _skipNextResumePrompt = true;
+        const spot = freshFuture.find(s => s.id === spotId);
+        if (spot) {
+          setMapFilter('want');
+          setSelectedFuture(spot);
+          setTimeout(() => {
+            flyToRegion(cameraRef,{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+          }, 400);
+        }
         return;
       }
       if (_skipNextResumePrompt) {
@@ -1549,7 +1582,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
         pointerEvents="none"
       >
         <Ionicons name="bookmark" size={13} color="#5856d6" />
-        <Text style={styles.savedToastText}>Saved!</Text>
+        <Text style={styles.savedToastText}>Saved</Text>
       </Animated.View>
       <Pressable style={styles.visitBanner} onPress={() => { _mapNavigatedToDetail = true; router.push(`/spot/${spot.id}` as any); }}>
         <View style={styles.visitBannerInner}>
