@@ -80,11 +80,13 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
   onLongPress: () => void;
 }) {
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
-  const priceLabel = visit.price > 0 ? PRICE_LABELS[visit.price as Price] : null;
+  const priceLabel = visit.price != null && visit.price > 0 ? PRICE_LABELS[visit.price as Price] : null;
   const occasionInfo = OCCASION_TYPES.find(a => a.value === visit.occasion_type);
+  const occasionDisplay = visit.occasion_type === 'other' && visit.occasion_label
+    ? `Other (${visit.occasion_label})` : occasionInfo?.label;
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const color = ratingColor(visit.rating);
-  const metaLine = [priceLabel, info?.label, occasionInfo?.label].filter(Boolean).join(' · ');
+  const metaLine = [priceLabel, info?.label, occasionDisplay].filter(Boolean).join(' · ');
 
   return (
     <Pressable
@@ -531,15 +533,23 @@ export default function ListsScreen() {
   const flatListRef = useRef<FlatList>(null);
   const indicatorX = useRef(new Animated.Value(0)).current;
   const tabLayouts = useRef<Record<string, { x: number; width: number }>>({});
+  const textWidths = useRef<Record<string, number>>({});
   const { selectionMode, selectedIds, enter, exit, toggle, canStack } = useSelectionMode();
+
+  function getTextIndicator(key: string): { x: number; width: number } | null {
+    const tabLayout = tabLayouts.current[key];
+    const textW = textWidths.current[key];
+    if (!tabLayout || !textW) return null;
+    return { x: tabLayout.x + (tabLayout.width - textW) / 2, width: textW };
+  }
 
   useLayoutEffect(() => {
     const target = getTabFromParam(tabParam);
     setActiveTab(target);
-    const layout = tabLayouts.current[target];
-    if (layout) {
-      indicatorX.setValue(layout.x);
-      setIndicatorWidth(layout.width);
+    const ind = getTextIndicator(target);
+    if (ind) {
+      indicatorX.setValue(ind.x);
+      setIndicatorWidth(ind.width);
     }
   }, [tabParam]);
 
@@ -547,10 +557,10 @@ export default function ListsScreen() {
     useCallback(() => {
       const target = getTabFromParam(tabParam);
       setActiveTab(target);
-      const layout = tabLayouts.current[target];
-      if (layout) {
-        indicatorX.setValue(layout.x);
-        setIndicatorWidth(layout.width);
+      const ind = getTextIndicator(target);
+      if (ind) {
+        indicatorX.setValue(ind.x);
+        setIndicatorWidth(ind.width);
       }
       if (target === 'been') flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
       setVisits(getAllVisits().filter(v => !(v as any).is_seed));
@@ -597,10 +607,10 @@ export default function ListsScreen() {
     if (tab === activeTab) return;
     setActiveTab(tab);
     if (selectionMode) exit();
-    const layout = tabLayouts.current[tab];
-    if (layout) {
-      setIndicatorWidth(layout.width);
-      Animated.spring(indicatorX, { toValue: layout.x, useNativeDriver: true, damping: 22, stiffness: 280 }).start();
+    const ind = getTextIndicator(tab);
+    if (ind) {
+      setIndicatorWidth(ind.width);
+      Animated.spring(indicatorX, { toValue: ind.x, useNativeDriver: true, damping: 22, stiffness: 280 }).start();
     }
   }
 
@@ -639,17 +649,29 @@ export default function ListsScreen() {
               onLayout={e => {
                 const { x, width } = e.nativeEvent.layout;
                 tabLayouts.current[tab.key] = { x, width };
-                if (tab.key === activeTab) {
-                  indicatorX.setValue(x);
-                  setIndicatorWidth(width);
+                const textW = textWidths.current[tab.key];
+                if (tab.key === activeTab && textW) {
+                  const indX = x + (width - textW) / 2;
+                  indicatorX.setValue(indX);
+                  setIndicatorWidth(textW);
                 }
               }}
             >
-              <View>
-                {/* invisible bold copy holds width so active bold never shifts siblings */}
-                <Text style={[s.tabLabel, s.tabLabelActive, { opacity: 0 }]}>{tab.label}</Text>
-                <Text style={[s.tabLabel, activeTab === tab.key && s.tabLabelActive, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, textAlign: 'center' }]}>{tab.label}</Text>
-              </View>
+              <Text
+                style={[s.tabLabel, activeTab === tab.key && s.tabLabelActive]}
+                onLayout={e => {
+                  const textW = e.nativeEvent.layout.width;
+                  textWidths.current[tab.key] = textW;
+                  const tabLayout = tabLayouts.current[tab.key];
+                  if (tab.key === activeTab && tabLayout) {
+                    const indX = tabLayout.x + (tabLayout.width - textW) / 2;
+                    indicatorX.setValue(indX);
+                    setIndicatorWidth(textW);
+                  }
+                }}
+              >
+                {tab.label}
+              </Text>
             </Pressable>
           ))}
           {indicatorWidth > 0 && (
@@ -738,10 +760,12 @@ export default function ListsScreen() {
                 <Ionicons name="checkmark" size={20} color="#fff" />
               </View>
               <Text style={s.emptyTitle}>No spots logged yet</Text>
-              <View style={s.emptyHintRow}>
-                <Text style={s.emptyHint}>Tap </Text>
-                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
-                <Text style={s.emptyHint}> to log your first date spot</Text>
+              <View style={s.emptyHintContainer}>
+                <View style={s.emptyHintRow}>
+                  <Text style={s.emptyHint}>Tap </Text>
+                  <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                  <Text style={s.emptyHint}> to log your first date spot</Text>
+                </View>
               </View>
             </View>
           ) : filteredVisits.length === 0 ? (
@@ -781,7 +805,9 @@ export default function ListsScreen() {
                 <Ionicons name="bookmark" size={20} color="#fff" />
               </View>
               <Text style={s.emptyTitle}>No saved spots yet</Text>
-              <Text style={s.emptyHint}>Save spots from the map or Discover tab</Text>
+              <View style={s.emptyHintContainer}>
+                <Text style={s.emptyHint}>Save spots from the map or Discover tab</Text>
+              </View>
             </View>
           ) : filteredFuture.length === 0 ? (
             <View style={s.empty}>
@@ -811,10 +837,13 @@ export default function ListsScreen() {
                 <Ionicons name="layers" size={20} color="#fff" />
               </View>
               <Text style={s.emptyTitle}>No stacks yet</Text>
-              <View style={s.emptyHintRow}>
-                <Text style={s.emptyHint}>Tap </Text>
-                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
-                <Text style={s.emptyHint}> and choose "Create a Stack" to group a date night</Text>
+              <View style={s.emptyHintContainer}>
+                <View style={s.emptyHintRow}>
+                  <Text style={s.emptyHint}>Tap </Text>
+                  <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
+                  <Text style={s.emptyHint}> and select "Create a Stack"</Text>
+                </View>
+                <Text style={[s.emptyHint, { marginTop: 2 }]}>to group a date night</Text>
               </View>
             </View>
           ) : (
@@ -920,13 +949,13 @@ const s = StyleSheet.create({
     borderBottomColor: T.border,
   },
   tab: {
-    marginRight: 24,
-    paddingBottom: 10,
-    position: 'relative',
+    flex: 1,
     alignItems: 'center',
+    paddingBottom: 10,
+    paddingTop: 12,
   },
-  tabLabel: { fontSize: 15, fontWeight: '500', color: T.muted },
-  tabLabelActive: { color: T.primary, fontWeight: '700' },
+  tabLabel: { fontSize: 15, fontWeight: '700', color: T.muted },
+  tabLabelActive: { color: T.primary },
   tabUnderline: {
     position: 'absolute',
     bottom: 0,
@@ -1031,15 +1060,15 @@ const s = StyleSheet.create({
   },
   scoreText: { fontSize: 12, fontWeight: '800' },
   bookmarkPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 9,
     paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#5856d618',
-    backgroundColor: '#5856d608',
+    backgroundColor: 'transparent',
+    minWidth: 42,
+    alignItems: 'center',
     flexShrink: 0,
+    borderColor: FUTURE_BLUE + '50',
   },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 12 },
@@ -1054,7 +1083,8 @@ const s = StyleSheet.create({
     fontFamily: 'Fraunces-Regular', textAlign: 'center',
   },
   emptyHint: { fontSize: 14, color: T.muted, textAlign: 'center' },
-  emptyHintRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'center' },
+  emptyHintContainer: { height: 48, alignItems: 'center', justifyContent: 'center' },
+  emptyHintRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' },
   plusCircle: {
     width: 20, height: 20, borderRadius: 10,
     backgroundColor: '#E76F51', borderWidth: 2, borderColor: '#fff',

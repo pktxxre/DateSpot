@@ -1,9 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image, LayoutAnimation,
-  Modal, KeyboardAvoidingView, Platform, Animated, ActivityIndicator,
+  Modal, KeyboardAvoidingView, Platform, Animated, ActivityIndicator, Easing,
 } from 'react-native';
-import MapView, { Marker, Region, MapPressEvent } from 'react-native-maps';
+import {
+  Map as MapLibreMap,
+  Camera,
+  Marker,
+  type CameraRef,
+  type MapRef,
+} from '@maplibre/maplibre-react-native';
+import { MAP_STYLE_URL, latitudeDeltaToZoom, boundsToRegion, geocodeSearchUrl, reverseGeocodeUrl } from '@/lib/mapStyle';
+
+// Region kept as a local type alias so the rest of the file (zoom tiers, label
+// thresholds, search viewbox) can continue to think in latitudeDelta. We populate
+// it from MapLibre's visibleBounds in onRegionDidChange.
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+type MapPressEvent = { nativeEvent: { lngLat: [number, number] } };
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,7 +52,8 @@ export function scheduleOpenFutureDate() {
   else { _pendingOpenFuture = true; }
 }
 export function scheduleOpenLogWithLocation(name: string, lat: number, lng: number, activityType?: string | null, occasionType?: string | null) {
-  _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType };
+  if (_openLogWithLocationCallback) { _openLogWithLocationCallback(name, lat, lng, activityType, occasionType); }
+  else { _pendingOpenLogWithLocation = { name, lat, lng, activityType, occasionType }; }
 }
 export function scheduleSelectVisit(visitId: string) {
   if (_selectVisitCallback) { _selectVisitCallback(visitId); }
@@ -58,30 +78,24 @@ import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } fro
 import { getProfile, saveProfile } from '@/lib/profile';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
-import { SlidingPills } from '@/components/SlidingPills';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { scheduleNewStack } from '@/lib/stackCreation';
 
-interface NominatimAddress {
-  house_number?: string;
-  road?: string;
-  city?: string;
-  town?: string;
-  village?: string;
-  county?: string;
-  state?: string;
-  postcode?: string;
+// Raw feature from the MapTiler Geocoding API (GeoJSON FeatureCollection).
+interface GeocodeFeature {
+  id: string;
+  text?: string;        // primary label (POI name, street, or place name)
+  place_name?: string;  // full "Name, 123 St, City, State ZIP, Country"
+  center?: [number, number]; // [lng, lat]
 }
 
-interface NominatimResult {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
+// Normalized result the search UI consumes.
+interface SearchResult {
+  id: string;
   name: string;
-  type: string;
-  category: string;
-  address?: NominatimAddress;
+  address: string;
+  lat: number;
+  lng: number;
 }
 
 const STREET_ABBREV: [RegExp, string][] = [
@@ -114,14 +128,23 @@ const STATE_ABBREV: Record<string, string> = {
   'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
 };
 
-function buildAddressString(a?: NominatimAddress): string {
-  if (!a) return '';
-  const street = [a.house_number, a.road].filter(Boolean).join(' ');
-  const city = a.city || a.town || a.village || '';
-  const state = STATE_ABBREV[a.state ?? ''] ?? a.state ?? '';
-  const region = [city, state].filter(Boolean).join(', ');
-  const line2 = a.postcode ? `${region} ${a.postcode}` : region;
-  return [street, line2].filter(Boolean).join('\n');
+// MapTiler place_name is "Name, 123 Main St, City, State ZIP, Country". Reshape it
+// so cleanAddress() (written for Nominatim) can parse it: drop the country and
+// split a trailing "State ZIP" into separate comma parts.
+function normalizePlaceName(placeName: string): string {
+  const parts = placeName.split(',').map(p => p.trim()).filter(Boolean);
+  if (parts.length && /^(United States|USA|US)$/i.test(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  return parts
+    .map(p => p.replace(/^(.+?)\s+(\d{5})(-\d{4})?$/, '$1, $2'))
+    .join(', ');
+}
+
+// Clean address string from a MapTiler feature, or the primary label as fallback.
+function featureAddress(feat: GeocodeFeature): string {
+  const cleaned = feat.place_name ? cleanAddress(normalizePlaceName(feat.place_name)) : '';
+  return cleaned || feat.text || '';
 }
 
 const STATE_CODES = new Set(Object.values(STATE_ABBREV));
@@ -181,8 +204,11 @@ export function cleanAddress(addr: string): string {
 }
 
 
+// Set to true before pushing to a detail screen so useFocusEffect skips the filter reset
+let _mapNavigatedToDetail = false;
+
 const LABEL_NEIGHBOR_THRESHOLD = 0.008; // ~800m in degrees
-const LABEL_ZOOM_THRESHOLD = 0.04; // show pin labels when latitudeDelta is below this
+const LABEL_ZOOM_THRESHOLD = 0.012; // show pin labels when latitudeDelta is below this
 
 const SEATTLE_REGION: Region = {
   latitude: 47.6062,
@@ -225,24 +251,79 @@ interface DraftVisit {
   notes: string;
   activity_type: ActivityType;
   occasion_type: OccasionType;
+  occasion_label: string;
   price: Price;
   photos: string[];
   isPinOnly: boolean;
   address: string;
 }
 
+function flyToRegion(
+  ref: { current: CameraRef | null },
+  r: Region,
+  duration: number = 0,
+) {
+  if (!ref.current) return;
+  const opts = {
+    center: [r.longitude, r.latitude] as [number, number],
+    zoom: latitudeDeltaToZoom(r.latitudeDelta),
+  };
+  if (duration === 0) ref.current.jumpTo(opts);
+  else ref.current.easeTo({ ...opts, duration });
+}
+
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { 'User-Agent': 'DateSpotApp/1.0' } }
-    );
+    const res = await fetch(reverseGeocodeUrl(lng, lat));
     const data = await res.json();
-    const formatted = buildAddressString(data.address);
-    return formatted || data.name || null;
+    const feat: GeocodeFeature | undefined = data.features?.[0];
+    if (!feat) return null;
+    return featureAddress(feat) || null;
   } catch {
     return null;
   }
+}
+
+// Assign each pin's name label to the left or right of its badge to reduce
+// overlap. Labels collide when pins sit at a similar latitude (same vertical
+// band) on the same side, so we walk pins top-to-bottom and flip the side
+// whenever a pin is vertically close to the previously placed one. Isolated
+// pins default to the right.
+function assignLabelSides(
+  items: { id: string; lat: number; lng: number }[],
+): Map<string, 'left' | 'right'> {
+  const sorted = [...items].sort((a, b) => b.lat - a.lat || a.lng - b.lng);
+  const sides = new Map<string, 'left' | 'right'>();
+  let prevLat: number | null = null;
+  let prevSide: 'left' | 'right' = 'right';
+  for (const it of sorted) {
+    let side: 'left' | 'right' = 'right';
+    if (prevLat !== null && Math.abs(it.lat - prevLat) < LABEL_NEIGHBOR_THRESHOLD) {
+      side = prevSide === 'right' ? 'left' : 'right';
+    }
+    sides.set(it.id, side);
+    prevLat = it.lat;
+    prevSide = side;
+  }
+  return sides;
+}
+
+// Pin name label: caps at 2 lines, wraps on whole words (RN never splits a word
+// unless it alone exceeds the line), ellipsizes the overflow, and stays
+// vertically centered on the badge.
+function PinLabel({ name, side, bold }: { name: string; side: 'left' | 'right'; bold?: boolean }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.pinLabelWrap, side === 'right' ? styles.pinLabelWrapRight : styles.pinLabelWrapLeft]}
+    >
+      <Text
+        numberOfLines={2}
+        ellipsizeMode="tail"
+        style={[styles.pinLabel, { textAlign: side === 'right' ? 'left' : 'right' }, bold && { fontWeight: '900' }]}
+      >{name}</Text>
+    </View>
+  );
 }
 
 export default function MapScreen() {
@@ -265,16 +346,26 @@ export default function MapScreen() {
   const [geocodeSuggestion, setGeocodeSuggestion] = useState<string | null>(null);
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const sheetRef = useRef<BottomSheet>(null);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<MapRef>(null);
+  const cameraRef = useRef<CameraRef>(null);
   const toModalRef = useRef(false);
   const lastPinPressAt = useRef(0);
   const lastSavedLatLng = useRef<{ lat: number; lng: number } | null>(null);
   const [animatingVisitId, setAnimatingVisitId] = useState<string | null>(null);
-  const [trackedVisitId, setTrackedVisitId] = useState<string | null>(null);
+  const [animatingFutureId, setAnimatingFutureId] = useState<string | null>(null);
+  // Scale of the freshly-saved pin. Starts at 0 (invisible), springs to 1.18 then settles at 1.
+  // Applied directly to the Marker's child view so the animation happens AT the pin's true
+  // lat/lng — no overlay coordinate math, no drift. Shared between been-to and want-to-go
+  // since only one save flow is active at a time.
   const sproutAnim = useRef(new Animated.Value(1)).current;
   const stepAnim = useRef(new Animated.Value(0)).current;
-  const sproutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sproutInnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const selectedVisitRef = useRef<Visit | null>(null);
+  const selectedFutureRef = useRef<FutureSpot | null>(null);
+  const mapFilterTabLayouts = useRef<Record<string, { x: number; width: number }>>({});
+  const mapFilterTextWidths = useRef<Record<string, number>>({});
+  const mapFilterIndicatorX = useRef(new Animated.Value(0)).current;
+  const [mapFilterIndicatorWidth, setMapFilterIndicatorWidth] = useState(0);
 
   useEffect(() => {
     _openLogCallback = () => {
@@ -292,6 +383,10 @@ export default function MapScreen() {
       _skipNextResumePrompt = true;
       setSelectedVisit(null);
       setDraft({ venue_name: name, lat, lng, ...(activityType ? { activity_type: activityType as ActivityType } : {}), ...(occasionType ? { occasion_type: occasionType as OccasionType } : {}) });
+      reverseGeocode(lat, lng).then(addr => {
+        if (addr) setDraft(d => ({ ...d, address: d.address || addr }));
+      });
+      zoomToSpot(lat, lng);
       toModalRef.current = true;
       setStep('details');
     };
@@ -302,7 +397,7 @@ export default function MapScreen() {
       setMapFilter('been');
       setSelectedVisit(visit);
       setTimeout(() => {
-        mapRef.current?.animateToRegion({ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+        flyToRegion(cameraRef,{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
       }, 300);
     };
     _selectSeedSpotCallback = (spotId: string) => {
@@ -314,7 +409,7 @@ export default function MapScreen() {
         setMapFilter('spots');
         setSelectedSeedSpot(spot);
         setTimeout(() => {
-          mapRef.current?.animateToRegion({ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+          flyToRegion(cameraRef,{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
         }, 300);
       });
     };
@@ -329,10 +424,24 @@ export default function MapScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setMapFilter('been');
-      setVisits(getAllVisits());
-      setFutureSpots(getAllFutureSpots());
+      const fromDetail = _mapNavigatedToDetail;
+      _mapNavigatedToDetail = false;
+      // Only reset the filter when entering from another tab, not returning from a card or using View Map
+      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot) setMapFilter('been');
+      const freshVisits = getAllVisits();
+      setVisits(freshVisits);
+      const freshFuture = getAllFutureSpots();
+      setFutureSpots(freshFuture);
       getSeedSpotsRaw().then(setSeedSpots);
+      // Clear the bottom panel if the selected visit/future spot was deleted while away.
+      const cur = selectedVisitRef.current;
+      if (cur && !freshVisits.find(v => v.id === cur.id)) {
+        setSelectedVisit(null);
+      }
+      const curFuture = selectedFutureRef.current;
+      if (curFuture && !freshFuture.find(s => s.id === curFuture.id)) {
+        setSelectedFuture(null);
+      }
       if (_pendingOpenLog) {
         _pendingOpenLog = false;
         setSelectedVisit(null);
@@ -352,6 +461,10 @@ export default function MapScreen() {
         _skipNextResumePrompt = true;
         setSelectedVisit(null);
         setDraft({ venue_name: name, lat, lng, ...(activityType ? { activity_type: activityType as ActivityType } : {}), ...(occasionType ? { occasion_type: occasionType as OccasionType } : {}) });
+        reverseGeocode(lat, lng).then(addr => {
+          if (addr) setDraft(d => ({ ...d, address: d.address || addr }));
+        });
+        zoomToSpot(lat, lng, 200);
         toModalRef.current = true;
         setStep('details');
         sheetRef.current?.close();
@@ -368,7 +481,7 @@ export default function MapScreen() {
           setMapFilter('been');
           setSelectedVisit(visit);
           setTimeout(() => {
-            mapRef.current?.animateToRegion({ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+            flyToRegion(cameraRef,{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
           }, 400);
         }
         return;
@@ -384,7 +497,7 @@ export default function MapScreen() {
           setMapFilter('spots');
           setSelectedSeedSpot(spot);
           setTimeout(() => {
-            mapRef.current?.animateToRegion({ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
+            flyToRegion(cameraRef,{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }, 400);
           }, 400);
         });
         return;
@@ -409,6 +522,7 @@ export default function MapScreen() {
                     visited_at: saved.visited_at,
                     notes: saved.notes,
                   });
+                  if (saved.lat && saved.lng) zoomToSpot(saved.lat, saved.lng, 200);
                   const resumeStep: Step = saved.step === 'compare' || saved.step === 'triage'
                     ? 'details'
                     : saved.step as Step;
@@ -420,15 +534,41 @@ export default function MapScreen() {
           );
         }
       });
+
+      return () => {
+        // When leaving to another tab (not pushing a card), instantly reset the map
+        // position so it's already at the city view when the user returns.
+        if (!_mapNavigatedToDetail && cityRegionRef.current) {
+          flyToRegion(cameraRef,cityRegionRef.current, 0);
+        }
+      };
     }, [])
   );
+
+  useEffect(() => {
+    selectedVisitRef.current = selectedVisit;
+  }, [selectedVisit]);
+
+  useEffect(() => {
+    selectedFutureRef.current = selectedFuture;
+  }, [selectedFuture]);
 
   useEffect(() => {
     if (step === null || step === 'mode-select' || step === 'location' || step === 'future-pin' || step === 'future-name' || step === 'future-details') return;
     saveDraft({ ...draft, step, savedAt: new Date().toISOString() });
   }, [step, draft]);
 
+  useEffect(() => {
+    const tabLayout = mapFilterTabLayouts.current[mapFilter];
+    const textW = mapFilterTextWidths.current[mapFilter];
+    if (!tabLayout || !textW) return;
+    const indX = tabLayout.x + (tabLayout.width - textW) / 2;
+    setMapFilterIndicatorWidth(textW);
+    Animated.spring(mapFilterIndicatorX, { toValue: indX, useNativeDriver: true, damping: 22, stiffness: 280 }).start();
+  }, [mapFilter]);
+
   const [cityRegion, setCityRegion] = useState<Region | null>(null);
+  const cityRegionRef = useRef<Region | null>(null);
   useEffect(() => {
     getProfile().then(async profile => {
       let r: Region | undefined;
@@ -449,13 +589,13 @@ export default function MapScreen() {
           }
         } catch {}
       }
-      if (r) { setRegion(r); setCityRegion(r); }
+      if (r) { setRegion(r); setCityRegion(r); cityRegionRef.current = r; }
     });
   }, []);
 
   // Animate to city region whenever it resolves (handles race with onMapReady)
   useEffect(() => {
-    if (cityRegion) mapRef.current?.animateToRegion(cityRegion, 0);
+    if (cityRegion) flyToRegion(cameraRef,cityRegion, 0);
   }, [cityRegion]);
 
   function openLog() {
@@ -473,17 +613,11 @@ export default function MapScreen() {
     setGeocodeSuggestion(null);
     setGeocodeLoading(false);
     clearDraft();
-    // Cancel any in-flight sprout animation so tracksViewChanges doesn't stay true
-    if (sproutTimerRef.current) { clearTimeout(sproutTimerRef.current); sproutTimerRef.current = null; }
-    if (sproutInnerTimerRef.current) { clearTimeout(sproutInnerTimerRef.current); sproutInnerTimerRef.current = null; }
-    sproutAnim.stopAnimation();
-    setAnimatingVisitId(null);
-    setTrackedVisitId(null);
     const saved = lastSavedLatLng.current;
     if (saved) {
       lastSavedLatLng.current = null;
       setTimeout(() => {
-        mapRef.current?.animateToRegion(
+        flyToRegion(cameraRef,
           { latitude: saved.lat, longitude: saved.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
           500
         );
@@ -515,8 +649,9 @@ export default function MapScreen() {
   function saveFutureSpot() {
     if (!draft.lat || !draft.lng || !draft.venue_name?.trim()) return;
     const { lat, lng } = draft;
+    const newId = Crypto.randomUUID();
     insertFutureSpot({
-      id: Crypto.randomUUID(),
+      id: newId,
       venue_name: draft.venue_name.trim(),
       lat,
       lng,
@@ -531,12 +666,23 @@ export default function MapScreen() {
     setStep(null);
     setDraft({});
     sheetRef.current?.close();
+    // Mirror the been-to flow: hide the new pin (scale 0), zoom the map to it, then spring
+    // it in. The spring runs in parallel with the sheet/modal dismissal so the pin grows
+    // into existence as the chrome clears — no empty-map gap.
+    sproutAnim.setValue(0);
+    setAnimatingFutureId(newId);
     setTimeout(() => {
-      mapRef.current?.animateToRegion(
+      flyToRegion(cameraRef,
         { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
         500
       );
     }, 150);
+    Animated.sequence([
+      Animated.spring(sproutAnim, { toValue: 1.18, useNativeDriver: false, tension: 220, friction: 7 }),
+      Animated.spring(sproutAnim, { toValue: 1.0, useNativeDriver: false, tension: 140, friction: 9 }),
+    ]).start(() => {
+      requestAnimationFrame(() => setAnimatingFutureId(null));
+    });
   }
 
   async function handleUseLocation() {
@@ -545,10 +691,12 @@ export default function MapScreen() {
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     const { latitude, longitude } = loc.coords;
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
+    zoomToSpot(latitude, longitude);
     setGeocodeSuggestion(null);
     setGeocodeLoading(true);
     reverseGeocode(latitude, longitude).then(name => {
       setGeocodeSuggestion(name);
+      if (name) setDraft(d => ({ ...d, address: d.address || name }));
       setGeocodeLoading(false);
     });
     toModalRef.current = true;
@@ -556,12 +704,16 @@ export default function MapScreen() {
     sheetRef.current?.close();
   }
 
+  function zoomToSpot(lat: number, lng: number, delay = 0) {
+    const go = () => flyToRegion(cameraRef,
+      { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 }, 400
+    );
+    delay > 0 ? setTimeout(go, delay) : go();
+  }
+
   function handleSearchSelect(name: string, lat: number, lng: number, address?: string) {
     setDraft(d => ({ ...d, venue_name: name, lat, lng, address: address ?? '' }));
-    mapRef.current?.animateToRegion(
-      { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-      500
-    );
+    zoomToSpot(lat, lng);
     toModalRef.current = true;
     setStep('details');
     sheetRef.current?.close();
@@ -569,12 +721,9 @@ export default function MapScreen() {
 
   function handleFutureSearchSelect(name: string, lat: number, lng: number, address?: string) {
     setDraft(d => ({ ...d, venue_name: name, lat, lng, address: address ?? '' }));
-    mapRef.current?.animateToRegion(
-      { latitude: lat, longitude: lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-      500
-    );
+    zoomToSpot(lat, lng);
     toModalRef.current = true;
-    setStep('future-details');
+    triggerStepTransition('future-details');
     sheetRef.current?.close();
   }
 
@@ -588,20 +737,23 @@ export default function MapScreen() {
     if (!droppingPin) {
       setSelectedVisit(null);
       setSelectedFuture(null);
+      setSelectedSeedSpot(null);
       return;
     }
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+    const [longitude, latitude] = e.nativeEvent.lngLat;
     setDraft((d) => ({ ...d, lat: latitude, lng: longitude }));
+    zoomToSpot(latitude, longitude);
     setDroppingPin(false);
     setGeocodeSuggestion(null);
     setGeocodeLoading(true);
     reverseGeocode(latitude, longitude).then(name => {
       setGeocodeSuggestion(name);
+      if (name) setDraft(d => ({ ...d, address: d.address || name }));
       setGeocodeLoading(false);
     });
     if (step === 'future-pin' || mapFilter === 'want') {
       toModalRef.current = true;
-      setStep('future-details');
+      triggerStepTransition('future-details');
       sheetRef.current?.close();
     } else {
       setDraft((d) => ({ ...d, isPinOnly: true }));
@@ -616,14 +768,9 @@ export default function MapScreen() {
       Alert.alert('Name required', 'What was this place called?');
       return;
     }
-    if (!draft.activity_type) {
-      Alert.alert('Type required', 'What kind of spot was this?');
-      return;
-    }
-    if (!draft.occasion_type) {
-      Alert.alert('What kind of date?', 'Was this Romantic, Friend, or Solo?');
-      return;
-    }
+    if (!draft.activity_type) return;
+    if (!draft.occasion_type) return;
+    if (draft.occasion_type === 'other' && !draft.occasion_label?.trim()) return;
     if (draft.visited_at) {
       const iso = draft.visited_at.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (iso) {
@@ -681,14 +828,20 @@ export default function MapScreen() {
       notes: draft.notes || undefined,
       activity_type: draft.activity_type || 'other',
       occasion_type: draft.occasion_type || 'romantic',
-      price: draft.price ?? 2,
+      occasion_label: draft.occasion_label || undefined,
+      price: draft.price ?? null,
       triage,
       photos: draft.photos || [],
     }, undefined, draft.isPinOnly === true);
     setVisits(getAllVisits());
+    // Zoom to the spot NOW, while the modal is still showing, so the map is already
+    // centered by the time the user taps "Done" and the animation fires.
+    zoomToSpot(draft.lat, draft.lng);
     lastSavedLatLng.current = { lat: draft.lat, lng: draft.lng };
     setMapFilter('been');
-    // Mark the new pin for animation (batches with setVisits so first render has tracksViewChanges=true)
+    setMapCategoryFilters([]);
+    setMapPriceFilters([]);
+    // Hide the new pin until its grow-in animation fires after the modal fades.
     sproutAnim.setValue(0);
     setAnimatingVisitId(newId);
     triggerStepTransition('done');
@@ -700,30 +853,35 @@ export default function MapScreen() {
 
   function handleDoneClose() {
     const pendingId = animatingVisitId;
-    resetFlow(); // clears animatingVisitId/trackedVisitId and cancels any prior timers
-    if (!pendingId) return;
-    // Re-arm for the new animation (resetFlow cleared the state above)
+    const savedLatLng = lastSavedLatLng.current;
+    lastSavedLatLng.current = null;
+    resetFlow();
+    if (!pendingId) {
+      // No visit logged — just ensure the map shows the right location if we have it.
+      if (savedLatLng) {
+        setTimeout(() => {
+          flyToRegion(cameraRef,
+            { latitude: savedLatLng.lat, longitude: savedLatLng.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+            500
+          );
+        }, 150);
+      }
+      return;
+    }
+    // Map was zoomed to the spot inside saveVisitWithTriage. Kick off the marker's scale
+    // animation IMMEDIATELY — it runs in parallel with the modal fade-out (~300ms), so the
+    // pin is already mid-grow by the time the modal becomes transparent. No empty-map gap.
+    // useNativeDriver:false + tracksViewChanges:true (on the marker) lets the native marker
+    // re-snapshot each frame so the JS-driven scale renders correctly.
     sproutAnim.setValue(0);
-    setAnimatingVisitId(pendingId);
-    // Wait for modal fade-out (~300ms) then play the sprout animation.
-    // useNativeDriver:false keeps the animation on the JS thread so react-native-maps
-    // can snapshot the correct scale value when tracksViewChanges goes false.
-    sproutTimerRef.current = setTimeout(() => {
-      sproutTimerRef.current = null;
-      Animated.sequence([
-        Animated.spring(sproutAnim, { toValue: 1.1, useNativeDriver: false, tension: 110, friction: 5 }),
-        Animated.spring(sproutAnim, { toValue: 1.0, useNativeDriver: false, tension: 65, friction: 8 }),
-      ]).start(() => {
-        // Phase 1: swap Animated.View → plain View while tracksViewChanges stays true
-        setAnimatingVisitId(null);
-        setTrackedVisitId(pendingId);
-        // Phase 2: give native 250ms to commit the static view before freezing
-        sproutInnerTimerRef.current = setTimeout(() => {
-          sproutInnerTimerRef.current = null;
-          setTrackedVisitId(null);
-        }, 250);
-      });
-    }, 320);
+    Animated.sequence([
+      Animated.spring(sproutAnim, { toValue: 1.18, useNativeDriver: false, tension: 220, friction: 7 }),
+      Animated.spring(sproutAnim, { toValue: 1.0, useNativeDriver: false, tension: 140, friction: 9 }),
+    ]).start(() => {
+      // Hold tracksViewChanges:true for one extra frame so the final scale=1.0 snapshot is
+      // captured before we flip it off — guards against any stale snapshot at the boundary.
+      requestAnimationFrame(() => setAnimatingVisitId(null));
+    });
   }
 
   function handlePinPress(visit: Visit) {
@@ -788,38 +946,17 @@ export default function MapScreen() {
     const spots = clusteredItems
       .filter(item => item.kind === 'spot')
       .map(item => (item as { kind: 'spot'; spot: SeedSpot }).spot);
-    return new Map(spots.map((s, i) => {
-      const hasRightNeighbor = spots.some((other, j) =>
-        i !== j &&
-        Math.abs(other.lat - s.lat) < LABEL_NEIGHBOR_THRESHOLD &&
-        other.lng > s.lng && other.lng - s.lng < LABEL_NEIGHBOR_THRESHOLD
-      );
-      return [s.id, hasRightNeighbor ? 'left' : 'right'];
-    }));
+    return assignLabelSides(spots);
   }, [clusteredItems, mapFilter]);
 
   const beenLabelSides = useMemo<Map<string, 'left' | 'right'>>(() => {
     if (mapFilter !== 'been') return new Map();
-    return new Map(visits.map((v, i) => {
-      const hasRightNeighbor = visits.some((other, j) =>
-        i !== j &&
-        Math.abs(other.lat - v.lat) < LABEL_NEIGHBOR_THRESHOLD &&
-        other.lng > v.lng && other.lng - v.lng < LABEL_NEIGHBOR_THRESHOLD
-      );
-      return [v.id, hasRightNeighbor ? 'left' : 'right'];
-    }));
+    return assignLabelSides(visits);
   }, [visits, mapFilter]);
 
   const wantLabelSides = useMemo<Map<string, 'left' | 'right'>>(() => {
     if (mapFilter !== 'want') return new Map();
-    return new Map(futureSpots.map((s, i) => {
-      const hasRightNeighbor = futureSpots.some((other, j) =>
-        i !== j &&
-        Math.abs(other.lat - s.lat) < LABEL_NEIGHBOR_THRESHOLD &&
-        other.lng > s.lng && other.lng - s.lng < LABEL_NEIGHBOR_THRESHOLD
-      );
-      return [s.id, hasRightNeighbor ? 'left' : 'right'];
-    }));
+    return assignLabelSides(futureSpots);
   }, [futureSpots, mapFilter]);
 
   const snapPoints = ['12%', '68%', '95%'];
@@ -827,16 +964,26 @@ export default function MapScreen() {
   return (
     <TabSlideWrapper myIndex={3}>
     <View style={styles.container}>
-      <MapView
+      <MapLibreMap
         ref={mapRef}
         style={styles.map}
-        initialRegion={SEATTLE_REGION}
-        mapType="standard"
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-        onPress={handleMapPress}
-        onRegionChangeComplete={(r) => setRegion(r)}
+        mapStyle={MAP_STYLE_URL}
+        logo={false}
+        attribution={true}
+        compass={false}
+        onPress={handleMapPress as any}
+        onRegionDidChange={(e: any) => {
+          const b = e?.nativeEvent?.bounds;
+          if (b) setRegion(boundsToRegion(b));
+        }}
       >
+        <Camera
+          ref={cameraRef}
+          initialViewState={{
+            center: [SEATTLE_REGION.longitude, SEATTLE_REGION.latitude],
+            zoom: latitudeDeltaToZoom(SEATTLE_REGION.latitudeDelta),
+          }}
+        />
         {mapFilter === 'been' && (() => {
           const filteredVisits = visits
             .filter(v => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(v.activity_type))
@@ -847,56 +994,57 @@ export default function MapScreen() {
           return filteredVisits.map((v) => {
             const isSelected = selectedVisit?.id === v.id;
             const isTop3 = top3ids.has(v.id);
+            const isAnimating = animatingVisitId === v.id;
             const color = ratingColor(v.rating);
             const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
             const labelSide = beenLabelSides.get(v.id) ?? 'right';
-            const isAnimating = v.id === animatingVisitId;
-            const isTracked = v.id === trackedVisitId;
+            const inner = (
+              <View pointerEvents="none" style={{ overflow: 'visible' }}>
+                <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
+                  <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
+                </View>
+                {showLabel && <PinLabel name={v.venue_name} side={labelSide} bold={isTop3} />}
+              </View>
+            );
             return (
               <Marker
-                key={isSelected ? `sel-${v.id}` : v.id}
-                coordinate={{ latitude: v.lat, longitude: v.lng }}
+                key={v.id}
+                id={v.id}
+                lngLat={[v.lng, v.lat]}
+                style={{ zIndex: isAnimating || isSelected ? 100000 : Math.round(v.rating * 100) }}
                 onPress={() => handlePinPress(v)}
-                tracksViewChanges={isAnimating || isTracked}
-                zIndex={isSelected ? 9999 : Math.round(v.rating * 10)}
-                anchor={{ x: 0.5, y: 0.5 }}
+                anchor="center"
               >
-                <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                  {isAnimating ? (
-                    <Animated.View style={{ transform: [{ scale: sproutAnim }] }}>
-                      <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
-                        <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
-                      </View>
-                    </Animated.View>
-                  ) : (
-                    <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
-                      <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
-                    </View>
-                  )}
-                  {showLabel && (
-                    <Text
-                      style={[styles.pinLabel, labelSide === 'right' ? styles.pinLabelRight : styles.pinLabelLeft, { color: '#000' }, isTop3 && { fontWeight: '900' }]}
-                      numberOfLines={1}
-                    >{v.venue_name}</Text>
-                  )}
-                </View>
+                <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : 1 }] }}>
+                  {inner}
+                </Animated.View>
               </Marker>
             );
           });
         })()}
-        {mapFilter === 'want' && futureSpots
-          .filter(s => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(s.activity_type ?? ''))
-          .map((s) => {
+        {mapFilter === 'want' && (() => {
+          const filtered = futureSpots
+            .filter(s => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(s.activity_type ?? ''));
+          return filtered.map((s) => {
           const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
           const labelSide = wantLabelSides.get(s.id) ?? 'right';
           const isSelected = selectedFuture?.id === s.id;
+          const isAnimating = animatingFutureId === s.id;
+          const inner = (
+            <View pointerEvents="none" style={{ overflow: 'visible' }}>
+              <View style={[styles.futurePinBadge, isSelected && styles.futurePinBadgeSelected]}>
+                <Ionicons name={isSelected ? 'bookmark' : 'bookmark-outline'} size={11} color={isSelected ? '#fff' : '#5856d6'} />
+              </View>
+              {showLabel && <PinLabel name={s.venue_name} side={labelSide} />}
+            </View>
+          );
           return (
             <Marker
-              key={isSelected ? `sel-${s.id}` : s.id}
-              coordinate={{ latitude: s.lat, longitude: s.lng }}
-              tracksViewChanges={false}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={isSelected ? 9999 : 1}
+              key={s.id}
+              id={s.id}
+              lngLat={[s.lng, s.lat]}
+              style={{ zIndex: isAnimating || isSelected ? 100000 : 1 }}
+              anchor="center"
               onPress={() => {
                 if (step === null) {
                   lastPinPressAt.current = Date.now();
@@ -904,84 +1052,109 @@ export default function MapScreen() {
                 }
               }}
             >
-              <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                <View style={[styles.futurePinBadge, isSelected && styles.futurePinBadgeSelected]}>
-                  <Ionicons name={isSelected ? 'bookmark' : 'bookmark-outline'} size={11} color={isSelected ? '#fff' : '#5856d6'} />
-                </View>
-                {showLabel && (
-                  <Text
-                    style={[styles.pinLabel, labelSide === 'right' ? styles.pinLabelRight : styles.pinLabelLeft, { color: '#000' }]}
-                    numberOfLines={1}
-                  >{s.venue_name}</Text>
-                )}
-              </View>
+              <Animated.View style={{ transform: [{ scale: isAnimating ? sproutAnim : 1 }] }}>
+                {inner}
+              </Animated.View>
             </Marker>
           );
-        })}
-        {mapFilter === 'spots' && clusteredItems.map((item) => {
-          if (item.kind === 'cluster') {
+        });
+        })()}
+        {mapFilter === 'spots' && (() => {
+          return clusteredItems.map((item) => {
+            if (item.kind === 'cluster') {
+              return (
+                <Marker
+                  key={item.key}
+                  id={item.key}
+                  lngLat={[item.lng, item.lat]}
+                  style={{ zIndex: 0 }}
+                >
+                  <View style={styles.clusterBadge} pointerEvents="none">
+                    <Text style={styles.clusterText}>{item.count}</Text>
+                  </View>
+                </Marker>
+              );
+            }
+            const s = item.spot;
+            const isSelected = selectedSeedSpot?.id === s.id;
+            const pinColor = ratingColor(s.rating);
+            const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
+            const labelSide = seedLabelSides.get(s.id) ?? 'right';
             return (
               <Marker
-                key={item.key}
-                coordinate={{ latitude: item.lat, longitude: item.lng }}
-                tracksViewChanges={false}
+                key={s.id}
+                id={s.id}
+                lngLat={[s.lng, s.lat]}
+                style={{ zIndex: isSelected ? 100000 : Math.round(s.rating * 100) }}
+                onPress={() => {
+                  if (step === null) {
+                    lastPinPressAt.current = Date.now();
+                    setSelectedSeedSpot(p => p?.id === s.id ? null : s);
+                  }
+                }}
+                anchor="center"
               >
-                <View style={styles.clusterBadge} pointerEvents="none">
-                  <Text style={styles.clusterText}>{item.count}</Text>
+                <View pointerEvents="none" style={{ overflow: 'visible' }}>
+                  <View style={[styles.seedPinBadge, { borderColor: pinColor }, isSelected && { backgroundColor: pinColor }]}>
+                    <Text style={[styles.seedPinScore, { color: isSelected ? '#fff' : pinColor }]}>{formatRating(s.rating)}</Text>
+                  </View>
+                  {showLabel && <PinLabel name={s.venue_name} side={labelSide} />}
                 </View>
               </Marker>
             );
-          }
-          const s = item.spot;
-          const isSelected = selectedSeedSpot?.id === s.id;
-          const pinColor = ratingColor(s.rating);
-          const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
-          const labelSide = seedLabelSides.get(s.id) ?? 'right';
-          return (
-            <Marker
-              key={isSelected ? `sel-${s.id}` : s.id}
-              coordinate={{ latitude: s.lat, longitude: s.lng }}
-              onPress={() => { if (step === null) setSelectedSeedSpot(p => p?.id === s.id ? null : s); }}
-              tracksViewChanges={false}
-              zIndex={isSelected ? 9999 : Math.round(s.rating * 10)}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                <View style={[styles.seedPinBadge, { borderColor: pinColor }, isSelected && { backgroundColor: pinColor }]}>
-                  <Text style={[styles.seedPinScore, { color: isSelected ? '#fff' : pinColor }]}>{formatRating(s.rating)}</Text>
-                </View>
-                {showLabel && (
-                  <Text
-                    style={[styles.pinLabel, labelSide === 'right' ? styles.pinLabelRight : styles.pinLabelLeft, { color: '#000' }]}
-                    numberOfLines={1}
-                  >{s.venue_name}</Text>
-                )}
-              </View>
-            </Marker>
-          );
-        })}
-      </MapView>
+          });
+        })()}
+      </MapLibreMap>
 
       {/* Filter toggle */}
       {step === null && (
         <View style={styles.filterRow} pointerEvents="box-none">
-          <View pointerEvents="auto" style={styles.filterPillsWrap}>
-            <SlidingPills
-              fullWidth
-              options={[
-                { label: 'Been To', value: 'been' },
-                { label: 'Want to Go', value: 'want' },
-                { label: 'Top Spots', value: 'spots' },
-              ]}
-              value={mapFilter}
-              onChange={v => {
-                setMapFilter(v as typeof mapFilter);
-                setSelectedFuture(null);
-                setSelectedVisit(null);
-                setSelectedSeedSpot(null);
-              }}
-              style={styles.filterPillsShadow}
-            />
+          <View pointerEvents="auto" style={styles.filterTabBar}>
+            {([
+              { label: 'Been To', value: 'been' },
+              { label: 'Want to Go', value: 'want' },
+              { label: 'Top Spots', value: 'spots' },
+            ] as const).map(opt => (
+              <Pressable
+                key={opt.value}
+                style={styles.filterTab}
+                onPress={() => {
+                  setMapFilter(opt.value);
+                  setSelectedFuture(null);
+                  setSelectedVisit(null);
+                  setSelectedSeedSpot(null);
+                }}
+                onLayout={e => {
+                  const { x, width } = e.nativeEvent.layout;
+                  mapFilterTabLayouts.current[opt.value] = { x, width };
+                  const textW = mapFilterTextWidths.current[opt.value];
+                  if (opt.value === mapFilter && textW) {
+                    const indX = x + (width - textW) / 2;
+                    mapFilterIndicatorX.setValue(indX);
+                    setMapFilterIndicatorWidth(textW);
+                  }
+                }}
+              >
+                <Text
+                  style={[styles.filterTabText, mapFilter === opt.value && styles.filterTabTextActive]}
+                  onLayout={e => {
+                    const textW = e.nativeEvent.layout.width;
+                    mapFilterTextWidths.current[opt.value] = textW;
+                    const tabLayout = mapFilterTabLayouts.current[opt.value];
+                    if (opt.value === mapFilter && tabLayout) {
+                      const indX = tabLayout.x + (tabLayout.width - textW) / 2;
+                      mapFilterIndicatorX.setValue(indX);
+                      setMapFilterIndicatorWidth(textW);
+                    }
+                  }}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+            {mapFilterIndicatorWidth > 0 && (
+              <Animated.View style={[styles.filterTabUnderline, { width: mapFilterIndicatorWidth, transform: [{ translateX: mapFilterIndicatorX }] }]} />
+            )}
           </View>
           <View pointerEvents="auto" style={styles.filterBtnRow}>
             <View style={[styles.mapFilterBtn, activeMapFilterCount > 0 && styles.mapFilterBtnActive]}>
@@ -1023,6 +1196,8 @@ export default function MapScreen() {
         }}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={{ backgroundColor: 'transparent' }}
+        keyboardBehavior="interactive"
+        keyboardBlursBehavior="restore"
       >
         <BottomSheetView style={styles.sheetContent}>
           {step === 'mode-select' && (
@@ -1077,15 +1252,17 @@ export default function MapScreen() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalOverlay}>
             {step === 'future-details' ? (
-              <View style={styles.modalCardCompact}>
-                <FutureDetailsStep
-                  draft={draft}
-                  onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
-                  onSave={saveFutureSpot}
-                  onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
-                  geocodeLoading={geocodeLoading}
-                  suggestion={geocodeSuggestion}
-                />
+              <View style={[styles.modalCard, { height: undefined }]}>
+                <Animated.View style={{ transform: [{ translateX: stepAnim }] }}>
+                  <FutureDetailsStep
+                    draft={draft}
+                    onChange={(key, val) => setDraft((d) => ({ ...d, [key]: val }))}
+                    onSave={saveFutureSpot}
+                    onBack={() => { setStep('future-pin'); sheetRef.current?.snapToIndex(1); }}
+                    geocodeLoading={geocodeLoading}
+                    suggestion={geocodeSuggestion}
+                  />
+                </Animated.View>
               </View>
             ) : step === 'details' ? (
               <View style={styles.modalCard}>
@@ -1116,6 +1293,7 @@ export default function MapScreen() {
                   {step === 'compare' && cmpState && (
                     <CompareStep
                       newVenueName={draft.venue_name || ''}
+                      newVenueAddress={draft.address || ''}
                       newActivityType={draft.activity_type || 'other'}
                       opponent={currentComparison(cmpState)}
                       onBetter={() => handleCompare('better')}
@@ -1170,6 +1348,7 @@ export default function MapScreen() {
         }}
         onClose={() => setShowMapFilter(false)}
       />
+
     </View>
     </TabSlideWrapper>
   );
@@ -1283,7 +1462,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const preview = visit.notes?.trim().slice(0, 70) ?? null;
   return (
-    <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${visit.id}` as any)}>
+    <Pressable style={styles.visitBanner} onPress={() => { _mapNavigatedToDetail = true; router.push(`/spot/${visit.id}` as any); }}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -1293,7 +1472,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
             </View>
           </View>
           <Text style={styles.visitBannerMeta}>
-            {info?.label} · {PRICE_LABELS[visit.price as Price]} · {dateStr}
+            {[info?.label, visit.price != null ? PRICE_LABELS[visit.price] : null, dateStr].filter(Boolean).join(' · ')}
           </Text>
           {preview ? (
             <Text style={styles.visitBannerPreview} numberOfLines={1}>{preview}</Text>
@@ -1342,7 +1521,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
   }
 
   function handleLog() {
-    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng);
+    scheduleOpenLogWithLocation(spot.venue_name, spot.lat, spot.lng, spot.activity_type);
     onClose();
   }
 
@@ -1372,7 +1551,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
         <Ionicons name="bookmark" size={13} color="#5856d6" />
         <Text style={styles.savedToastText}>Saved!</Text>
       </Animated.View>
-      <Pressable style={styles.visitBanner} onPress={() => router.push(`/spot/${spot.id}` as any)}>
+      <Pressable style={styles.visitBanner} onPress={() => { _mapNavigatedToDetail = true; router.push(`/spot/${spot.id}` as any); }}>
         <View style={styles.visitBannerInner}>
           <View style={styles.visitBannerBody}>
             <View style={styles.visitBannerTop}>
@@ -1382,7 +1561,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
               </View>
             </View>
             <Text style={styles.visitBannerMeta}>
-              {info?.label ?? 'Other'} · {PRICE_LABELS[spot.price as Price]}
+              {[info?.label ?? 'Other', spot.price != null ? PRICE_LABELS[spot.price as Price] : null].filter(Boolean).join(' · ')}
             </Text>
             {preview ? (
               <Text style={styles.visitBannerPreview} numberOfLines={1}>{preview}</Text>
@@ -1429,9 +1608,9 @@ function ProgressDots({ currentStep }: { currentStep: number }) {
   );
 }
 
-function useNominatimSearch(fallbackRegion: Region) {
+function useGeocodeSearch(fallbackRegion: Region) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -1442,19 +1621,24 @@ function useNominatimSearch(fallbackRegion: Region) {
     const lat = fallbackRegion.latitude;
     const lng = fallbackRegion.longitude;
     let cancelled = false;
-    // viewbox biases results toward the user's city; countrycodes=us hard-blocks
-    // international results. No bounded=1 — bounded causes Nominatim to return
-    // empty rather than reach outside the box, which breaks landmark searches.
-    const vb = `${lng - 4},${lat + 3},${lng + 4},${lat - 3}`;
     const timer = setTimeout(async () => {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=8&viewbox=${vb}&addressdetails=1`;
-        const res = await fetch(url, { headers: { 'User-Agent': 'DateSpotApp/1.0' } });
-        const data: NominatimResult[] = await res.json();
-        if (!cancelled) setResults(data);
+        const res = await fetch(geocodeSearchUrl(query, lng, lat));
+        const data = await res.json();
+        const features: GeocodeFeature[] = data.features ?? [];
+        const mapped: SearchResult[] = features
+          .filter(f => f.center)
+          .map(f => ({
+            id: f.id,
+            name: f.text || f.place_name?.split(',')[0] || '',
+            address: featureAddress(f),
+            lng: f.center![0],
+            lat: f.center![1],
+          }));
+        if (!cancelled) setResults(mapped);
       } catch { if (!cancelled) setResults([]); }
       if (!cancelled) setLoading(false);
-    }, 400);
+    }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query]);
 
@@ -1462,7 +1646,7 @@ function useNominatimSearch(fallbackRegion: Region) {
 }
 
 function SearchResultsList({ results, loading, query, onSelect }: {
-  results: NominatimResult[];
+  results: SearchResult[];
   loading: boolean;
   query: string;
   onSelect: (name: string, lat: number, lng: number, address: string) => void;
@@ -1478,24 +1662,19 @@ function SearchResultsList({ results, loading, query, onSelect }: {
       {!loading && query.length >= 2 && results.length === 0 && (
         <Text style={styles.searchMsg}>No results found nearby</Text>
       )}
-      {results.map(r => {
-        const name = r.name || r.display_name.split(', ')[0];
-        const parts = r.display_name.split(', ');
-        const addr = parts.slice(1, 3).join(', ');
-        return (
-          <Pressable
-            key={r.place_id}
-            style={styles.searchResult}
-            onPress={() => onSelect(name, parseFloat(r.lat), parseFloat(r.lon), buildAddressString(r.address))}
-          >
-            <Ionicons name="location-outline" size={16} color={T.muted} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.searchResultName} numberOfLines={1}>{name}</Text>
-              {addr ? <Text style={styles.searchResultAddr} numberOfLines={1}>{addr}</Text> : null}
-            </View>
-          </Pressable>
-        );
-      })}
+      {results.map(r => (
+        <Pressable
+          key={r.id}
+          style={styles.searchResult}
+          onPress={() => onSelect(r.name, r.lat, r.lng, r.address)}
+        >
+          <Ionicons name="location-outline" size={16} color={T.muted} style={{ marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.searchResultName} numberOfLines={1}>{r.name}</Text>
+            {r.address ? <Text style={styles.searchResultAddr} numberOfLines={1}>{r.address}</Text> : null}
+          </View>
+        </Pressable>
+      ))}
     </ScrollView>
   );
 }
@@ -1554,9 +1733,12 @@ function LocationStep({ onDropPin, onSelect, onBack, region }: {
   onBack: () => void;
   region: Region;
 }) {
-  const { query, setQuery, results, loading } = useNominatimSearch(region);
+  const { query, setQuery, results, loading } = useGeocodeSearch(region);
   return (
-    <View style={styles.stepContainer}>
+    <View style={[styles.stepContainer, { position: 'relative' }]}>
+      <Pressable onPress={onBack} style={styles.cardBackBtn}>
+        <Text style={styles.cardBackBtnText}>Back</Text>
+      </Pressable>
       <ProgressDots currentStep={1} />
       <Text style={styles.stepTitle}>Where did you go?</Text>
       <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
@@ -1571,15 +1753,15 @@ function LocationStep({ onDropPin, onSelect, onBack, region }: {
         autoFocus
       />
       <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
-      <View style={styles.pinFallbackRow}>
-        <Pressable onPress={onDropPin} style={styles.pinFallbackBtn}>
-          <Ionicons name="map-outline" size={15} color={T.muted} />
-          <Text style={styles.pinFallbackText}>Can't find it? Drop a pin on the map</Text>
-        </Pressable>
-        <Pressable onPress={onBack}>
-          <Text style={[styles.pinFallbackText, { color: T.muted }]}>Back</Text>
-        </Pressable>
+      <View style={styles.orDivider}>
+        <View style={styles.orLine} />
+        <Text style={styles.orText}>or</Text>
+        <View style={styles.orLine} />
       </View>
+      <Pressable onPress={onDropPin} style={styles.pinDropBtn}>
+        <Ionicons name="location-outline" size={18} color={T.accent} />
+        <Text style={styles.pinDropBtnText}>Drop a pin on the map</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1600,57 +1782,75 @@ function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading, su
     }
   }, [suggestion]);
 
+  useEffect(() => {
+    if (!draft.occasion_type) onChange('occasion_type', 'romantic');
+  }, []);
+
+  const disabled = !draft.venue_name?.trim() || !draft.activity_type || (draft.occasion_type === 'other' && !draft.occasion_label?.trim());
+
   return (
-    <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Save for later</Text>
-      <Text style={styles.stepSubtitle}>{geocodeLoading && !draft.venue_name ? 'Looking up location…' : 'Where do you want to go?'}</Text>
-      <TextInput
-        style={[styles.input, { marginBottom: 16 }]}
-        value={draft.venue_name || ''}
-        onChangeText={(v) => onChange('venue_name', v)}
-        placeholder={geocodeLoading ? 'Looking up the spot…' : 'Name this spot'}
-        placeholderTextColor="#c7c7cc"
-        returnKeyType="done"
-      />
+    <View>
+      <View style={styles.stepContainer}>
+        <Text style={styles.stepTitle}>Save for later</Text>
+        <Text style={styles.stepSubtitle}>{geocodeLoading && !draft.venue_name ? 'Looking up location…' : 'Where do you want to go?'}</Text>
+        <TextInput
+          style={[styles.input, { marginBottom: 16 }]}
+          value={draft.venue_name || ''}
+          onChangeText={(v) => onChange('venue_name', v)}
+          placeholder={geocodeLoading ? 'Looking up the spot…' : 'Name this spot'}
+          placeholderTextColor={T.placeholder}
+          returnKeyType="done"
+        />
 
-      <Text style={styles.sectionLabel}>Category</Text>
-      <View style={styles.chipWrap}>
-        {ACTIVITY_TYPES.map((a) => {
-          const selected = draft.activity_type === a.value;
-          return (
-            <Pressable
-              key={a.value}
-              style={[styles.chip, selected && styles.chipSelected]}
-              onPress={() => onChange('activity_type', selected ? null : a.value)}
-            >
-              <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
-            </Pressable>
-          );
-        })}
+        <View style={{ marginBottom: 18 }}>
+          <Text style={styles.detailsSectionLabel}>What kind of date? <Text style={{ color: T.accent }}>*</Text></Text>
+          <SlidingSegControl
+            options={OCCASION_TYPES}
+            value={draft.occasion_type || 'romantic'}
+            onChange={(v) => { onChange('occasion_type', v); if (v !== 'other') onChange('occasion_label', ''); }}
+          />
+          {draft.occasion_type === 'other' && (
+            <TextInput
+              style={[styles.input, { marginTop: 10, marginBottom: 0 }]}
+              value={draft.occasion_label || ''}
+              onChangeText={(v) => onChange('occasion_label', v)}
+              placeholder="Describe the occasion… *"
+              placeholderTextColor={T.placeholder}
+              returnKeyType="done"
+              autoFocus
+            />
+          )}
+        </View>
+
+        <View style={{ marginBottom: 0 }}>
+          <Text style={styles.detailsSectionLabel}>Category <Text style={{ color: T.accent }}>*</Text></Text>
+          <View style={styles.chipWrap}>
+            {ACTIVITY_TYPES.map((a) => {
+              const selected = draft.activity_type === a.value;
+              return (
+                <Pressable
+                  key={a.value}
+                  style={[styles.chip, selected && styles.chipSelected]}
+                  onPress={() => onChange('activity_type', selected ? null : a.value)}
+                >
+                  <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       </View>
 
-      <Text style={styles.sectionLabel}>What kind of date?</Text>
-      <View style={styles.occasionRow}>
-        {OCCASION_TYPES.map((a) => {
-          const selected = draft.occasion_type === a.value;
-          return (
-            <Pressable
-              key={a.value}
-              style={[styles.occasionBtn, selected && styles.occasionBtnSelected]}
-              onPress={() => onChange('occasion_type', selected ? null : a.value)}
-            >
-              <Text style={[styles.occasionLabel, selected && styles.occasionLabelSelected]}>{a.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={[styles.btnRow, { marginTop: 20 }]}>
-        <Pressable style={styles.btnSecondary} onPress={onBack}>
-          <Text style={styles.btnSecondaryText}>Back</Text>
+      <View style={styles.detailsFooter}>
+        <Pressable
+          style={[styles.detailsContinueBtn, disabled && { opacity: 0.4 }]}
+          onPress={onSave}
+          disabled={disabled}
+        >
+          <Text style={styles.detailsContinueBtnText}>Save</Text>
         </Pressable>
-        <Pressable style={styles.btnPrimary} onPress={onSave}>
-          <Text style={styles.btnPrimaryText}>Save</Text>
+        <Pressable style={{ alignItems: 'center', marginTop: 12 }} onPress={onBack}>
+          <Text style={{ fontSize: 13, color: T.muted }}>Cancel</Text>
         </Pressable>
       </View>
     </View>
@@ -1662,9 +1862,12 @@ function FuturePinStep({ onDropPin, onBack, onSelect, region }: {
   onSelect: (name: string, lat: number, lng: number, address: string) => void;
   region: Region;
 }) {
-  const { query, setQuery, results, loading } = useNominatimSearch(region);
+  const { query, setQuery, results, loading } = useGeocodeSearch(region);
   return (
-    <View style={styles.stepContainer}>
+    <View style={[styles.stepContainer, { position: 'relative' }]}>
+      <Pressable onPress={onBack} style={styles.cardBackBtn}>
+        <Text style={styles.cardBackBtnText}>Back</Text>
+      </Pressable>
       <Text style={styles.stepTitle}>Where do you want to go?</Text>
       <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
       <TextInput
@@ -1678,15 +1881,15 @@ function FuturePinStep({ onDropPin, onBack, onSelect, region }: {
         autoFocus
       />
       <SearchResultsList results={results} loading={loading} query={query} onSelect={onSelect} />
-      <View style={styles.pinFallbackRow}>
-        <Pressable onPress={onDropPin} style={styles.pinFallbackBtn}>
-          <Ionicons name="map-outline" size={15} color={T.muted} />
-          <Text style={styles.pinFallbackText}>Can't find it? Drop a pin on the map</Text>
-        </Pressable>
-        <Pressable onPress={onBack}>
-          <Text style={[styles.pinFallbackText, { color: T.muted }]}>Back</Text>
-        </Pressable>
+      <View style={styles.orDivider}>
+        <View style={styles.orLine} />
+        <Text style={styles.orText}>or</Text>
+        <View style={styles.orLine} />
       </View>
+      <Pressable onPress={onDropPin} style={styles.pinDropBtn}>
+        <Ionicons name="location-outline" size={18} color={T.accent} />
+        <Text style={styles.pinDropBtnText}>Drop a pin on the map</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1750,7 +1953,7 @@ function FutureDetail({ spot, onClose, onDelete }: {
   }
 
   return (
-    <Pressable style={styles.visitBanner} onPress={() => router.push(`/future/${spot.id}` as any)}>
+    <Pressable style={styles.visitBanner} onPress={() => { _mapNavigatedToDetail = true; router.push(`/future/${spot.id}` as any); }}>
       <View style={styles.visitBannerInner}>
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
@@ -1895,6 +2098,110 @@ function CalendarPicker({ value, onChange }: {
   );
 }
 
+function SlidingSegControl({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const n = options.length;
+  const [trackWidth, setTrackWidth] = useState(0);
+  const animIdx = useRef(new Animated.Value(Math.max(0, options.findIndex(o => o.value === value)))).current;
+
+  useEffect(() => {
+    const idx = Math.max(0, options.findIndex(o => o.value === value));
+    Animated.timing(animIdx, {
+      toValue: idx,
+      duration: 260,
+      useNativeDriver: true,
+      easing: Easing.bezier(0.22, 0.9, 0.3, 1),
+    }).start();
+  }, [value]);
+
+  const segWidth = trackWidth > 0 ? (trackWidth - 10) / n : 0;
+  const translateX = animIdx.interpolate({
+    inputRange: options.map((_, i) => i),
+    outputRange: options.map((_, i) => i * segWidth),
+  });
+
+  return (
+    <View
+      style={styles.segTrack}
+      onLayout={e => {
+        const w = e.nativeEvent.layout.width;
+        if (w !== trackWidth) setTrackWidth(w);
+      }}
+    >
+      {trackWidth > 0 && (
+        <Animated.View style={[styles.segPill, { width: segWidth, transform: [{ translateX }] }]} />
+      )}
+      {options.map((opt) => (
+        <Pressable key={opt.value} onPress={() => onChange(opt.value)} style={styles.segOption}>
+          <Text style={[styles.segOptionText, opt.value === value && styles.segOptionTextSelected]}>
+            {opt.label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function PickerRow({
+  iconName,
+  label,
+  displayValue,
+  open,
+  onToggle,
+  last,
+  children,
+}: {
+  iconName: string;
+  label: string;
+  displayValue: string | null;
+  open: boolean;
+  onToggle: () => void;
+  last?: boolean;
+  children: React.ReactNode;
+}) {
+  const anim = useRef(new Animated.Value(open ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: open ? 1 : 0,
+      duration: 280,
+      useNativeDriver: false,
+    }).start();
+  }, [open]);
+
+  const maxHeight = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 400] });
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const chevronRotate = anim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] });
+
+  return (
+    <View style={last ? undefined : styles.pickerRowDivider}>
+      <Pressable onPress={onToggle} style={styles.pickerRowHeader}>
+        <View style={styles.pickerRowIconSlot}>
+          <Ionicons name={iconName as any} size={18} color={open ? T.accent : T.muted} />
+        </View>
+        <Text style={styles.pickerRowLabel}>{label}</Text>
+        {displayValue
+          ? <Text style={styles.pickerRowValue}>{displayValue}</Text>
+          : <Text style={styles.pickerRowAdd}>Add</Text>
+        }
+        <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
+          <Ionicons name="chevron-forward" size={16} color={T.placeholder} />
+        </Animated.View>
+      </Pressable>
+      <Animated.View style={{ maxHeight, overflow: 'hidden', opacity }}>
+        <View style={styles.pickerRowBody}>{children}</View>
+      </Animated.View>
+    </View>
+  );
+}
+
 function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoading }: {
   draft: Partial<DraftVisit>;
   onChange: (key: string, val: any) => void;
@@ -1911,31 +2218,26 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
     }
   }, [suggestion]);
 
-  const [showCalendar, setShowCalendar] = useState(false);
-  const calendarAnim = useRef(new Animated.Value(0)).current;
-
-  function toggleCalendar() {
-    const next = !showCalendar;
-    setShowCalendar(next);
-    Animated.timing(calendarAnim, {
-      toValue: next ? 1 : 0,
-      duration: 260,
-      useNativeDriver: false,
-    }).start();
-  }
-
   const todayStr = useMemo(() => {
     const t = new Date();
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const yesterdayStr = useMemo(() => {
+    const t = new Date(); t.setDate(t.getDate() - 1);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  useEffect(() => {
+    if (!draft.visited_at) onChange('visited_at', todayStr);
+    if (!draft.occasion_type) onChange('occasion_type', 'romantic');
   }, []);
 
   const dateValue = draft.visited_at?.match(/^\d{4}-\d{2}-\d{2}/)
     ? draft.visited_at.slice(0, 10)
     : todayStr;
 
-  useEffect(() => {
-    if (!draft.visited_at) onChange('visited_at', todayStr);
-  }, []);
+  const dateLabel = dateValue === todayStr ? 'Today' : dateValue === yesterdayStr ? 'Yesterday' : dateValue;
 
   const isFutureDate = (() => {
     if (!dateValue) return false;
@@ -1943,6 +2245,12 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
     const today = new Date(); today.setHours(0, 0, 0, 0);
     return picked > today;
   })();
+
+  const [openRow, setOpenRow] = useState<'price' | 'date' | 'photos' | 'notes' | null>(null);
+
+  function toggleRow(row: 'price' | 'date' | 'photos' | 'notes') {
+    setOpenRow(o => o === row ? null : row);
+  }
 
   const photos: string[] = draft.photos || [];
 
@@ -1958,142 +2266,172 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
       quality: 0.8,
     });
     if (result.canceled || !result.assets?.length) return;
-    onChange('photos', [...photos, ...result.assets.map(a => a.uri)]);
+    onChange('photos', [...photos, ...result.assets.map((a: any) => a.uri)].slice(0, 5));
   }
 
-  function removePhoto(index: number) {
-    onChange('photos', photos.filter((_, i) => i !== index));
-  }
+  const priceLabel = draft.price !== undefined && draft.price !== null ? PRICE_LABELS[draft.price] : null;
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView style={styles.detailsScroll} contentContainerStyle={styles.stepContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.detailsScroll} contentContainerStyle={[styles.stepContainer, { paddingBottom: 0 }]} keyboardShouldPersistTaps="handled">
         <ProgressDots currentStep={2} />
         <Text style={styles.stepTitle}>Tell me about it</Text>
         <Text style={styles.stepSubtitle}>Step 2 of 5</Text>
 
-        <Text style={styles.sectionLabel}>Name</Text>
-        <TextInput
-          style={styles.input}
-          value={draft.venue_name || ''}
-          onChangeText={(v) => onChange('venue_name', v)}
-          placeholder={geocodeLoading ? 'Looking up the spot…' : 'Name this spot'}
-          placeholderTextColor="#c7c7cc"
-          returnKeyType="done"
-        />
+        <View style={{ marginBottom: 18 }}>
+          <TextInput
+            style={[styles.input, { marginBottom: 0, paddingVertical: 8 }]}
+            value={draft.venue_name || ''}
+            onChangeText={(v) => onChange('venue_name', v)}
+            placeholder={geocodeLoading ? 'Looking up the spot…' : 'Name this spot'}
+            placeholderTextColor={T.placeholder}
+            returnKeyType="done"
+          />
+        </View>
 
-        <Text style={styles.sectionLabel}>Date</Text>
-        <Pressable style={styles.calendarToggleBtn} onPress={toggleCalendar}>
-          <Ionicons name="calendar-outline" size={18} color={T.accent} />
-          <Text style={styles.calendarToggleBtnText}>{dateValue || 'Pick a date'}</Text>
-          <Ionicons name={showCalendar ? 'chevron-up' : 'chevron-down'} size={16} color={T.muted} />
-        </Pressable>
-        <Animated.View style={{
-          height: calendarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 380] }),
-          overflow: 'hidden',
-        }}>
-          <CalendarPicker value={dateValue} onChange={(date) => {
-            onChange('visited_at', date);
-            setShowCalendar(false);
-            Animated.timing(calendarAnim, { toValue: 0, duration: 260, useNativeDriver: false }).start();
-          }} />
-        </Animated.View>
-        {isFutureDate && (
-          <Text style={styles.dateError}>Date can't be in the future</Text>
-        )}
+        <View style={{ marginBottom: 18 }}>
+          <Text style={styles.detailsSectionLabel}>What kind of date? <Text style={{ color: T.accent }}>*</Text></Text>
+          <SlidingSegControl
+            options={OCCASION_TYPES}
+            value={draft.occasion_type || 'romantic'}
+            onChange={(v) => { onChange('occasion_type', v); if (v !== 'other') onChange('occasion_label', ''); }}
+          />
+          {draft.occasion_type === 'other' && (
+            <TextInput
+              style={[styles.input, { marginTop: 10, marginBottom: 0 }]}
+              value={draft.occasion_label || ''}
+              onChangeText={(v) => onChange('occasion_label', v)}
+              placeholder="Describe the occasion… *"
+              placeholderTextColor={T.placeholder}
+              returnKeyType="done"
+              autoFocus
+            />
+          )}
+        </View>
 
-        <Text style={styles.sectionLabel}>Photos</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.photoScroll}
-          contentContainerStyle={styles.photoScrollContent}
-        >
-          {photos.map((uri, i) => (
-            <View key={i} style={styles.photoThumbWrap}>
-              <Image source={{ uri }} style={styles.photoThumbImg} />
-              <Pressable style={styles.photoRemoveBtn} onPress={() => removePhoto(i)} hitSlop={6}>
-                <Text style={styles.photoRemoveBtnText}>−</Text>
-              </Pressable>
+        <View style={{ marginBottom: 18 }}>
+          <Text style={styles.detailsSectionLabel}>Category <Text style={{ color: T.accent }}>*</Text></Text>
+          <View style={styles.chipWrap}>
+            {ACTIVITY_TYPES.map((a) => {
+              const selected = draft.activity_type === a.value;
+              return (
+                <Pressable
+                  key={a.value}
+                  style={[styles.chip, selected && styles.chipSelected]}
+                  onPress={() => onChange('activity_type', selected ? null : a.value)}
+                >
+                  <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.detailsCard}>
+          <PickerRow
+            iconName="pricetag-outline"
+            label="Price"
+            displayValue={priceLabel}
+            open={openRow === 'price'}
+            onToggle={() => toggleRow('price')}
+          >
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {([0, 1, 2, 3] as Price[]).map((p) => {
+                const sel = draft.price === p;
+                return (
+                  <Pressable
+                    key={p}
+                    style={[styles.detailsQuickBtn, sel && styles.detailsQuickBtnSelected]}
+                    onPress={() => onChange('price', sel ? undefined : p)}
+                  >
+                    <Text style={[styles.detailsQuickBtnText, sel && styles.detailsQuickBtnTextSelected]}>
+                      {PRICE_LABELS[p]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          ))}
-          <Pressable style={styles.photoAdd} onPress={pickPhoto}>
-            <Ionicons name="camera-outline" size={22} color={T.muted} />
-            <Text style={styles.photoAddLabel}>Add photo</Text>
-          </Pressable>
-        </ScrollView>
-
-        <Text style={styles.sectionLabel}>Category</Text>
-        <View style={styles.chipWrap}>
-          {ACTIVITY_TYPES.map((a) => {
-            const selected = draft.activity_type === a.value;
-            return (
-              <Pressable
-                key={a.value}
-                style={[styles.chip, selected && styles.chipSelected]}
-                onPress={() => onChange('activity_type', selected ? null : a.value)}
-              >
-                <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{a.label}</Text>
-              </Pressable>
-            );
-          })}
+          </PickerRow>
+          <PickerRow
+            iconName="calendar-outline"
+            label="Date"
+            displayValue={dateLabel}
+            open={openRow === 'date'}
+            onToggle={() => toggleRow('date')}
+            last
+          >
+            {isFutureDate && (
+              <Text style={styles.dateError}>Date can't be in the future</Text>
+            )}
+            <CalendarPicker value={dateValue} onChange={(date) => {
+              onChange('visited_at', date);
+              setOpenRow(null);
+            }} />
+          </PickerRow>
         </View>
 
-        <Text style={styles.sectionLabel}>What kind of date?</Text>
-        <View style={styles.occasionRow}>
-          {OCCASION_TYPES.map((a) => {
-            const selected = draft.occasion_type === a.value;
-            return (
-              <Pressable
-                key={a.value}
-                style={[styles.occasionBtn, selected && styles.occasionBtnSelected]}
-                onPress={() => onChange('occasion_type', selected ? null : a.value)}
-              >
-                <Text style={[styles.occasionLabel, selected && styles.occasionLabelSelected]}>{a.label}</Text>
-              </Pressable>
-            );
-          })}
+        <View style={[styles.detailsCard, { marginBottom: 8 }]}>
+          <PickerRow
+            iconName="image-outline"
+            label="Photos"
+            displayValue={photos.length > 0 ? `${photos.length}/5` : null}
+            open={openRow === 'photos'}
+            onToggle={() => toggleRow('photos')}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {photos.map((uri, i) => (
+                <View key={i} style={styles.detailsPhotoThumb}>
+                  <Image source={{ uri }} style={{ width: '100%', height: '100%', borderRadius: 13 }} />
+                  <Pressable
+                    style={styles.photoRemoveBtn}
+                    onPress={() => onChange('photos', photos.filter((_, j) => j !== i))}
+                    hitSlop={6}
+                  >
+                    <Text style={styles.photoRemoveBtnText}>−</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {photos.length < 5 && (
+                <Pressable style={styles.detailsPhotoAdd} onPress={pickPhoto}>
+                  <Ionicons name="add" size={20} color={T.muted} />
+                  <Text style={styles.detailsPhotoAddLabel}>Add</Text>
+                </Pressable>
+              )}
+            </View>
+          </PickerRow>
+          <PickerRow
+            iconName="document-text-outline"
+            label="Notes"
+            displayValue={draft.notes?.trim() ? '•' : null}
+            open={openRow === 'notes'}
+            onToggle={() => toggleRow('notes')}
+            last
+          >
+            <TextInput
+              style={[styles.input, styles.inputMultiline, { marginBottom: 0 }]}
+              placeholder="What made it memorable?"
+              placeholderTextColor={T.placeholder}
+              value={draft.notes || ''}
+              onChangeText={(v) => onChange('notes', v)}
+              multiline
+              numberOfLines={3}
+            />
+          </PickerRow>
         </View>
-
-        <Text style={styles.sectionLabel}>Price range</Text>
-        <View style={styles.priceRow}>
-          {([0, 1, 2, 3] as Price[]).map((p) => {
-            const selected = draft.price === p;
-            return (
-              <Pressable
-                key={p}
-                style={[styles.priceBtn, selected && styles.priceBtnSelected]}
-                onPress={() => onChange('price', selected ? undefined : p)}
-              >
-                <Text style={[styles.priceBtnText, selected && styles.priceBtnTextSelected]}>
-                  {PRICE_LABELS[p]}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={styles.sectionLabel}>Notes</Text>
-        <TextInput
-          style={[styles.input, styles.inputMultiline]}
-          placeholder="What made it memorable?"
-          placeholderTextColor="#c7c7cc"
-          value={draft.notes || ''}
-          onChangeText={(v) => onChange('notes', v)}
-          multiline
-          numberOfLines={3}
-        />
-
-        <View style={styles.btnRow}>
-          <Pressable style={styles.btnSecondary} onPress={onBack}>
-            <Text style={styles.btnSecondaryText}>Cancel</Text>
-          </Pressable>
-          <Pressable style={styles.btnPrimary} onPress={onNext}>
-            <Text style={styles.btnPrimaryText}>Next</Text>
-          </Pressable>
-        </View>
-        <View style={{ height: 24 }} />
       </ScrollView>
+
+      <View style={styles.detailsFooter}>
+        <Pressable
+          style={[styles.detailsContinueBtn, (!draft.activity_type || (draft.occasion_type === 'other' && !draft.occasion_label?.trim())) && { opacity: 0.4 }]}
+          onPress={onNext}
+          disabled={!draft.activity_type || (draft.occasion_type === 'other' && !draft.occasion_label?.trim())}
+        >
+          <Text style={styles.detailsContinueBtnText}>Continue</Text>
+        </Pressable>
+        <Pressable style={{ alignItems: 'center', marginTop: 12 }} onPress={onBack}>
+          <Text style={{ fontSize: 13, color: T.muted }}>Cancel</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -2147,24 +2485,36 @@ const COMPARE_ACTIVITY_COLORS: Record<string, string> = {
   other:         '#8B7762',
 };
 
-function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWorse, onTooHard, onBack }: {
-  newVenueName: string; newActivityType: string; opponent: Visit;
+function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent, onBetter, onWorse, onTooHard, onBack }: {
+  newVenueName: string; newVenueAddress?: string; newActivityType: string; opponent: Visit;
   onBetter: () => void; onWorse: () => void; onTooHard: () => void; onBack: () => void;
 }) {
   const thisScaleAnim = useRef(new Animated.Value(1)).current;
   const thatScaleAnim = useRef(new Animated.Value(1)).current;
   const [thisBorder, setThisBorder] = useState(false);
   const [thatBorder, setThatBorder] = useState(false);
+  const isAnimating = useRef(false);
+
+  // Unlock clicks only once the new opponent has loaded
+  useEffect(() => {
+    isAnimating.current = false;
+    thisScaleAnim.setValue(1);
+    thatScaleAnim.setValue(1);
+    setThisBorder(false);
+    setThatBorder(false);
+  }, [opponent.id]);
 
   function animateTap(
     anim: Animated.Value,
     setBorder: (v: boolean) => void,
     onDone: () => void,
   ) {
+    if (isAnimating.current) return;
+    isAnimating.current = true;
     setBorder(true);
     Animated.sequence([
-      Animated.timing(anim, { toValue: 1.06, duration: 80, useNativeDriver: true }),
-      Animated.spring(anim, { toValue: 1.03, friction: 5, tension: 200, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1.05, duration: 55, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1.0, duration: 180, useNativeDriver: true }),
     ]).start(() => {
       setBorder(false);
       onDone();
@@ -2197,6 +2547,9 @@ function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWors
             </View>
             <View style={styles.compareCardBody}>
               <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
+              {!!newVenueAddress && (
+                <Text style={styles.compareCardAddress} numberOfLines={1}>{newVenueAddress.replace(/\n/g, ', ')}</Text>
+              )}
               <Text style={styles.compareCardLabel}>This one</Text>
             </View>
           </Pressable>
@@ -2217,6 +2570,9 @@ function CompareStep({ newVenueName, newActivityType, opponent, onBetter, onWors
             </View>
             <View style={styles.compareCardBody}>
               <Text style={styles.compareCardName} numberOfLines={2}>{opponent.venue_name}</Text>
+              {!!opponent.address && (
+                <Text style={styles.compareCardAddress} numberOfLines={1}>{opponent.address.replace(/\n/g, ', ')}</Text>
+              )}
               <Text style={styles.compareCardLabel}>That one</Text>
             </View>
           </Pressable>
@@ -2266,21 +2622,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25, shadowRadius: 4,
   },
   pinScore: { fontSize: 12, fontWeight: '800' },
-  pinLabel: {
+  // Wrapper spans the badge height (top:0/bottom:0) and centers the label
+  // vertically on the pin. Fixed width gives the name room and sets where it
+  // wraps to a second line; without an explicit width an absolutely-positioned
+  // Text is constrained to the ~40px badge and truncates almost immediately.
+  pinLabelWrap: {
     position: 'absolute',
     top: 0, bottom: 0,
-    fontSize: 11, fontWeight: '700', color: '#000',
-    maxWidth: 80,
-    textAlignVertical: 'center',
+    width: 96,
+    justifyContent: 'center',
+  },
+  // left:'100%' puts the box to the pin's right (text reads away from the pin);
+  // right:'100%' puts it to the pin's left, with the text hugging the pin.
+  pinLabelWrapRight: { left: '100%', marginLeft: 5, alignItems: 'flex-start' },
+  pinLabelWrapLeft: { right: '100%', marginRight: 5, alignItems: 'flex-end' },
+  pinLabel: {
+    fontSize: 11, fontWeight: '700', color: '#000', lineHeight: 14,
     textShadowColor: 'rgba(255,255,255,0.9)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 3,
   },
-  pinLabelRight: { left: '100%', marginLeft: 5 },
-  pinLabelLeft: { right: '100%', marginRight: 5 },
 
   futurePinBadge: {
-    width: 26, height: 26, borderRadius: 13,
+    // Match pinBadge dimensions (minWidth 40, height 26, paddingHorizontal 7) so the venue
+    // name label sits at the same distance from the anchor as on been-to pins.
+    minWidth: 40, height: 26, borderRadius: 13,
+    paddingHorizontal: 7,
     backgroundColor: 'rgba(88,86,214,0.12)',
     borderWidth: 2, borderColor: '#5856d6',
     alignItems: 'center', justifyContent: 'center',
@@ -2311,20 +2678,44 @@ const styles = StyleSheet.create({
   clusterText: { fontSize: 13, fontWeight: '800', color: '#000' },
 
   filterRow: {
-    position: 'absolute', top: 56, left: 0, right: 0,
+    position: 'absolute', top: 76, left: 0, right: 0,
     paddingHorizontal: 16, gap: 8,
   },
-  filterPillsWrap: {
+  filterTabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 12,
     alignSelf: 'stretch',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 6,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  filterTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  filterTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.muted,
+  },
+  filterTabTextActive: {
+    color: T.primary,
+  },
+  filterTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    height: 2,
+    backgroundColor: T.primary,
+    borderRadius: 1,
   },
   filterBtnRow: {
     alignSelf: 'flex-start',
-  },
-  filterPillsShadow: {
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12, shadowRadius: 6,
-    backgroundColor: '#fff',
-    borderColor: 'rgba(0,0,0,0.2)',
   },
 
   mapFilterBtn: {
@@ -2423,6 +2814,61 @@ const styles = StyleSheet.create({
   dotDone: { backgroundColor: '#c9b89e' },
 
   detailsScroll: { flex: 1 },
+  detailsSectionLabel: {
+    fontSize: 11.5, fontWeight: '700', letterSpacing: 1,
+    textTransform: 'uppercase', color: T.muted, marginBottom: 9,
+  },
+  detailsCard: {
+    backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
+    borderRadius: 16, paddingHorizontal: 16, marginBottom: 16,
+  },
+  pickerRowHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 15, paddingHorizontal: 4,
+  },
+  pickerRowIconSlot: { width: 22, alignItems: 'center' },
+  pickerRowLabel: { flex: 1, fontSize: 16, color: T.primary },
+  pickerRowValue: { fontSize: 16, fontWeight: '700', color: T.accent },
+  pickerRowAdd: { fontSize: 15, color: T.placeholder },
+  pickerRowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border },
+  pickerRowBody: { paddingHorizontal: 4, paddingBottom: 16 },
+  detailsQuickBtn: {
+    flex: 1, paddingVertical: 11, paddingHorizontal: 4,
+    borderRadius: 11, borderWidth: 1.5, borderColor: T.border,
+    backgroundColor: T.inputBg, alignItems: 'center',
+  },
+  detailsQuickBtnSelected: { backgroundColor: T.accent, borderColor: T.accent },
+  detailsQuickBtnText: { fontSize: 15, fontWeight: '600', color: T.muted },
+  detailsQuickBtnTextSelected: { fontWeight: '700', color: '#fff' },
+  detailsPhotoThumb: { width: 78, height: 78, borderRadius: 13, overflow: 'hidden' },
+  detailsPhotoAdd: {
+    width: 78, height: 78, borderRadius: 13,
+    backgroundColor: T.inputBg, borderWidth: 1.5, borderColor: T.border,
+    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 4,
+  },
+  detailsPhotoAddLabel: { fontSize: 10.5, fontWeight: '600', color: T.muted },
+  segTrack: {
+    position: 'relative', flexDirection: 'row',
+    backgroundColor: T.inputBg, borderWidth: 1, borderColor: T.border,
+    borderRadius: 999, padding: 5,
+  },
+  segPill: {
+    position: 'absolute', top: 5, bottom: 5, left: 5,
+    backgroundColor: T.accent, borderRadius: 999,
+    shadowColor: T.accent, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 6, elevation: 3,
+  },
+  segOption: { flex: 1, paddingVertical: 11, paddingHorizontal: 2, alignItems: 'center', zIndex: 1 },
+  segOptionText: { fontSize: 13, fontWeight: '600', color: T.muted },
+  segOptionTextSelected: { fontWeight: '700', color: '#fff' },
+  detailsFooter: {
+    paddingHorizontal: 22, paddingTop: 12, paddingBottom: 26,
+    backgroundColor: T.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: T.border,
+  },
+  detailsContinueBtn: {
+    backgroundColor: T.accent, borderRadius: 999, paddingVertical: 16, alignItems: 'center',
+  },
+  detailsContinueBtnText: { fontSize: 17, fontWeight: '700', color: '#fff' },
   stepContainer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
   stepTitle: { fontSize: 18, fontWeight: '400', color: T.primary, textAlign: 'center', fontFamily: 'Fraunces-Regular', },
   stepSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginTop: 8, marginBottom: 6 },
@@ -2437,12 +2883,17 @@ const styles = StyleSheet.create({
   modeCardTitle: { fontSize: 15, fontWeight: '700', color: T.primary },
   modeCardSub: { fontSize: 12, color: T.muted, marginTop: 2 },
 
-  pinFallbackRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginTop: 12, paddingHorizontal: 2,
+  cardBackBtn: { position: 'absolute', top: 16, left: 24, zIndex: 1 },
+  cardBackBtnText: { fontSize: 13, color: T.muted },
+  orDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 16 },
+  orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: T.border },
+  orText: { fontSize: 12, color: T.muted, fontWeight: '500' },
+  pinDropBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: T.border, borderRadius: 12,
+    paddingVertical: 14, backgroundColor: T.card,
   },
-  pinFallbackBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  pinFallbackText: { fontSize: 13, color: T.accent },
+  pinDropBtnText: { fontSize: 15, fontWeight: '600', color: T.primary },
 
   circleRow: { flexDirection: 'row', justifyContent: 'space-between' },
   circleBtn: { alignItems: 'center', flex: 1 },
@@ -2450,7 +2901,6 @@ const styles = StyleSheet.create({
   circleBtnLabel: { fontSize: 13, fontWeight: '600', color: T.primary, textAlign: 'center' },
   circleBtnSub: { fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 2 },
 
-  sectionLabel: { fontSize: 12, fontWeight: '600', color: T.muted, marginBottom: 7, textTransform: 'uppercase', letterSpacing: 0.5 },
   photoScroll: { marginBottom: 12, marginHorizontal: -24 },
   photoScrollContent: { paddingHorizontal: 24, alignItems: 'center' },
   photoThumbWrap: {
@@ -2477,23 +2927,14 @@ const styles = StyleSheet.create({
   photoAddLabel: { fontSize: 10, color: T.muted, fontWeight: '500' },
 
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  occasionRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  occasionBtn: {
-    flex: 1, paddingVertical: 14, alignItems: 'center', justifyContent: 'center',
-    borderRadius: 12, borderWidth: 1.5, borderColor: T.border, backgroundColor: T.inputBg, gap: 4,
-  },
-  occasionBtnSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
-  occasionLabel: { fontSize: 14, fontWeight: '600', color: T.primary },
-  occasionLabelSelected: { color: T.accent },
   chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: T.card, borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: T.card, borderRadius: 999,
+    paddingHorizontal: 14, paddingVertical: 8,
     borderWidth: 1.5, borderColor: T.border,
   },
-  chipSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
-  chipLabel: { fontSize: 13, fontWeight: '600', color: T.primary },
-  chipLabelSelected: { color: T.accent },
+  chipSelected: { backgroundColor: T.accent, borderColor: T.accent },
+  chipLabel: { fontSize: 14, fontWeight: '600', color: T.primary },
+  chipLabelSelected: { color: '#fff' },
 
   priceRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   priceBtn: {
@@ -2506,11 +2947,11 @@ const styles = StyleSheet.create({
   priceBtnTextSelected: { color: T.accent },
 
   input: {
-    backgroundColor: T.inputBg, borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: T.inputBg, borderRadius: 999,
+    paddingHorizontal: 16, paddingVertical: 12,
     fontSize: 15, color: T.primary, marginBottom: 10,
   },
-  inputMultiline: { minHeight: 64, textAlignVertical: 'top' },
+  inputMultiline: { minHeight: 64, textAlignVertical: 'top', borderRadius: 24 },
 
   triageRow: { flexDirection: 'row', gap: 12 },
   triageBtn: {
@@ -2542,6 +2983,7 @@ const styles = StyleSheet.create({
   compareRatingPillText: { fontSize: 12, fontWeight: '800' },
   compareCardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
   compareCardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
+  compareCardAddress: { fontSize: 10, color: T.muted, fontWeight: '400', marginTop: 2, lineHeight: 13 },
   compareCardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
   compareVs: {
     width: 40, height: 40, borderRadius: 20,

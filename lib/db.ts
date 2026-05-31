@@ -28,7 +28,7 @@ export async function initDb(): Promise<void> {
       rank_order    REAL NOT NULL DEFAULT 0,
       notes         TEXT,
       activity_type TEXT NOT NULL DEFAULT 'other',
-      price         INTEGER NOT NULL DEFAULT 2,
+      price         INTEGER,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -129,6 +129,9 @@ export async function initDb(): Promise<void> {
     // Default remaining visits to 'romantic'
     db.runSync(`UPDATE visits SET occasion_type = 'romantic' WHERE occasion_type IS NULL`);
   }
+  if (!cols.includes('occasion_label')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN occasion_label TEXT`);
+  }
 
   // Rename legacy 'drinks' activity_type → 'bars' (idempotent)
   db.runSync(`UPDATE visits SET activity_type = 'bars' WHERE activity_type = 'drinks'`);
@@ -163,6 +166,75 @@ export async function initDb(): Promise<void> {
     db.runSync(`ALTER TABLE future_spots ADD COLUMN address TEXT`);
   }
   }); // end withTransactionSync
+
+  // Repair broken stack_visits schema: SQLite 3.26+ rewrites FK references on rename,
+  // so stack_visits may still point at visits_pre_nullable_price(id) if this migration
+  // ran without legacy_alter_table. Recreate stack_visits with the correct reference.
+  const stackVisitsFkTarget = db.getAllSync<{ table: string }>(
+    `PRAGMA foreign_key_list(stack_visits)`
+  ).find(r => r.table === 'visits_pre_nullable_price');
+  if (stackVisitsFkTarget) {
+    db.runSync(`PRAGMA foreign_keys = OFF`);
+    db.runSync(`PRAGMA legacy_alter_table = ON`);
+    db.runSync(`ALTER TABLE stack_visits RENAME TO stack_visits_fk_broken`);
+    db.runSync(`CREATE TABLE stack_visits (
+      stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+      visit_id TEXT NOT NULL REFERENCES visits(id),
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (stack_id, visit_id)
+    )`);
+    db.runSync(`INSERT INTO stack_visits SELECT * FROM stack_visits_fk_broken`);
+    db.runSync(`DROP TABLE stack_visits_fk_broken`);
+    db.runSync(`PRAGMA legacy_alter_table = OFF`);
+    db.runSync(`PRAGMA foreign_keys = ON`);
+  }
+
+  // Migrate existing installs: make price column nullable (SQLite requires table recreation)
+  const priceColInfo = db.getAllSync<any>(`PRAGMA table_info(visits)`)
+    .find((c: any) => c.name === 'price');
+  if (priceColInfo?.notnull === 1) {
+    db.runSync(`PRAGMA foreign_keys = OFF`);
+    // Prevent SQLite 3.26+ from rewriting foreign key references in stack_visits
+    // when we rename visits. Without this, stack_visits ends up referencing
+    // visits_pre_nullable_price(id) which no longer exists after the migration,
+    // causing "no such table" errors on every subsequent delete.
+    db.runSync(`PRAGMA legacy_alter_table = ON`);
+    db.runSync(`ALTER TABLE visits RENAME TO visits_pre_nullable_price`);
+    db.runSync(`CREATE TABLE visits (
+      id TEXT PRIMARY KEY,
+      venue_name TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      visited_at TEXT NOT NULL,
+      rating INTEGER NOT NULL DEFAULT 0,
+      rank_order REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      activity_type TEXT NOT NULL DEFAULT 'other',
+      price INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      photos TEXT,
+      triage TEXT NOT NULL DEFAULT 'okay',
+      date_type TEXT,
+      is_seed INTEGER NOT NULL DEFAULT 0,
+      canonical_place_id TEXT,
+      canonical_name TEXT,
+      canonical_lat REAL,
+      canonical_lng REAL,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      address TEXT,
+      occasion_type TEXT,
+      occasion_label TEXT
+    )`);
+    db.runSync(`INSERT INTO visits SELECT
+      id, venue_name, lat, lng, visited_at, rating, rank_order, notes,
+      activity_type, price, created_at, photos, triage, date_type, is_seed,
+      canonical_place_id, canonical_name, canonical_lat, canonical_lng,
+      resolution_status, address, occasion_type, occasion_label
+    FROM visits_pre_nullable_price`);
+    db.runSync(`DROP TABLE visits_pre_nullable_price`);
+    db.runSync(`PRAGMA legacy_alter_table = OFF`);
+    db.runSync(`PRAGMA foreign_keys = ON`);
+  }
 }
 
 export async function clearUserData(): Promise<void> {

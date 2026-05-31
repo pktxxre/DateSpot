@@ -1,7 +1,7 @@
 import { Stack, router, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef, useState } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { useFonts } from 'expo-font';
@@ -92,19 +92,33 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Hide native splash immediately so our branded loading screen shows
+  useEffect(() => { SplashScreen.hideAsync().catch(() => {}); }, []);
+
   useEffect(() => {
     if (!dbReady || !fontsLoaded || !authChecked) return;
-    SplashScreen.hideAsync();
     if (!session) {
       router.replace('/auth');
     }
   }, [dbReady, fontsLoaded, authChecked]);
 
-  if (!dbReady || !fontsLoaded || !authChecked) return null;
+  if (!dbReady || !fontsLoaded || !authChecked) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: '#FAF7F2', alignItems: 'center', justifyContent: 'center' }}>
+          {fontsLoaded && (
+            <Text style={{ fontFamily: 'Fraunces-Regular', fontSize: 48, color: '#1a1a1a', letterSpacing: -0.5 }}>
+              DateSpot
+            </Text>
+          )}
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <Stack>
+      <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="auth/index" options={{ headerShown: false }} />
         <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
@@ -115,7 +129,6 @@ export default function RootLayout() {
         <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
         <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="inbox" options={{ headerShown: false }} />
-        <Stack.Screen name="friends" options={{ headerShown: false }} />
         <Stack.Screen name="follow-list" options={{ headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="user-spots" options={{ headerShown: false }} />

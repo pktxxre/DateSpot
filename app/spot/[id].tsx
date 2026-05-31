@@ -3,7 +3,8 @@ import {
   View, Text, StyleSheet, Pressable, Modal, Image,
   Alert, ScrollView, Dimensions, TextInput, Share, LayoutAnimation, Animated,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
+import { MAP_STYLE_URL, latitudeDeltaToZoom } from '@/lib/mapStyle';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -467,7 +468,7 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
   const heroBg = ACTIVITY_COLORS_HERO[fv.activity_type] ?? ACTIVITY_COLORS_HERO.other;
   const dateStr = fv.visited_at ? friendlyDate(fv.visited_at) : '';
   const info = ACTIVITY_TYPES.find(a => a.value === fv.activity_type);
-  const priceLabel = PRICE_LABELS[fv.price as Price];
+  const priceLabel = fv.price != null ? PRICE_LABELS[fv.price as Price] : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
@@ -508,19 +509,26 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
             ) : null}
             <Text style={sd.sectionLabel}>WHERE IT IS</Text>
             <View style={sd.mapWrap}>
-              <MapView
+              <Map
                 style={StyleSheet.absoluteFill}
-                region={{ latitude: fv.lat, longitude: fv.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-                scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-                pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-                showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+                mapStyle={MAP_STYLE_URL}
+                dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
+                doubleTapZoom={false}
+                logo={false} attribution={false} compass={false}
+                pointerEvents="none"
               >
-                <Marker coordinate={{ latitude: fv.lat, longitude: fv.lng }}>
+                <Camera
+                  initialViewState={{
+                    center: [fv.lng, fv.lat],
+                    zoom: latitudeDeltaToZoom(0.006),
+                  }}
+                />
+                <Marker id={`fv-${fv.id}`} lngLat={[fv.lng, fv.lat]}>
                   <View style={[styles.pin, { borderColor: color }]}>
                     <Text style={[styles.pinText, { color }]}>{fv.rating.toFixed(1)}</Text>
                   </View>
                 </Marker>
-              </MapView>
+              </Map>
             </View>
             {fv.address ? <Text style={sd.addressText}>{fv.address}</Text> : null}
             <View style={sd.divider} />
@@ -533,7 +541,7 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
   );
 }
 
-function SpotDetailSkeleton() {
+function SpotDetailSkeleton({ isVisit }: { isVisit: boolean }) {
   const { shimmer, screenW } = useShimmer();
   const sk = (w: number | `${number}%`, h: number, r?: number, style?: object) => (
     <SkBox shimmer={shimmer} w={w} h={h} r={r ?? 4} style={style} screenW={screenW} />
@@ -542,44 +550,52 @@ function SpotDetailSkeleton() {
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Sticky nav */}
+      {/* Real nav — already loaded so no skeleton flash */}
       <SafeAreaView style={sd.stickyNav} edges={['top']}>
         <View style={sd.stickyNavInner}>
-          {sk(22, 22, 4)}
+          <Pressable onPress={() => router.back()} hitSlop={8} style={sd.navBtnCompact}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
+          </Pressable>
           <View style={{ flex: 1 }} />
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {sk(20, 20, 4)}
-            {sk(18, 18, 4)}
-            {sk(18, 18, 4)}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            {sk(34, 34, 17)}
+            {isVisit && sk(34, 34, 17)}
+            {isVisit && sk(34, 34, 17)}
           </View>
         </View>
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Map hero */}
-        <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed', justifyContent: 'flex-end' }}>
-          <View style={{ paddingHorizontal: 16, paddingBottom: 36, flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-            <View style={{ flex: 1, gap: 4 }}>
-              {sk('75%', 46, 4)}
-              {sk('85%', 46, 4)}
-              {sk('50%', 46, 4)}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8, paddingBottom: 4 }}>
-              {sk(104, 28, 20)}
-              {sk(32, 32, 16)}
-            </View>
+        {/* Map hero — plain gray, matching real screen */}
+        <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+          {/* View Map pill placeholder */}
+          <View style={{ position: 'absolute', bottom: 32, right: 12 }}>
+            {sk(90, 30, 20)}
           </View>
         </View>
 
-        {/* White card */}
+        {/* White card — structure matches beliCardContent exactly */}
         <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24, paddingHorizontal: 20, paddingTop: 20 }}>
-          {sk('50%', 13, 3, { marginBottom: 4 })}
-          {sk('65%', 13, 3)}
+          {/* heroName: lineHeight 50, marginBottom 6 */}
+          {sk('78%', 50, 4, { marginBottom: 4 })}
+          {sk('52%', 50, 4, { marginBottom: 6 })}
+
+          {/* Tags + action buttons row */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            {sk('40%', 13, 3)}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {sk(100, 26, 20)}
+              {sk(32, 32, 16)}
+            </View>
+          </View>
+
+          {/* Address */}
+          {sk('65%', 13, 3, { marginBottom: 0 })}
 
           <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginVertical: 20 }} />
 
           {/* SCORES */}
-          {sk(52, 10, 2, { marginBottom: 8 })}
+          {sk(52, 10, 2, { marginBottom: 12 })}
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 4 }}>
             <View style={{ flex: 1, borderRadius: 16, borderWidth: 1, borderColor: T.border, padding: 16, gap: 3 }}>
               {sk(40, 32, 3)}
@@ -664,7 +680,7 @@ export default function SpotDetailScreen() {
     }
   }, [id]));
 
-  if (loading) return <SpotDetailSkeleton />;
+  if (loading) return <SpotDetailSkeleton isVisit={!!getVisitById(id)} />;
 
   if (!visit && seedSpot) {
     return <SeedSpotDetail spot={seedSpot} />;
@@ -680,10 +696,13 @@ export default function SpotDetailScreen() {
   const occasionInfo = OCCASION_TYPES.find(a => a.value === visit.occasion_type);
   const color = ratingColor(visit.rating);
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const priceLabel = PRICE_LABELS[visit.price as Price];
+  const priceLabel = visit.price != null ? PRICE_LABELS[visit.price] : null;
   const allSorted = getAllVisits().sort((a, b) => b.rating - a.rating);
   const rank = allSorted.findIndex(v => v.id === visit.id) + 1;
-  const tagParts = [occasionInfo?.label, info?.label].filter(Boolean);
+  const occasionDisplay = visit.occasion_type === 'other' && visit.occasion_label
+    ? `Other (${visit.occasion_label})`
+    : occasionInfo?.label;
+  const tagParts = [occasionDisplay, info?.label].filter(Boolean);
 
   async function handleShare() {
     try {
@@ -701,8 +720,12 @@ export default function SpotDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: () => {
-          deleteVisit(id);
-          router.back();
+          try {
+            deleteVisit(id);
+            router.back();
+          } catch {
+            Alert.alert('Error', 'Could not remove this spot. Please try again.');
+          }
         },
       },
     ]);
@@ -724,7 +747,7 @@ export default function SpotDetailScreen() {
             <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
             <Pressable onPress={handleShare} hitSlop={8} style={sd.navBtnCompact}>
               <Ionicons name="share-outline" size={20} color={T.primary} />
             </Pressable>
@@ -741,14 +764,21 @@ export default function SpotDetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
       {/* Map hero — scrolls with content */}
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
-        <MapView
+        <Map
           style={StyleSheet.absoluteFill}
-          region={{ latitude: visit.lat, longitude: visit.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
-          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+          mapStyle={MAP_STYLE_URL}
+          dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
+          doubleTapZoom={false}
+          logo={false} attribution={false} compass={false}
+          pointerEvents="none"
         >
-        </MapView>
+          <Camera
+            initialViewState={{
+              center: [visit.lng, visit.lat],
+              zoom: latitudeDeltaToZoom(0.015),
+            }}
+          />
+        </Map>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
         <View pointerEvents="none" style={sd.mapPinOverlay}>
           <View style={[styles.pin, { borderColor: color }]}>
@@ -1008,14 +1038,21 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
       <ScrollView showsVerticalScrollIndicator={false}>
       {/* Map hero — scrolls with content */}
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
-        <MapView
+        <Map
           style={StyleSheet.absoluteFill}
-          region={{ latitude: spot.lat, longitude: spot.lng, latitudeDelta: 0.015, longitudeDelta: 0.015 }}
-          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+          mapStyle={MAP_STYLE_URL}
+          dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
+          doubleTapZoom={false}
+          logo={false} attribution={false} compass={false}
+          pointerEvents="none"
         >
-        </MapView>
+          <Camera
+            initialViewState={{
+              center: [spot.lng, spot.lat],
+              zoom: latitudeDeltaToZoom(0.015),
+            }}
+          />
+        </Map>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
         <View pointerEvents="none" style={sd.mapPinOverlay}>
           <View style={[styles.pin, { borderColor: color }]}>
@@ -1516,7 +1553,7 @@ const sd = StyleSheet.create({
   stickyNavTitleWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
-    paddingHorizontal: 92,
+    paddingHorizontal: 116,
     overflow: 'hidden',
   },
   stickyNavTitle: {
@@ -1549,9 +1586,9 @@ const sd = StyleSheet.create({
     justifyContent: 'center',
   },
   navBtnCompact: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1562,6 +1599,7 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
   const [notes, setNotes] = useState(visit.notes ?? '');
   const [activity, setActivity] = useState<ActivityType | null>(visit.activity_type);
   const [occasion, setOccasion] = useState<OccasionType | null>(visit.occasion_type);
+  const [occasionLabel, setOccasionLabel] = useState(visit.occasion_label ?? '');
   const [price, setPrice] = useState<Price | undefined>(visit.price);
   const [photos, setPhotos] = useState<string[]>(visit.photos ?? []);
   const [uploading, setUploading] = useState(false);
@@ -1609,6 +1647,7 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
       notes: notes.trim() || null,
       activity_type: activity ?? visit.activity_type,
       occasion_type: occasion ?? visit.occasion_type,
+      occasion_label: (occasion ?? visit.occasion_type) === 'other' ? (occasionLabel.trim() || null) : null,
       price: price ?? visit.price,
       photos,
     });
@@ -1664,12 +1703,22 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
             {OCCASION_TYPES.map(a => {
               const sel = occasion === a.value;
               return (
-                <Pressable key={a.value} style={[e.occasionBtn, sel && e.occasionBtnSel]} onPress={() => setOccasion(sel ? null : a.value)}>
+                <Pressable key={a.value} style={[e.occasionBtn, sel && e.occasionBtnSel]} onPress={() => { setOccasion(sel ? null : a.value); if (a.value !== 'other') setOccasionLabel(''); }}>
                   <Text style={[e.occasionLabel, sel && e.occasionLabelSel]}>{a.label}</Text>
                 </Pressable>
               );
             })}
           </View>
+          {occasion === 'other' && (
+            <TextInput
+              style={[e.input, { marginTop: 10 }]}
+              value={occasionLabel}
+              onChangeText={setOccasionLabel}
+              placeholder="Describe the occasion…"
+              placeholderTextColor={T.placeholder}
+              returnKeyType="done"
+            />
+          )}
 
           <Text style={e.sectionLabel}>Price range</Text>
           <View style={e.priceRow}>

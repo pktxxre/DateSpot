@@ -2,7 +2,8 @@ import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Alert, ScrollView, Share,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import { Map, Camera } from '@maplibre/maplibre-react-native';
+import { MAP_STYLE_URL, latitudeDeltaToZoom } from '@/lib/mapStyle';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,28 +26,37 @@ function FutureSpotDetailSkeleton() {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ backgroundColor: FUTURE_BLUE, paddingTop: 96, paddingBottom: 10 }}>
-        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-          {sk(100, 11, 3, { marginBottom: 6 })}
-          {sk(200, 26, 4, { marginBottom: 4 })}
-          {sk(120, 13, 3)}
+
+      {/* Real nav — already loaded */}
+      <SafeAreaView style={styles.stickyNav} edges={['top']}>
+        <View style={styles.stickyNavInner}>
+          <Pressable onPress={() => router.back()} hitSlop={8} style={styles.navBtnCompact}>
+            <Ionicons name="chevron-back" size={22} color={T.primary} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            {sk(34, 34, 17)}
+            {sk(34, 34, 17)}
+            {sk(34, 34, 17)}
+          </View>
         </View>
-      </View>
-      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          {sk(120, 30, 20)}
-          {sk(38, 38, 19)}
+      </SafeAreaView>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Map hero */}
+        <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }} />
+
+        {/* White card */}
+        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24, paddingHorizontal: 20, paddingTop: 20 }}>
+          {sk('68%', 28, 4, { marginBottom: 16 })}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+            {sk(110, 44, 12)}
+            {sk(110, 44, 12)}
+          </View>
+          {sk('55%', 13, 3, { marginBottom: 8 })}
+          {sk('75%', 13, 3, { marginBottom: 20 })}
         </View>
-        <View style={{ height: 20 }} />
-        {sk(38, 10, 3, { marginBottom: 10 })}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-          {sk(64, 28, 20)}
-          {sk(80, 28, 20)}
-        </View>
-        {sk(70, 10, 3, { marginBottom: 10 })}
-        {sk('100%', 140, 14)}
-        {sk(180, 12, 3, { marginTop: 8, marginLeft: 2 })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -96,8 +106,12 @@ export default function FutureSpotDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: () => {
-          deleteFutureSpot(id);
-          router.back();
+          try {
+            deleteFutureSpot(id);
+            router.back();
+          } catch {
+            Alert.alert('Error', 'Could not remove this spot. Please try again.');
+          }
         },
       },
     ]);
@@ -123,41 +137,49 @@ export default function FutureSpotDetailScreen() {
             <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={handleShare} hitSlop={12} style={styles.floatingNavBtn}>
-            <Ionicons name="share-outline" size={20} color={T.primary} />
-          </Pressable>
-          <Pressable onPress={handleEdit} hitSlop={12} style={styles.floatingNavBtn}>
-            <Ionicons name="pencil-outline" size={18} color={T.primary} />
-          </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={12} style={styles.floatingNavBtn}>
-            <Ionicons name="trash-outline" size={18} color={T.primary} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <Pressable onPress={handleShare} hitSlop={8} style={styles.navBtnCompact}>
+              <Ionicons name="share-outline" size={20} color={T.primary} />
+            </Pressable>
+            <Pressable onPress={handleEdit} hitSlop={8} style={styles.navBtnCompact}>
+              <Ionicons name="pencil-outline" size={18} color={T.primary} />
+            </Pressable>
+            <Pressable onPress={handleDelete} hitSlop={8} style={styles.navBtnCompact}>
+              <Ionicons name="trash-outline" size={18} color={T.primary} />
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false}>
       {/* Map hero — scrolls with content */}
       <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
-        <MapView
+        <Map
           style={StyleSheet.absoluteFill}
-          region={{ latitude: spot.lat - 0.0015, longitude: spot.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-          scrollEnabled={false} zoomEnabled={false} rotateEnabled={false}
-          pitchEnabled={false} showsUserLocation={false} showsPointsOfInterest={false}
-          showsCompass={false} showsScale={false} mapType="standard" pointerEvents="none"
+          mapStyle={MAP_STYLE_URL}
+          dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
+          doubleTapZoom={false}
+          logo={false} attribution={false} compass={false}
+          pointerEvents="none"
         >
-          <Marker coordinate={{ latitude: spot.lat, longitude: spot.lng }}>
-            <View style={styles.pin}>
-              <Ionicons name="bookmark" size={14} color="#fff" />
-            </View>
-          </Marker>
-        </MapView>
+          <Camera
+            initialViewState={{
+              center: [spot.lng, spot.lat],
+              zoom: latitudeDeltaToZoom(0.015),
+            }}
+          />
+        </Map>
         <View pointerEvents="none" style={styles.mapSolidOverlay} />
-        <View style={styles.heroOverlay} pointerEvents="none">
-          <Text style={styles.heroName}>{spot.venue_name}</Text>
+        <View pointerEvents="none" style={styles.mapPinOverlay}>
+          <View style={styles.pin}>
+            <Ionicons name="bookmark" size={14} color="#fff" />
+          </View>
         </View>
       </View>
 
       <View style={styles.beliCardContent}>
+        {/* Venue name — inside card, matching top-spot layout */}
+        <Text style={styles.heroName} numberOfLines={3}>{spot.venue_name}</Text>
         {/* Want-to-go badge + log button */}
         <View style={styles.beliTopRow}>
           <View style={styles.wantToGoTag}>
@@ -201,7 +223,30 @@ export default function FutureSpotDetailScreen() {
           <ScrollView contentContainerStyle={styles.editContent}>
             <Text style={styles.editTitle}>Save for later</Text>
             <Text style={styles.editSubtitle}>{spot.venue_name}</Text>
-            <Text style={styles.editSectionLabel}>Category</Text>
+
+            <View style={styles.editSectionRow}>
+              <Text style={styles.editSectionLabel}>WHAT KIND OF DATE?</Text>
+              <Text style={styles.editSectionAsterisk}> *</Text>
+            </View>
+            <View style={styles.occasionTrack}>
+              {OCCASION_TYPES.map(o => {
+                const selected = draftOccasion === o.value;
+                return (
+                  <Pressable
+                    key={o.value}
+                    style={[styles.occasionBtn, selected && styles.occasionBtnSelected]}
+                    onPress={() => setDraftOccasion(selected ? null : o.value)}
+                  >
+                    <Text style={[styles.occasionLabel, selected && styles.occasionLabelSelected]}>{o.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.editSectionRow}>
+              <Text style={styles.editSectionLabel}>CATEGORY</Text>
+              <Text style={styles.editSectionAsterisk}> *</Text>
+            </View>
             <View style={styles.chipWrap}>
               {ACTIVITY_TYPES.map(a => {
                 const selected = draftActivity === a.value;
@@ -216,21 +261,7 @@ export default function FutureSpotDetailScreen() {
                 );
               })}
             </View>
-            <Text style={styles.editSectionLabel}>What kind of date?</Text>
-            <View style={styles.occasionRow}>
-              {OCCASION_TYPES.map(o => {
-                const selected = draftOccasion === o.value;
-                return (
-                  <Pressable
-                    key={o.value}
-                    style={[styles.occasionBtn, selected && styles.occasionBtnSelected]}
-                    onPress={() => setDraftOccasion(selected ? null : o.value)}
-                  >
-                    <Text style={[styles.occasionLabel, selected && styles.occasionLabelSelected]}>{o.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+
             <View style={styles.btnRow}>
               <Pressable style={styles.btnSecondary} onPress={() => setEditingTypes(false)}>
                 <Text style={styles.btnSecondaryText}>Cancel</Text>
@@ -261,7 +292,7 @@ const styles = StyleSheet.create({
   stickyNavTitleWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
-    paddingHorizontal: 92,
+    paddingHorizontal: 116,
     overflow: 'hidden',
   },
   stickyNavTitle: {
@@ -283,12 +314,16 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
+  navBtnCompact: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   hero: { paddingTop: 96, paddingBottom: 10 },
   heroContent: { paddingHorizontal: 20, paddingTop: 20 },
   heroName: {
     fontSize: 45, fontWeight: '700', color: '#000',
-    fontFamily: 'Fraunces-Regular', lineHeight: 50,
+    fontFamily: 'Fraunces-Regular', lineHeight: 50, marginBottom: 12,
   },
   heroSub: { fontSize: 13, color: 'rgba(255,255,255,0.85)' },
 
@@ -342,25 +377,30 @@ const styles = StyleSheet.create({
   editContent: { padding: 24, paddingTop: 28 },
   editTitle: { fontSize: 18, fontWeight: '700', color: T.primary, textAlign: 'center', marginBottom: 6 },
   editSubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 28 },
-  editSectionLabel: { fontSize: 12, fontWeight: '600', color: T.muted, marginBottom: 7, textTransform: 'uppercase', letterSpacing: 0.5 },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  editSectionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  editSectionLabel: { fontSize: 11, fontWeight: '700', color: T.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
+  editSectionAsterisk: { fontSize: 11, fontWeight: '700', color: T.accent },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: T.card, borderRadius: 20,
+    backgroundColor: T.bg, borderRadius: 20,
     paddingHorizontal: 14, paddingVertical: 9,
     borderWidth: 1.5, borderColor: T.border,
   },
-  chipSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
+  chipSelected: { backgroundColor: T.accent, borderColor: T.accent },
   chipLabel: { fontSize: 13, fontWeight: '600', color: T.primary },
-  chipLabelSelected: { color: T.accent },
-  occasionRow: { flexDirection: 'row', gap: 8, marginBottom: 28 },
-  occasionBtn: {
-    flex: 1, paddingVertical: 14, alignItems: 'center', justifyContent: 'center',
-    borderRadius: 12, borderWidth: 1.5, borderColor: T.border, backgroundColor: T.inputBg,
+  chipLabelSelected: { color: '#fff' },
+  occasionTrack: {
+    flexDirection: 'row', backgroundColor: T.segBg,
+    borderRadius: 50, padding: 4, marginBottom: 28,
   },
-  occasionBtnSelected: { backgroundColor: T.accentTint, borderColor: T.accent },
+  occasionBtn: {
+    flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 50,
+  },
+  occasionBtnSelected: { backgroundColor: T.accent },
   occasionLabel: { fontSize: 14, fontWeight: '600', color: T.primary },
-  occasionLabelSelected: { color: T.accent },
+  occasionLabelSelected: { color: '#fff' },
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
   btnPrimary: { flex: 1, backgroundColor: 'transparent', borderRadius: 14, paddingVertical: 16, alignItems: 'center', borderWidth: 1.5, borderColor: T.accent },
   btnPrimaryText: { color: T.accent, fontSize: 16, fontWeight: '700' },
@@ -369,11 +409,12 @@ const styles = StyleSheet.create({
 
   mapSolidOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.50)',
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  heroOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 20, paddingBottom: 30,
+  mapPinOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   beliCardContent: {
     backgroundColor: '#fff',

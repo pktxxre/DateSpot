@@ -31,12 +31,13 @@ export const ACTIVITY_TYPES: { value: ActivityType; label: string }[] = [
   { value: 'other',         label: 'Other' },
 ];
 
-export type OccasionType = 'romantic' | 'friend' | 'solo';
+export type OccasionType = 'romantic' | 'friend' | 'solo' | 'other';
 
 export const OCCASION_TYPES: { value: OccasionType; label: string }[] = [
   { value: 'romantic', label: 'Romantic' },
   { value: 'friend',   label: 'Friend' },
   { value: 'solo',     label: 'Solo' },
+  { value: 'other',    label: 'Other' },
 ];
 
 export const PRICE_LABELS: Record<Price, string> = { 0: 'Free', 1: '$', 2: '$$', 3: '$$$' };
@@ -62,7 +63,8 @@ export interface Visit {
   notes: string | null;
   activity_type: ActivityType;
   occasion_type: OccasionType;
-  price: Price;
+  occasion_label: string | null;
+  price: Price | null;
   triage: Triage;
   date_type: DateType | null;
   created_at: string;
@@ -86,7 +88,8 @@ export interface NewVisit {
   notes?: string;
   activity_type: ActivityType;
   occasion_type: OccasionType;
-  price: Price;
+  occasion_label?: string;
+  price: Price | null;
   triage: Triage;
   date_type?: DateType;
   photos?: string[];
@@ -97,6 +100,7 @@ function parseRow(row: any): Visit {
     ...row,
     photos: row.photos ? JSON.parse(row.photos) : [],
     address: row.address ?? null,
+    occasion_label: row.occasion_label ?? null,
     resolution_status: (row.resolution_status as ResolutionStatus) ?? 'pending',
     canonical_place_id: row.canonical_place_id ?? null,
     canonical_name: row.canonical_name ?? null,
@@ -150,9 +154,9 @@ export function getVisitById(id: string): Visit | null {
 export function insertVisit(v: NewVisit, city?: string, skipResolution = false): void {
   const db = getDb();
   db.runSync(
-    `INSERT INTO visits (id, venue_name, lat, lng, address, visited_at, rating, rank_order, notes, activity_type, occasion_type, price, triage, date_type, photos, resolution_status)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [v.id, v.venue_name, v.lat, v.lng, v.address ?? null, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.occasion_type, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? []), skipResolution ? 'failed' : 'pending']
+    `INSERT INTO visits (id, venue_name, lat, lng, address, visited_at, rating, rank_order, notes, activity_type, occasion_type, occasion_label, price, triage, date_type, photos, resolution_status)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [v.id, v.venue_name, v.lat, v.lng, v.address ?? null, v.visited_at, v.rank_order, v.notes ?? null, v.activity_type, v.occasion_type, v.occasion_label ?? null, v.price, v.triage, v.date_type ?? null, JSON.stringify(v.photos ?? []), skipResolution ? 'failed' : 'pending']
   );
   recomputeRatings();
   deleteFutureSpotsByVenueName(v.venue_name);
@@ -186,7 +190,7 @@ export function deleteVisit(id: string): void {
 
 export function updateVisit(
   id: string,
-  updates: Partial<Pick<Visit, 'venue_name' | 'notes' | 'visited_at' | 'activity_type' | 'occasion_type' | 'price' | 'photos' | 'date_type'>>
+  updates: Partial<Pick<Visit, 'venue_name' | 'notes' | 'visited_at' | 'activity_type' | 'occasion_type' | 'occasion_label' | 'price' | 'photos' | 'date_type'>>
 ): void {
   const db = getDb();
   const fields: string[] = [];
@@ -197,6 +201,7 @@ export function updateVisit(
   if (updates.visited_at !== undefined) { fields.push('visited_at = ?'); values.push(updates.visited_at); }
   if (updates.activity_type !== undefined) { fields.push('activity_type = ?'); values.push(updates.activity_type); }
   if (updates.occasion_type !== undefined) { fields.push('occasion_type = ?'); values.push(updates.occasion_type); }
+  if (updates.occasion_label !== undefined) { fields.push('occasion_label = ?'); values.push(updates.occasion_label ?? null); }
   if (updates.price !== undefined) { fields.push('price = ?'); values.push(updates.price); }
   if (updates.photos !== undefined) { fields.push('photos = ?'); values.push(JSON.stringify(updates.photos)); }
   if (updates.date_type !== undefined) { fields.push('date_type = ?'); values.push(updates.date_type ?? null); }
