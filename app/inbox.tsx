@@ -103,7 +103,6 @@ function FriendRequestRow({
           </View>
         )}
         {status === 'loading' && <ActivityIndicator size="small" color={T.accent} style={{ marginTop: 8 }} />}
-        {status === 'accepted' && <Text style={s.statusText}>Friends now!</Text>}
         {status === 'declined' && <Text style={[s.statusText, { color: T.muted }]}>Declined</Text>}
       </View>
     </View>

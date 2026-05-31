@@ -1014,7 +1014,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         pointerEvents="none"
       >
         <Ionicons name="bookmark" size={13} color="#5856d6" />
-        <Text style={sd.savedBannerText}>Saved! Check it out on your map.</Text>
+        <Text style={sd.savedBannerText}>Saved</Text>
       </Animated.View>
 
       {/* Sticky nav — always visible */}

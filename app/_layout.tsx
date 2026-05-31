@@ -1,7 +1,7 @@
 import { Stack, router, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef, useState } from 'react';
-import { Linking, View, Text } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Image } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { useFonts } from 'expo-font';
@@ -92,49 +92,63 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Hide native splash immediately so our branded loading screen shows
-  useEffect(() => { SplashScreen.hideAsync().catch(() => {}); }, []);
+  const ready = dbReady && fontsLoaded && authChecked;
 
-  useEffect(() => {
-    if (!dbReady || !fontsLoaded || !authChecked) return;
-    if (!session) {
-      router.replace('/auth');
-    }
-  }, [dbReady, fontsLoaded, authChecked]);
+  // Hide the native splash once the JS splash screen has laid out. The JS screen
+  // shows the same splash image, so the native→JS handoff is seamless (no blank
+  // gap, no jump from full art to bare text).
+  const hideNativeSplash = useCallback(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
-  if (!dbReady || !fontsLoaded || !authChecked) {
+  // Still loading DB / fonts / auth → show the branded splash image, matching
+  // the native splash exactly.
+  if (!ready) {
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={{ flex: 1, backgroundColor: '#FAF7F2', alignItems: 'center', justifyContent: 'center' }}>
-          {fontsLoaded && (
-            <Text style={{ fontFamily: 'Fraunces-Regular', fontSize: 48, color: '#1a1a1a', letterSpacing: -0.5 }}>
-              DateSpot
-            </Text>
-          )}
-        </View>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#FAF7F2' }} onLayout={hideNativeSplash}>
+        <Image
+          source={require('../assets/images/splash.png')}
+          style={{ flex: 1, width: '100%', height: '100%' }}
+          resizeMode="contain"
+        />
       </GestureHandlerRootView>
     );
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }} onLayout={hideNativeSplash}>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/index" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="walkthrough" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ headerShown: false }} />
-        <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
-        <Stack.Screen name="spot/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="inbox" options={{ headerShown: false }} />
-        <Stack.Screen name="follow-list" options={{ headerShown: false }} />
-        <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="user-spots" options={{ headerShown: false }} />
-        <Stack.Screen name="account-details" options={{ headerShown: false }} />
-        <Stack.Screen name="change-password" options={{ headerShown: false }} />
-        <Stack.Screen name="privacy-settings" options={{ headerShown: false }} />
+        {/* Auth screens stay reachable even after signUp() sets the session,
+            so the multi-step signup flow on /auth/index isn't ejected mid-way. */}
+        <Stack.Screen name="auth/index" />
+        <Stack.Screen name="auth/signup" />
+        <Stack.Screen name="auth/login" />
+
+        {/* Everything else requires a session. When logged out these screens are
+            removed, so a cold start at "/" falls back to auth/index first — it
+            renders FIRST with no redirect and no transition. */}
+        <Stack.Protected guard={!!session}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="onboarding" />
+          <Stack.Screen name="walkthrough" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="edit-profile" />
+          <Stack.Screen name="account-details" />
+          <Stack.Screen name="change-password" />
+          <Stack.Screen name="privacy-settings" />
+          <Stack.Screen name="inbox" />
+          <Stack.Screen name="follow-list" />
+          <Stack.Screen name="user-spots" />
+          <Stack.Screen name="my-spots" />
+          <Stack.Screen name="my-future" />
+          <Stack.Screen name="my-date-nights" />
+          <Stack.Screen name="spots" />
+          <Stack.Screen name="spot/[id]" />
+          <Stack.Screen name="future/[id]" />
+          <Stack.Screen name="stack/[id]" />
+          <Stack.Screen name="tier/[tier]" />
+          <Stack.Screen name="user/[id]" />
+        </Stack.Protected>
       </Stack>
     </GestureHandlerRootView>
   );
