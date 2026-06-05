@@ -10,7 +10,8 @@ export const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY ?? '';
 //   pastel           – soft muted colors
 //   toner-v2         – high-contrast black & white
 //   streets-v2       – the original (most detailed)
-const MAP_STYLE = 'dataviz-light';
+//   streets-v2-pastel – full streets detail + place labels, soft muted tones
+const MAP_STYLE = 'streets-v2-pastel';
 
 export const MAP_STYLE_URL = `https://api.maptiler.com/maps/${MAP_STYLE}/style.json?key=${MAPTILER_KEY}`;
 

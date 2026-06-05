@@ -1282,7 +1282,7 @@ export default function MapScreen() {
         <BottomSheetView style={styles.sheetContent}>
           {step === 'mode-select' && (
             <ModeSelectStep
-              onBeenTo={() => setStep('location')}
+              onBeenTo={() => { setStep('location'); sheetRef.current?.snapToIndex(2); }}
               onWantToGo={() => { setMapFilter('want'); setStep('future-pin'); }}
               onCreateStack={() => {
                 const loggedCount = getAllVisits().filter(v => !(v as any).is_seed).length;
@@ -1304,7 +1304,7 @@ export default function MapScreen() {
             <LocationStep
               onDropPin={handleDropPin}
               onSelect={handleSearchSelect}
-              onBack={() => setStep('mode-select')}
+              onBack={() => { setStep('mode-select'); sheetRef.current?.snapToIndex(1); }}
               region={region}
             />
           )}

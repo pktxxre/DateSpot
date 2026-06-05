@@ -10,7 +10,7 @@ import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
 } from 'react-native-reanimated';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
-import { PRICE_LABELS, getAllVisits, ratingColor, Price } from '@/lib/visits';
+import { PRICE_LABELS, getAllVisits, ratingColor, normalizeName, Price } from '@/lib/visits';
 import { getAllFutureSpots } from '@/lib/future';
 import { getProfile } from '@/lib/profile';
 import { getFriendsByVenue, VenueFriend } from '@/lib/friends';
@@ -334,7 +334,7 @@ export default function SpotsScreen() {
                 >
                   <Text style={s.rank}>{index + 1}</Text>
                   <View style={s.middle}>
-                    <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{item.venue_name}</Text>
+                    <Text style={s.spotName} numberOfLines={1} ellipsizeMode="tail">{normalizeName(item.venue_name)}</Text>
                     {metaParts.length > 0 && (
                       <Text style={s.spotMeta} numberOfLines={1}>{metaParts.join(' · ')}</Text>
                     )}

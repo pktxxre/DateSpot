@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   getVisitById, deleteVisit, updateVisit, getAllVisits, updateRankOrder, recomputeRatings, Visit,
   ACTIVITY_TYPES, OCCASION_TYPES, PRICE_LABELS, Price, ActivityType, OccasionType,
-  ratingColor, formatRating, friendlyDate,
+  ratingColor, formatRating, friendlyDate, normalizeName,
 } from '@/lib/visits';
 import { getStacksForVisit, createStack, TierKey } from '@/lib/stacks';
 import {
@@ -563,7 +563,7 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
         <View style={sd.stickyNavInner}>
           <View style={sd.stickyNavTitleWrap} pointerEvents="none">
             <Text style={sd.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
-              {fv.venue_name}
+              {normalizeName(fv.venue_name)}
             </Text>
           </View>
           <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
@@ -604,7 +604,7 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
 
       <View style={sd.beliCardContent}>
         {/* Venue name */}
-        <Text style={sd.heroName} numberOfLines={3}>{fv.venue_name}</Text>
+        <Text style={sd.heroName} numberOfLines={3}>{normalizeName(fv.venue_name)}</Text>
 
         {/* Tags + price with save/log actions */}
         {(tagParts.length > 0 || priceLabel || dateStr) && (
@@ -908,7 +908,7 @@ export default function SpotDetailScreen() {
         <View style={sd.stickyNavInner}>
           <View style={sd.stickyNavTitleWrap} pointerEvents="none">
             <Text style={sd.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
-              {visit.venue_name}
+              {normalizeName(visit.venue_name)}
             </Text>
           </View>
           <Pressable onPress={() => router.back()} hitSlop={8} style={sd.floatingNavBtn}>

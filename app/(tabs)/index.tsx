@@ -3,10 +3,10 @@ import {
   StyleSheet, View, Text, ScrollView, Pressable,
   ActivityIndicator, Dimensions, TextInput, FlatList, Image,
 } from 'react-native';
-import { useFocusEffect, router } from 'expo-router';
+import { useFocusEffect, useNavigation, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllVisits, Visit, PRICE_LABELS, Price, formatRating, ratingColor } from '@/lib/visits';
+import { getAllVisits, Visit, PRICE_LABELS, Price, formatRating, ratingColor, normalizeName } from '@/lib/visits';
 import { getSeedSpotsRaw, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
 import { getFriendActivity, FriendActivityItem } from '@/lib/friends';
 import { getProfile } from '@/lib/profile';
@@ -14,6 +14,7 @@ import { HeaderActions } from '@/components/HeaderActions';
 import { FriendActivityCard } from '@/components/FriendActivityCard';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
+import { tabNav } from '@/lib/tabTransition';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -95,17 +96,31 @@ export default function HomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const categoryScrollRef = useRef<ScrollView>(null);
 
+  // Refresh data whenever the home screen gains focus (back nav or tab press).
   useFocusEffect(
     useCallback(() => {
-      // Reset the "Top date spots" carousel to the first category, but keep the
-      // vertical scroll position and how many friend activities are loaded — so
-      // returning from a friend's spot lands you back where you were in the feed.
-      categoryScrollRef.current?.scrollTo({ x: 0, animated: false });
       setVisits(getAllVisits().filter(v => !(v as any).is_seed));
       getFriendActivity().then(setActivity);
       getProfile().then(p => setCity(p.city || ''));
     }, [])
   );
+
+  // Reset the page to the top and the category carousel to the start (Food)
+  // only when the user leaves Home for another tab (Ranked / Map / Profile).
+  // Tab presses set tabNav.curIndex synchronously (see (tabs)/_layout.tsx), so a
+  // non-zero curIndex at blur means a real tab switch. Pushing a child route
+  // like a spot detail or the full spots list goes through router.push with no
+  // tabPress, so curIndex stays 0 and the scroll position is preserved on back.
+  const navigation = useNavigation();
+  useEffect(() => {
+    const unsub = navigation.addListener('blur', () => {
+      if (tabNav.curIndex !== 0) {
+        categoryScrollRef.current?.scrollTo({ x: 0, animated: false });
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      }
+    });
+    return unsub;
+  }, [navigation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -375,7 +390,7 @@ function CategoryCard({ category, spots, cardW }: {
             >
               <Text style={s.spotRank}>{idx + 1}</Text>
               <View style={s.spotInfo}>
-                <Text style={s.spotName}>{spot.venue_name}</Text>
+                <Text style={s.spotName}>{normalizeName(spot.venue_name)}</Text>
                 {priceLabel ? <Text style={s.spotPrice}>{priceLabel}</Text> : null}
               </View>
               <View style={[s.ratingPill, { borderColor: color }]}>
@@ -403,7 +418,7 @@ function SearchResultRow({ spot }: { spot: SeedSpot }) {
     >
       <View style={[s.recentAccent, { backgroundColor: color }]} />
       <View style={s.recentRowLeft}>
-        <Text style={s.recentName}>{spot.venue_name}</Text>
+        <Text style={s.recentName}>{normalizeName(spot.venue_name)}</Text>
         <Text style={s.recentMeta}>{[catLabel, priceLabel].filter(Boolean).join(' · ')}</Text>
       </View>
       {spot.rating > 0 && (

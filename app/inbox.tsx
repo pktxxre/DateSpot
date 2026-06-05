@@ -373,7 +373,8 @@ const s = StyleSheet.create({
   },
   avatar: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: T.inputBg,
+    // Matches the follow-list / following-tab avatar placeholder for consistency.
+    backgroundColor: '#E8C5B8',
     alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
   },

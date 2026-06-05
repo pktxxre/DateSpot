@@ -3,6 +3,12 @@ import { supabase } from './supabase';
 import { syncVisitToCloud, deleteVisitFromCloud, deleteStackFromCloud } from './sync';
 import { deleteFutureSpotsByVenueName } from './future';
 
+// Normalize seed spot names that are stored in ALL CAPS to Title Case.
+export function normalizeName(name: string): string {
+  if (!name || name !== name.toUpperCase()) return name;
+  return name.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
 export type Rating = number;
 export type Price = 0 | 1 | 2 | 3; // Free $ $$ $$$
 export type Triage = 'bad' | 'okay' | 'great';
