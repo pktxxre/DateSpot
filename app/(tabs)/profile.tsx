@@ -130,15 +130,18 @@ export default function ProfileScreen() {
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Header: name on left, share + settings on right */}
       <View style={s.header}>
-        <Text style={s.headerName} numberOfLines={1}>
-          {profile?.username || 'You'}
-        </Text>
+        <View style={s.headerLeft}>
+          <Text style={s.headerLabel}> </Text>
+          <Text style={s.headerName} numberOfLines={1}>
+            {profile?.username || 'You'}
+          </Text>
+        </View>
         <View style={s.headerRight}>
-          <Pressable onPress={handleShare} hitSlop={12} style={s.iconBtn}>
-            <Ionicons name="share-outline" size={22} color={T.primary} />
+          <Pressable onPress={handleShare} hitSlop={8} style={s.iconBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
           </Pressable>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={12} style={s.iconBtn}>
-            <Ionicons name="settings-outline" size={22} color={T.primary} />
+          <Pressable onPress={() => router.push('/settings')} hitSlop={8} style={s.iconBtn}>
+            <Ionicons name="settings-outline" size={20} color={T.primary} />
           </Pressable>
         </View>
       </View>
@@ -222,6 +225,17 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={16} color={T.muted} />
             </View>
           </Pressable>
+          <View style={s.rowDivider} />
+          <Pressable
+            style={({ pressed }) => [s.listRow, pressed && { opacity: 0.75 }]}
+            onPress={() => router.push('/(tabs)/friends')}
+          >
+            <Ionicons name="people-outline" size={20} color={T.primary} />
+            <Text style={s.listRowLabel}>Friends</Text>
+            <View style={s.listRowRight}>
+              <Ionicons name="chevron-forward" size={16} color={T.muted} />
+            </View>
+          </Pressable>
         </View>
 
         {/* Recent Activity */}
@@ -271,19 +285,30 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  headerLeft: { flex: 1, marginRight: 8 },
+  headerLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.muted,
+    letterSpacing: 1.5,
+    marginBottom: 2,
   },
   headerName: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '400',
     color: T.primary,
     fontFamily: 'Fraunces-Regular',
-    flex: 1,
-    marginRight: 8,
+    lineHeight: 36,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  iconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#EDE7DE',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   avatarSection: { alignItems: 'center', paddingTop: 16, paddingBottom: 12 },
   avatarWrap: {

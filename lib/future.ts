@@ -44,12 +44,12 @@ export function deleteFutureSpotsByVenueName(venueName: string): void {
 }
 
 export function updateFutureSpot(id: string, venue_name: string): void {
-  getDb().runSync('UPDATE future_spots SET venue_name = ? WHERE id = ?', [venue_name, id]);
+  getDb().runSync('UPDATE future_spots SET venue_name = ?, synced = 0 WHERE id = ?', [venue_name, id]);
   syncFutureSpotToCloud(id);
 }
 
 export function updateFutureSpotTypes(id: string, activity_type: string | null, occasion_type: string | null): void {
-  getDb().runSync('UPDATE future_spots SET activity_type = ?, occasion_type = ? WHERE id = ?', [activity_type, occasion_type, id]);
+  getDb().runSync('UPDATE future_spots SET activity_type = ?, occasion_type = ?, synced = 0 WHERE id = ?', [activity_type, occasion_type, id]);
   syncFutureSpotToCloud(id);
 }
 

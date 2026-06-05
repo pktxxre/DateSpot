@@ -1,11 +1,46 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Tabs, router } from 'expo-router';
 import { tabNav } from '@/lib/tabTransition';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleOpenLog } from './map';
+import { getProfile } from '@/lib/profile';
 import { T } from '@/lib/theme';
+
+// Profile picture used as the last tab — replaces the old Friends tab.
+function TabProfileIcon({ focused }: { focused: boolean }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [emoticon, setEmoticon] = useState(':)');
+
+  useEffect(() => {
+    getProfile().then(p => {
+      setPhoto(p.profilePhotoUri ?? null);
+      setEmoticon(p.avatarEmoticon || ':)');
+    });
+  }, []);
+
+  const size = 26;
+  return (
+    <View style={{
+      width: size + 4, height: size + 4, borderRadius: (size + 4) / 2,
+      borderWidth: 2, borderColor: focused ? T.accent : 'transparent',
+      alignItems: 'center', justifyContent: 'center',
+    }}>
+      <View style={{
+        width: size, height: size, borderRadius: size / 2, overflow: 'hidden',
+        backgroundColor: '#E8C5B8', alignItems: 'center', justifyContent: 'center',
+        opacity: focused ? 1 : 0.9,
+      }}>
+        {photo ? (
+          <Image source={{ uri: photo }} style={{ width: size, height: size }} resizeMode="cover" />
+        ) : (
+          <Text style={{ fontSize: size * 0.4, color: '#A0523C', fontWeight: '600' }}>{emoticon}</Text>
+        )}
+      </View>
+    </View>
+  );
+}
 
 const TIP_KEY = 'fab_tip_dismissed';
 
@@ -171,19 +206,15 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="friends"
-        options={{
-          title: 'Friends',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} />
-          ),
-        }}
-        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 4; } }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          href: null,
+          title: 'You',
+          tabBarIcon: ({ focused }) => <TabProfileIcon focused={focused} />,
         }}
+        listeners={{ tabPress: () => { tabNav.prevIndex = tabNav.curIndex; tabNav.curIndex = 4; } }}
       />
     </Tabs>
   );

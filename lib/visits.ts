@@ -207,6 +207,7 @@ export function updateVisit(
   if (updates.date_type !== undefined) { fields.push('date_type = ?'); values.push(updates.date_type ?? null); }
 
   if (fields.length === 0) return;
+  fields.push('synced = 0'); // re-queue: an edit needs to reach the cloud again
   values.push(id);
   db.runSync(`UPDATE visits SET ${fields.join(', ')} WHERE id = ?`, values);
   syncVisitToCloud(id);

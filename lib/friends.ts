@@ -457,6 +457,44 @@ export async function followUser(targetId: string): Promise<{ error?: string }> 
   return sendFriendRequest(myId, targetId);
 }
 
+export interface VenueFriend { id: string; name: string }
+
+// One query → which accepted friends have logged each venue (rating > 0),
+// keyed by lowercased venue name. Used by the ranked spots list to show
+// "Sarah & Mia loved this" without a per-row request.
+export async function getFriendsByVenue(): Promise<Map<string, VenueFriend[]>> {
+  const empty = new Map<string, VenueFriend[]>();
+  if (!supabase) return empty;
+  const { data: userData } = await supabase.auth.getUser();
+  const myUserId = userData.user?.id;
+  if (!myUserId) return empty;
+  const friendIds = await getAcceptedFriendIds(myUserId);
+  if (friendIds.length === 0) return empty;
+
+  const { data: profiles } = await supabase
+    .from('profiles').select('id, username').in('id', friendIds);
+  const nameMap = new Map((profiles ?? []).map((p: any) => [p.id, p.username as string]));
+
+  const { data: visits } = await supabase
+    .from('visits')
+    .select('venue_name, user_id')
+    .in('user_id', friendIds)
+    .eq('is_seed', false)
+    .gt('rating', 0);
+
+  const map = new Map<string, VenueFriend[]>();
+  for (const v of visits ?? []) {
+    const key = (v.venue_name ?? '').toLowerCase().trim();
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, []);
+    const arr = map.get(key)!;
+    if (!arr.some(f => f.id === v.user_id)) {
+      arr.push({ id: v.user_id, name: nameMap.get(v.user_id) ?? 'Friend' });
+    }
+  }
+  return map;
+}
+
 export async function getFriendScoreForVenue(venueName: string): Promise<number | null> {
   if (!supabase) return null;
   const { data: userData } = await supabase.auth.getUser();

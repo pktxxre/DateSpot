@@ -6,11 +6,12 @@ import {
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllVisits, Visit, PRICE_LABELS, Price, formatRating, ratingColor, friendlyDate } from '@/lib/visits';
+import { getAllVisits, Visit, PRICE_LABELS, Price, formatRating, ratingColor } from '@/lib/visits';
 import { getSeedSpotsRaw, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
-import { getAllStacks, StackSummary } from '@/lib/stacks';
+import { getFriendActivity, FriendActivityItem } from '@/lib/friends';
 import { getProfile } from '@/lib/profile';
-import { ProfileAvatar } from '@/components/ProfileAvatar';
+import { HeaderActions } from '@/components/HeaderActions';
+import { FriendActivityCard } from '@/components/FriendActivityCard';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
@@ -86,17 +87,22 @@ export default function HomeScreen() {
   const [seeds, setSeeds] = useState<SeedSpot[]>([]);
   const [topSpots, setTopSpots] = useState<TopSpot[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [stacks, setStacks] = useState<StackSummary[]>([]);
+  const [activity, setActivity] = useState<FriendActivityItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState(5);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+  const categoryScrollRef = useRef<ScrollView>(null);
 
   useFocusEffect(
     useCallback(() => {
-      scrollRef.current?.scrollTo({ x: 0, y: 0, animated: false });
+      // Reset the "Top date spots" carousel to the first category, but keep the
+      // vertical scroll position and how many friend activities are loaded — so
+      // returning from a friend's spot lands you back where you were in the feed.
+      categoryScrollRef.current?.scrollTo({ x: 0, animated: false });
       setVisits(getAllVisits().filter(v => !(v as any).is_seed));
-      setStacks(getAllStacks());
+      getFriendActivity().then(setActivity);
       getProfile().then(p => setCity(p.city || ''));
     }, [])
   );
@@ -126,12 +132,7 @@ export default function HomeScreen() {
     getTopSpots(city).then(setTopSpots);
   }, [city]);
 
-  const monthVisits = getMonthVisits(visits);
-  const recentVisits = [...visits].sort((a, b) => {
-    const ta = new Date(a.visited_at || a.created_at).getTime();
-    const tb = new Date(b.visited_at || b.created_at).getTime();
-    return tb - ta;
-  }).slice(0, 5);
+  const myVisitedNames = new Set(visits.map(v => v.venue_name.toLowerCase().trim()));
 
   // Build category cards from user-contributed top spots (when above threshold) or seeds
   const discoverySpots: SeedSpot[] = topSpots.length > 0
@@ -190,10 +191,22 @@ export default function HomeScreen() {
             </View>
           ) : null}
         </View>
-        <ProfileAvatar onPress={() => router.push('/(tabs)/profile')} />
+        <HeaderActions />
       </View>
 
-      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}
+        scrollEventThrottle={100}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+          if (distanceFromBottom < 400) {
+            setVisibleCount(c => (c < activity.length ? Math.min(c + 5, activity.length) : c));
+          }
+        }}
+      >
 
         {/* Search bar */}
         <View style={s.searchWrap}>
@@ -237,6 +250,7 @@ export default function HomeScreen() {
           </View>
         ) : (
           <ScrollView
+            ref={categoryScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             snapToInterval={CARD_W + 12}
@@ -254,52 +268,32 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
-        {/* Recent dates + Stacks hide while searching so results own the screen */}
-        {!isSearching && (<>
-        {/* Recent dates section */}
-        <View style={s.recentSection}>
-          <View style={s.recentHeader}>
-            <Text style={s.recentTitle}>Recent dates</Text>
-          </View>
-          {recentVisits.length === 0 ? (
-            <View style={s.emptyDates}>
-              <View style={s.emptyDatesRow}>
-                <Text style={s.emptyDatesText}>Tap </Text>
-                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
-                <Text style={s.emptyDatesText}> to log your first date spot</Text>
-              </View>
+        {/* Friends activity feed — hidden while searching so results own the screen.
+            Loads 5 at first, then reveals more as the user scrolls toward the bottom. */}
+        {!isSearching && (
+          <View style={s.feedSection}>
+            <View style={s.feedHeader}>
+              <Text style={s.feedTitle}>Friends and Following</Text>
             </View>
-          ) : (
-            recentVisits.map(v => <RecentRow key={v.id} visit={v} />)
-          )}
-        </View>
-
-        {/* Your Stacks */}
-        <View style={s.stacksSection}>
-          <View style={s.stacksSectionHeader}>
-            <Text style={s.stacksSectionTitle}>Your stacks</Text>
-          </View>
-          {stacks.length === 0 ? (
-            <View style={s.emptyStacks}>
-              <View style={s.emptyDatesRow}>
-                <Text style={s.emptyStacksText}>Log spots, then tap </Text>
-                <View style={s.plusCircle}><Text style={s.plusCircleText}>+</Text></View>
-                <Text style={s.emptyStacksText}> to group them into a stack</Text>
+            {activity.length === 0 ? (
+              <View style={s.feedEmpty}>
+                <Text style={s.feedEmptyText}>When friends log dates, you'll see them here.</Text>
               </View>
-            </View>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.stacksScroll}
-            >
-              {stacks.map(stack => (
-                <HomeStackCard key={stack.id} stack={stack} />
-              ))}
-            </ScrollView>
-          )}
-        </View>
-        </>)}
+            ) : (
+              <View style={s.feedList}>
+                {activity.slice(0, visibleCount).map((item, i, arr) => (
+                  <FriendActivityCard
+                    key={item.visitId}
+                    item={item}
+                    isLast={i === arr.length - 1}
+                    alreadyVisited={myVisitedNames.has(item.venueName.toLowerCase().trim())}
+                    linkToDetail
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={{ height: 32 }} />
       </ScrollView>
@@ -339,37 +333,6 @@ function HomeCategorySkeleton() {
         </View>
       ))}
     </ScrollView>
-  );
-}
-
-function HomeStackCard({ stack }: { stack: StackSummary }) {
-  const color = ratingColor(stack.rating);
-  const dateStr = friendlyDate(stack.created_at);
-  return (
-    <Pressable
-      style={({ pressed }) => [s.stackCard, pressed && { opacity: 0.7 }]}
-      onPress={() => router.push(`/stack/${stack.id}` as any)}
-      accessibilityRole="button"
-      accessibilityLabel={`${stack.name}, ${dateStr}, ${stack.spot_count} spots`}
-    >
-      <View style={s.stackCardTop}>
-        <Text style={s.stackCardName} numberOfLines={1}>{stack.name}</Text>
-        <View style={s.stackSpotBadge}>
-          <Text style={s.stackSpotBadgeText}>{stack.spot_count}</Text>
-        </View>
-      </View>
-      <Text style={s.stackCardDate}>{dateStr}</Text>
-      {stack.first_spot && stack.last_spot && stack.first_spot !== stack.last_spot && (
-        <Text style={s.stackJourney} numberOfLines={1}>
-          {stack.first_spot} → {stack.last_spot}
-        </Text>
-      )}
-      {stack.rating > 0 && (
-        <View style={[s.stackQuality, { borderColor: color }]}>
-          <Text style={[s.stackQualityText, { color }]}>{formatRating(stack.rating)}</Text>
-        </View>
-      )}
-    </Pressable>
   );
 }
 
@@ -446,32 +409,6 @@ function SearchResultRow({ spot }: { spot: SeedSpot }) {
       {spot.rating > 0 && (
         <View style={[s.recentScore, { borderColor: color }]}>
           <Text style={[s.recentScoreText, { color }]}>{formatRating(spot.rating)}</Text>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-function RecentRow({ visit }: { visit: Visit }) {
-  const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const color = ratingColor(visit.rating);
-  const catLabel = CATEGORY_LABELS[visit.activity_type] ?? visit.activity_type;
-  const priceLabel = PRICE_LABELS[visit.price as Price] ?? '';
-  return (
-    <Pressable
-      style={({ pressed }) => [s.recentRow, pressed && { opacity: 0.7 }]}
-      onPress={() => router.push(`/spot/${visit.id}`)}
-    >
-      <View style={[s.recentAccent, { backgroundColor: color }]} />
-      <View style={s.recentRowLeft}>
-        <Text style={s.recentName}>{visit.venue_name}</Text>
-        <Text style={s.recentMeta}>
-          {[catLabel, priceLabel, dateStr].filter(Boolean).join(' · ')}
-        </Text>
-      </View>
-      {visit.rating > 0 && (
-        <View style={[s.recentScore, { borderColor: color }]}>
-          <Text style={[s.recentScoreText, { color }]}>{formatRating(visit.rating)}</Text>
         </View>
       )}
     </Pressable>
@@ -634,7 +571,7 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '400',
     color: T.primary,
     fontFamily: 'Fraunces-Regular',
@@ -752,6 +689,35 @@ const s = StyleSheet.create({
   stackJourney: { fontSize: 11, color: T.muted, fontStyle: 'italic', marginBottom: 8 },
   stackQuality: { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
   stackQualityText: { fontSize: 12, fontWeight: '800' },
+
+  // Friends activity feed
+  feedSection: {
+    marginTop: 24,
+    paddingTop: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: T.border,
+  },
+  feedHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  feedTitle: {
+    fontSize: 20,
+    fontWeight: '400',
+    color: T.primary,
+    fontFamily: 'Fraunces-Regular',
+  },
+  feedList: { paddingHorizontal: 20 },
+  feedEmpty: {
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  feedEmptyText: {
+    fontSize: 14,
+    color: T.muted,
+    textAlign: 'center',
+  },
 
   recentSection: {
     marginTop: 24,

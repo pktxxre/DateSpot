@@ -16,7 +16,7 @@ import {
 } from '@/lib/stacks';
 import { useSelectionMode } from '@/lib/useSelectionMode';
 import { consumeNewStack } from '@/lib/stackCreation';
-import { ProfileAvatar } from '@/components/ProfileAvatar';
+import { HeaderActions } from '@/components/HeaderActions';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
@@ -518,6 +518,10 @@ export default function ListsScreen() {
         setIndicatorWidth(ind.width);
       }
       if (target === 'been') flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      // Filters don't persist across visits: leaving the tab and returning starts fresh.
+      setActivityFilters([]);
+      setPriceFilters([]);
+      setOccasionFilters([]);
       setVisits(getAllVisits().filter(v => !(v as any).is_seed));
       setFutureSpots(getAllFutureSpots());
       setStacks(getAllStacks());
@@ -583,7 +587,7 @@ export default function ListsScreen() {
               <Text style={s.occasionTitle}>All Dates</Text>
             </View>
           </View>
-          <ProfileAvatar onPress={() => router.push('/(tabs)/profile')} />
+          <HeaderActions />
         </View>
 
         {/* Tab bar */}

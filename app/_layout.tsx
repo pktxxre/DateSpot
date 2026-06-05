@@ -1,7 +1,7 @@
 import { Stack, router, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, Image } from 'react-native';
+import { Linking, Image, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { useFonts } from 'expo-font';
@@ -11,7 +11,7 @@ import { initDb, clearUserData } from '@/lib/db';
 import { recomputeRatings } from '@/lib/visits';
 import { supabase } from '@/lib/supabase';
 import { getProfile, clearProfile, getLastUserId, setLastUserId, clearLastUserId } from '@/lib/profile';
-import { restoreFromCloud } from '@/lib/sync';
+import { restoreFromCloud, flushUnsynced } from '@/lib/sync';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -91,6 +91,17 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Flush any visits that were logged while offline — on launch and every time
+  // the app comes back to the foreground (covers regaining service).
+  useEffect(() => {
+    if (!session || !dbReady) return; // wait for initDb (and its migrations) to finish
+    flushUnsynced();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') flushUnsynced();
+    });
+    return () => sub.remove();
+  }, [session, dbReady]);
 
   const ready = dbReady && fontsLoaded && authChecked;
 

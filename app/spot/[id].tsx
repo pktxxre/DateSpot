@@ -464,78 +464,246 @@ const rx = StyleSheet.create({
 });
 
 function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
+  const [savedFutureId, setSavedFutureId] = useState<string | null>(null);
+  const [alreadyLogged, setAlreadyLogged] = useState(() =>
+    getAllVisits().some(v => v.venue_name.toLowerCase().trim() === fv.venue_name.toLowerCase().trim())
+  );
+  const [friendScore, setFriendScore] = useState<number | null | 'loading'>('loading');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveScale = useRef(new Animated.Value(1)).current;
+
   const color = ratingColor(fv.rating);
-  const heroBg = ACTIVITY_COLORS_HERO[fv.activity_type] ?? ACTIVITY_COLORS_HERO.other;
-  const dateStr = fv.visited_at ? friendlyDate(fv.visited_at) : '';
   const info = ACTIVITY_TYPES.find(a => a.value === fv.activity_type);
   const priceLabel = fv.price != null ? PRICE_LABELS[fv.price as Price] : null;
+  const dateStr = fv.visited_at ? friendlyDate(fv.visited_at) : '';
+  const tagParts = [info?.label].filter(Boolean);
+
+  useEffect(() => {
+    const existing = getAllFutureSpots().find(
+      f => f.venue_name === fv.venue_name && Math.abs(f.lat - fv.lat) < 0.001
+    );
+    setSavedFutureId(existing?.id ?? null);
+    setAlreadyLogged(getAllVisits().some(v => v.venue_name.toLowerCase().trim() === fv.venue_name.toLowerCase().trim()));
+    getFriendScoreForVenue(fv.venue_name).then(s => setFriendScore(s));
+  }, [fv.id]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from('visits')
+      .select('photos')
+      .ilike('venue_name', fv.venue_name)
+      .not('photos', 'is', null)
+      .then(({ data }) => {
+        if (!data) return;
+        const all: string[] = [];
+        for (const row of data) {
+          if (Array.isArray(row.photos)) all.push(...(row.photos as string[]));
+        }
+        setPhotos(all);
+      });
+  }, [fv.venue_name]);
+
+  async function handleShare() {
+    try { await Share.share({ message: `Check out ${fv.venue_name} on DateSpot!` }); } catch {}
+  }
+
+  function showSavedBanner() {
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    bannerAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(bannerAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.delay(700),
+      Animated.timing(bannerAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function popSave() {
+    Animated.sequence([
+      Animated.timing(saveScale, { toValue: 1.2, duration: 80, useNativeDriver: true }),
+      Animated.spring(saveScale, { toValue: 1, friction: 4, tension: 200, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function toggleSave() {
+    if (savedFutureId) {
+      deleteFutureSpot(savedFutureId);
+      setSavedFutureId(null);
+    } else {
+      popSave();
+      const newId = Crypto.randomUUID();
+      insertFutureSpot({
+        id: newId,
+        venue_name: fv.venue_name,
+        lat: fv.lat,
+        lng: fv.lng,
+        address: fv.address ?? null,
+        activity_type: fv.activity_type ?? null,
+        occasion_type: null,
+        created_at: new Date().toISOString(),
+      });
+      setSavedFutureId(newId);
+      showSavedBanner();
+    }
+  }
+
+  function handleLogVisit() {
+    scheduleOpenLogWithLocation(fv.venue_name, fv.lat, fv.lng, fv.activity_type, null);
+    router.dismissTo('/(tabs)/map');
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={sd.floatingNav} edges={['top']}>
-        <View style={sd.floatingNavInner}>
+
+      {/* Sticky nav — always visible */}
+      <SafeAreaView style={sd.stickyNav} edges={['top']}>
+        <View style={sd.stickyNavInner}>
+          <View style={sd.stickyNavTitleWrap} pointerEvents="none">
+            <Text style={sd.stickyNavTitle} numberOfLines={1} ellipsizeMode="tail">
+              {fv.venue_name}
+            </Text>
+          </View>
           <Pressable onPress={() => router.back()} hitSlop={12} style={sd.floatingNavBtn}>
             <Ionicons name="chevron-back" size={22} color={T.primary} />
           </Pressable>
+          <View style={{ flex: 1 }} />
+          <Pressable onPress={handleShare} hitSlop={12} style={sd.floatingNavBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
+          </Pressable>
         </View>
       </SafeAreaView>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
-        <View style={{ backgroundColor: heroBg }}>
-          <View style={{ paddingTop: 48, paddingBottom: 10 }}>
-            <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)', letterSpacing: 1, marginBottom: 6 }}>
-                {info?.label?.toUpperCase() ?? fv.activity_type.toUpperCase()}
-                {priceLabel ? ` · ${priceLabel}` : ''}
-                {dateStr ? ` · ${dateStr}` : ''}
-              </Text>
-              <Text style={{ fontSize: 24, fontWeight: '400', color: '#fff', fontFamily: 'Fraunces-Regular', lineHeight: 30, marginBottom: 4 }}>{fv.venue_name}</Text>
-            </View>
-          </View>
-          <View style={sd.whiteCard}>
-            <View style={sd.badgeRow}>
-              <View />
-              <View style={[sd.ratingBadge, { borderColor: color }]}>
-                <Text style={[sd.ratingBadgeText, { color }]}>{fv.rating.toFixed(1)}</Text>
-              </View>
-            </View>
-            <View style={{ height: 20 }} />
-            {fv.notes ? (
-              <>
-                <Text style={sd.sectionLabel}>NOTES</Text>
-                <Text style={sd.notesText}>{fv.notes}</Text>
-                <View style={{ height: 16 }} />
-              </>
-            ) : null}
-            <Text style={sd.sectionLabel}>WHERE IT IS</Text>
-            <View style={sd.mapWrap}>
-              <Map
-                style={StyleSheet.absoluteFill}
-                mapStyle={MAP_STYLE_URL}
-                dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
-                doubleTapZoom={false}
-                logo={false} attribution={false} compass={false}
-                pointerEvents="none"
-              >
-                <Camera
-                  initialViewState={{
-                    center: [fv.lng, fv.lat],
-                    zoom: latitudeDeltaToZoom(0.006),
-                  }}
-                />
-                <Marker id={`fv-${fv.id}`} lngLat={[fv.lng, fv.lat]}>
-                  <View style={[styles.pin, { borderColor: color }]}>
-                    <Text style={[styles.pinText, { color }]}>{fv.rating.toFixed(1)}</Text>
-                  </View>
-                </Marker>
-              </Map>
-            </View>
-            {fv.address ? <Text style={sd.addressText}>{fv.address}</Text> : null}
-            <View style={sd.divider} />
-            <ReactionsRow visitId={fv.id} visitOwnerId={fv.userId} />
-            <View style={{ height: 40 }} />
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* Map hero */}
+      <View style={{ height: MAP_HERO_H, backgroundColor: '#e8e8ed' }}>
+        <Map
+          style={StyleSheet.absoluteFill}
+          mapStyle={MAP_STYLE_URL}
+          dragPan={false} touchZoom={false} touchRotate={false} touchPitch={false}
+          doubleTapZoom={false}
+          logo={false} attribution={false} compass={false}
+          pointerEvents="none"
+        >
+          <Camera
+            initialViewState={{
+              center: [fv.lng, fv.lat],
+              zoom: latitudeDeltaToZoom(0.015),
+            }}
+          />
+        </Map>
+        <View pointerEvents="none" style={sd.mapSolidOverlay} />
+        <View pointerEvents="none" style={sd.mapPinOverlay}>
+          <View style={[styles.pin, { borderColor: color }]}>
+            <Text style={[styles.pinText, { color }]}>{fv.rating.toFixed(1)}</Text>
           </View>
         </View>
+      </View>
+
+      <View style={sd.beliCardContent}>
+        {/* Venue name */}
+        <Text style={sd.heroName} numberOfLines={3}>{fv.venue_name}</Text>
+
+        {/* Tags + price with save/log actions */}
+        {(tagParts.length > 0 || priceLabel || dateStr) && (
+          <View style={sd.tagsActionsRow}>
+            <Text style={sd.beliTags}>
+              {[...tagParts, priceLabel, dateStr].filter(Boolean).join(' · ')}
+            </Text>
+            <View style={sd.heroBtns}>
+              <Pressable
+                onPress={alreadyLogged ? undefined : handleLogVisit}
+                style={[sd.actionCircleBtn, alreadyLogged && { borderColor: '#34c759', backgroundColor: '#eefff0' }]}
+                disabled={alreadyLogged}
+              >
+                <Ionicons name={alreadyLogged ? 'checkmark' : 'add'} size={18} color={alreadyLogged ? '#34c759' : T.accent} />
+              </Pressable>
+              <Animated.View style={{ transform: [{ scale: saveScale }] }}>
+                <Pressable onPress={toggleSave} style={[sd.actionCircleBtn, { backgroundColor: savedFutureId ? SAVE_BLUE : `${SAVE_BLUE}18`, borderColor: SAVE_BLUE }]}>
+                  <Ionicons name={savedFutureId ? 'bookmark' : 'bookmark-outline'} size={16} color={savedFutureId ? '#fff' : SAVE_BLUE} />
+                </Pressable>
+              </Animated.View>
+              <Animated.Text
+                pointerEvents="none"
+                style={[sd.savedMicroToast, { opacity: bannerAnim, position: 'absolute', bottom: 40, right: 0 }]}
+              >
+                Saved
+              </Animated.Text>
+            </View>
+          </View>
+        )}
+
+        {/* Address */}
+        {fv.address ? (
+          <Text style={sd.beliAddress} numberOfLines={2}>{cleanAddress(fv.address)}</Text>
+        ) : null}
+
+        <View style={sd.divider} />
+
+        {/* Scores */}
+        <Text style={sd.sectionLabel}>SCORES</Text>
+        <View style={sd.scoresRow}>
+          <View style={sd.scoreCard}>
+            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
+              <Text style={sd.scoreNumber}>{fv.rating.toFixed(1)}</Text>
+            </View>
+            <Text style={sd.scoreCardTitle}>Their Rating</Text>
+            {dateStr ? <Text style={sd.scoreCardSub}>{dateStr}</Text> : null}
+          </View>
+          {friendScore !== 'loading' && friendScore !== null ? (
+            <View style={sd.scoreCard}>
+              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(friendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
+                <Text style={sd.scoreNumber}>{formatRating(friendScore)}</Text>
+              </View>
+              <Text style={sd.scoreCardTitle}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>Avg. of friends</Text>
+            </View>
+          ) : (
+            <View style={[sd.scoreCard, sd.scoreCardLocked]}>
+              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
+                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
+              </View>
+              <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
+              <Text style={sd.scoreCardSub}>Avg. of friends</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={sd.divider} />
+
+        {/* Notes */}
+        {fv.notes ? (
+          <>
+            <Text style={sd.sectionLabel}>NOTES</Text>
+            <Text style={sd.notesText}>{fv.notes}</Text>
+            <View style={{ height: 20 }} />
+          </>
+        ) : null}
+
+        {/* Photos */}
+        <Text style={sd.sectionLabel}>PHOTOS</Text>
+        {photos.length > 0 ? (
+          <View style={sd.photosGrid}>
+            {photos.map((uri, idx) => (
+              <Image key={idx} source={{ uri }} style={sd.photoThumb} resizeMode="cover" />
+            ))}
+          </View>
+        ) : (
+          <View style={sd.emptySection}>
+            <Ionicons name="camera-outline" size={28} color={T.border} />
+            <Text style={sd.emptySectionText}>No photos yet</Text>
+          </View>
+        )}
+
+        <View style={sd.divider} />
+
+        {/* Reactions */}
+        <ReactionsRow visitId={fv.id} visitOwnerId={fv.userId} />
+
+        <View style={{ height: 40 }} />
+      </View>
       </ScrollView>
     </View>
   );
