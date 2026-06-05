@@ -10,13 +10,13 @@ async function getUserId(): Promise<string | null> {
 
 // ─── Visits ───────────────────────────────────────────────────────────────────
 
-export async function syncVisitToCloud(visitId: string): Promise<void> {
-  if (!supabase) return;
+export async function syncVisitToCloud(visitId: string): Promise<boolean> {
+  if (!supabase) return false;
   const userId = await getUserId();
-  if (!userId) return;
+  if (!userId) return false;
   const db = getDb();
   const row = db.getFirstSync<any>('SELECT * FROM visits WHERE id = ?', [visitId]);
-  if (!row) return;
+  if (!row) return false;
   const { error } = await supabase.from('visits').upsert({
     id: row.id,
     user_id: userId,
@@ -42,7 +42,44 @@ export async function syncVisitToCloud(visitId: string): Promise<void> {
     is_seed: false,
     created_at: row.created_at,
   });
-  if (error) console.warn('[sync] visit upsert:', error.message);
+  if (error) { console.warn('[sync] visit upsert:', error.message); return false; }
+  db.runSync('UPDATE visits SET synced = 1 WHERE id = ?', [visitId]);
+  return true;
+}
+
+// Re-push anything that never reached the cloud (e.g. logged/saved/stacked while
+// offline): visits, future spots, and stacks. Stops on the first failure so we
+// don't hammer the network while still offline; the next foreground retries.
+export async function flushUnsynced(): Promise<void> {
+  if (!supabase) return;
+  const userId = await getUserId();
+  if (!userId) return;
+  const db = getDb();
+
+  const visitRows = db.getAllSync<{ id: string }>('SELECT id FROM visits WHERE synced = 0 AND is_seed = 0');
+  for (const r of visitRows) {
+    if (!(await syncVisitToCloud(r.id))) return;
+  }
+  const futureRows = db.getAllSync<{ id: string }>('SELECT id FROM future_spots WHERE synced = 0');
+  for (const r of futureRows) {
+    if (!(await syncFutureSpotToCloud(r.id))) return;
+  }
+  const stackRows = db.getAllSync<{ id: string }>('SELECT id FROM stacks WHERE synced = 0');
+  for (const r of stackRows) {
+    if (!(await syncStackToCloud(r.id))) return;
+  }
+}
+
+// Lightweight connectivity probe (no NetInfo dependency): a tiny authenticated
+// read that fails fast when there's no service.
+export async function isOnline(): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from('profiles').select('id', { head: true, count: 'exact' }).limit(1);
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export async function deleteVisitFromCloud(visitId: string): Promise<void> {
@@ -53,13 +90,13 @@ export async function deleteVisitFromCloud(visitId: string): Promise<void> {
 
 // ─── Future Spots ─────────────────────────────────────────────────────────────
 
-export async function syncFutureSpotToCloud(spotId: string): Promise<void> {
-  if (!supabase) return;
+export async function syncFutureSpotToCloud(spotId: string): Promise<boolean> {
+  if (!supabase) return false;
   const userId = await getUserId();
-  if (!userId) return;
+  if (!userId) return false;
   const db = getDb();
   const row = db.getFirstSync<any>('SELECT * FROM future_spots WHERE id = ?', [spotId]);
-  if (!row) return;
+  if (!row) return false;
   const { error } = await supabase.from('future_spots').upsert({
     id: row.id,
     user_id: userId,
@@ -77,7 +114,9 @@ export async function syncFutureSpotToCloud(spotId: string): Promise<void> {
     activity_type: row.activity_type ?? null,
     occasion_type: row.occasion_type ?? null,
   });
-  if (error) console.warn('[sync] future_spot upsert:', error.message);
+  if (error) { console.warn('[sync] future_spot upsert:', error.message); return false; }
+  db.runSync('UPDATE future_spots SET synced = 1 WHERE id = ?', [spotId]);
+  return true;
 }
 
 export async function deleteFutureSpotFromCloud(spotId: string): Promise<void> {
@@ -88,13 +127,13 @@ export async function deleteFutureSpotFromCloud(spotId: string): Promise<void> {
 
 // ─── Stacks ───────────────────────────────────────────────────────────────────
 
-export async function syncStackToCloud(stackId: string): Promise<void> {
-  if (!supabase) return;
+export async function syncStackToCloud(stackId: string): Promise<boolean> {
+  if (!supabase) return false;
   const userId = await getUserId();
-  if (!userId) return;
+  if (!userId) return false;
   const db = getDb();
   const stack = db.getFirstSync<any>('SELECT * FROM stacks WHERE id = ?', [stackId]);
-  if (!stack) return;
+  if (!stack) return false;
   const visitRows = db.getAllSync<{ visit_id: string; position: number }>(
     'SELECT visit_id, position FROM stack_visits WHERE stack_id = ? ORDER BY position ASC',
     [stackId]
@@ -111,7 +150,7 @@ export async function syncStackToCloud(stackId: string): Promise<void> {
     cover_photo: stack.cover_photo ?? null,
     created_at: stack.created_at,
   });
-  if (stackError) { console.warn('[sync] stack upsert:', stackError.message); return; }
+  if (stackError) { console.warn('[sync] stack upsert:', stackError.message); return false; }
 
   // Replace stack_visits: delete then re-insert
   await supabase.from('stack_visits').delete().eq('stack_id', stackId);
@@ -119,8 +158,10 @@ export async function syncStackToCloud(stackId: string): Promise<void> {
     const { error: svError } = await supabase.from('stack_visits').insert(
       visitRows.map(r => ({ stack_id: stackId, visit_id: r.visit_id, position: r.position }))
     );
-    if (svError) console.warn('[sync] stack_visits insert:', svError.message);
+    if (svError) { console.warn('[sync] stack_visits insert:', svError.message); return false; }
   }
+  db.runSync('UPDATE stacks SET synced = 1 WHERE id = ?', [stackId]);
+  return true;
 }
 
 export async function deleteStackFromCloud(stackId: string): Promise<void> {

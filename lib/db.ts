@@ -235,6 +235,26 @@ export async function initDb(): Promise<void> {
     db.runSync(`PRAGMA legacy_alter_table = OFF`);
     db.runSync(`PRAGMA foreign_keys = ON`);
   }
+
+  // Offline sync queue: `synced` tracks whether a visit has reached Supabase.
+  // Added last so the price-nullable table recreation above can't drop it.
+  // Existing rows are assumed already synced (avoids re-uploading full history);
+  // new inserts default to 0 and flip to 1 once the cloud upsert succeeds.
+  const syncedCols = db.getAllSync<{ name: string }>(`PRAGMA table_info(visits)`).map((r) => r.name);
+  if (!syncedCols.includes('synced')) {
+    db.runSync(`ALTER TABLE visits ADD COLUMN synced INTEGER NOT NULL DEFAULT 0`);
+    db.runSync(`UPDATE visits SET synced = 1`);
+  }
+  const futureSyncedCols = db.getAllSync<{ name: string }>(`PRAGMA table_info(future_spots)`).map((r) => r.name);
+  if (!futureSyncedCols.includes('synced')) {
+    db.runSync(`ALTER TABLE future_spots ADD COLUMN synced INTEGER NOT NULL DEFAULT 0`);
+    db.runSync(`UPDATE future_spots SET synced = 1`);
+  }
+  const stackSyncedCols = db.getAllSync<{ name: string }>(`PRAGMA table_info(stacks)`).map((r) => r.name);
+  if (!stackSyncedCols.includes('synced')) {
+    db.runSync(`ALTER TABLE stacks ADD COLUMN synced INTEGER NOT NULL DEFAULT 0`);
+    db.runSync(`UPDATE stacks SET synced = 1`);
+  }
 }
 
 export async function clearUserData(): Promise<void> {

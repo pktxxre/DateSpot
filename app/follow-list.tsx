@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, TextInput, Pressable, ScrollView, Image, Animated,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getFollowers, getFollowing, FollowRelation, followUser } from '@/lib/friends';
@@ -45,7 +45,11 @@ function Avatar({ userId, photoUri, emoticon, username }: {
 }
 
 export default function FollowListScreen() {
-  const [activeTab, setActiveTab] = useState<TabKey>('followers');
+  // Opened from the profile stats: ?tab=following lands on Following, otherwise Followers.
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    params.tab === 'following' ? 'following' : 'followers'
+  );
   const [followers, setFollowers] = useState<FollowRelation[]>([]);
   const [following, setFollowing] = useState<FollowRelation[]>([]);
   const [query, setQuery] = useState('');
@@ -54,6 +58,7 @@ export default function FollowListScreen() {
 
   const underlineX = useRef(new Animated.Value(0)).current;
   const [tabWidth, setTabWidth] = useState(0);
+  const underlinePositioned = useRef(false);
 
   useEffect(() => {
     getProfile().then(p => setHandle(p?.handle ?? p?.username ?? ''));
@@ -102,7 +107,15 @@ export default function FollowListScreen() {
       {/* Full-width equal tabs with embedded count */}
       <View
         style={s.tabBar}
-        onLayout={e => setTabWidth(e.nativeEvent.layout.width / 2)}
+        onLayout={e => {
+          const half = e.nativeEvent.layout.width / 2;
+          setTabWidth(half);
+          // Place the underline under the initial tab (without animating) on first measure.
+          if (!underlinePositioned.current) {
+            underlinePositioned.current = true;
+            underlineX.setValue(activeTab === 'followers' ? 0 : half);
+          }
+        }}
       >
         <Pressable style={s.tab} onPress={() => switchTab('followers')}>
           <Text style={[s.tabLabel, activeTab === 'followers' && s.tabLabelActive]}>

@@ -7,6 +7,7 @@ import {
   Map as MapLibreMap,
   Camera,
   Marker,
+  UserLocation,
   type CameraRef,
   type MapRef,
 } from '@maplibre/maplibre-react-native';
@@ -80,6 +81,8 @@ import {
 } from '@/lib/ranking';
 import type { Triage } from '@/lib/visits';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
+import { isOnline } from '@/lib/sync';
+import { ensureLocation } from '@/lib/location';
 import { getAllFutureSpots, insertFutureSpot, deleteFutureSpot, FutureSpot } from '@/lib/future';
 import { getProfile, saveProfile } from '@/lib/profile';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
@@ -634,6 +637,10 @@ export default function MapScreen() {
     });
   }, []);
 
+  // Ask for location once so the blue current-location dot can show and distances
+  // can use the real device position.
+  useEffect(() => { ensureLocation(true); }, []);
+
   // Animate to city region whenever it resolves (handles race with onMapReady)
   useEffect(() => {
     if (cityRegion) flyToRegion(cameraRef,cityRegion, 0);
@@ -874,6 +881,17 @@ export default function MapScreen() {
       triage,
       photos: draft.photos || [],
     }, undefined, draft.isPinOnly === true);
+    // Logged spots save to the phone first. If we can't reach the cloud, tell the
+    // user it won't be backed up or shown to friends until they reconnect — it'll
+    // sync automatically once service returns.
+    isOnline().then(online => {
+      if (!online) {
+        Alert.alert(
+          'Saved to your phone',
+          "You're offline, so this spot won't be backed up or shown to friends yet. It'll sync automatically once you're back online.",
+        );
+      }
+    });
     setVisits(getAllVisits());
     // Zoom to the spot NOW, while the modal is still showing, so the map is already
     // centered by the time the user taps "Done" and the animation fires.
@@ -1041,6 +1059,9 @@ export default function MapScreen() {
             zoom: latitudeDeltaToZoom(SEATTLE_REGION.latitudeDelta),
           }}
         />
+        {/* Current-location blue dot + accuracy ring (shows once permission granted) */}
+        <UserLocation animated accuracy />
+
         {mapFilter === 'been' && (() => {
           const filteredVisits = visits
             .filter(v => mapCategoryFilters.length === 0 || mapCategoryFilters.includes(v.activity_type))
@@ -1261,7 +1282,7 @@ export default function MapScreen() {
         <BottomSheetView style={styles.sheetContent}>
           {step === 'mode-select' && (
             <ModeSelectStep
-              onBeenTo={() => setStep('location')}
+              onBeenTo={() => { setStep('location'); sheetRef.current?.snapToIndex(2); }}
               onWantToGo={() => { setMapFilter('want'); setStep('future-pin'); }}
               onCreateStack={() => {
                 const loggedCount = getAllVisits().filter(v => !(v as any).is_seed).length;
@@ -1283,7 +1304,7 @@ export default function MapScreen() {
             <LocationStep
               onDropPin={handleDropPin}
               onSelect={handleSearchSelect}
-              onBack={() => setStep('mode-select')}
+              onBack={() => { setStep('mode-select'); sheetRef.current?.snapToIndex(1); }}
               region={region}
             />
           )}

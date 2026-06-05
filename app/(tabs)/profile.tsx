@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getAllVisits, Visit, ACTIVITY_TYPES, friendlyDate, formatRating, ratingColor } from '@/lib/visits';
 import { getAllFutureSpots } from '@/lib/future';
 import { getProfile, UserProfile } from '@/lib/profile';
-import { getFollowCounts } from '@/lib/friends';
+import { getFollowCounts, getFriends } from '@/lib/friends';
 import { T } from '@/lib/theme';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
@@ -82,6 +82,7 @@ export default function ProfileScreen() {
   const [futureCount, setFutureCount] = useState(0);
   const [followers, setFollowers] = useState<number | null>(memFollowCounts?.followers ?? null);
   const [following, setFollowing] = useState<number | null>(memFollowCounts?.following ?? null);
+  const [friendCount, setFriendCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (memFollowCounts) return; // already have counts in memory this session
@@ -110,6 +111,7 @@ export default function ProfileScreen() {
         setFollowing(counts.following);
         AsyncStorage.setItem(FOLLOW_CACHE_KEY, JSON.stringify(counts));
       });
+      getFriends().then(friends => setFriendCount(friends.length));
     }, [])
   );
 
@@ -130,15 +132,18 @@ export default function ProfileScreen() {
     <SafeAreaView style={s.safe} edges={['top']}>
       {/* Header: name on left, share + settings on right */}
       <View style={s.header}>
-        <Text style={s.headerName} numberOfLines={1}>
-          {profile?.username || 'You'}
-        </Text>
+        <View style={s.headerLeft}>
+          <Text style={s.headerLabel}> </Text>
+          <Text style={s.headerName} numberOfLines={1}>
+            {profile?.username || 'You'}
+          </Text>
+        </View>
         <View style={s.headerRight}>
-          <Pressable onPress={handleShare} hitSlop={12} style={s.iconBtn}>
-            <Ionicons name="share-outline" size={22} color={T.primary} />
+          <Pressable onPress={handleShare} hitSlop={8} style={s.iconBtn}>
+            <Ionicons name="share-outline" size={20} color={T.primary} />
           </Pressable>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={12} style={s.iconBtn}>
-            <Ionicons name="settings-outline" size={22} color={T.primary} />
+          <Pressable onPress={() => router.push('/settings')} hitSlop={8} style={s.iconBtn}>
+            <Ionicons name="settings-outline" size={20} color={T.primary} />
           </Pressable>
         </View>
       </View>
@@ -170,20 +175,20 @@ export default function ProfileScreen() {
 
         {/* Stats: Followers | Following | Logs */}
         <View style={s.statsRow}>
-          <Pressable style={s.statBox} onPress={() => router.push('/follow-list' as any)}>
+          <Pressable style={s.statBox} onPress={() => router.push({ pathname: '/follow-list', params: { tab: 'followers' } } as any)}>
             <Text style={s.statValue}>{followers ?? '—'}</Text>
             <Text style={s.statLabel}>Followers</Text>
           </Pressable>
           <View style={s.statDivider} />
-          <Pressable style={s.statBox} onPress={() => router.push('/follow-list' as any)}>
+          <Pressable style={s.statBox} onPress={() => router.push({ pathname: '/follow-list', params: { tab: 'following' } } as any)}>
             <Text style={s.statValue}>{following ?? '—'}</Text>
             <Text style={s.statLabel}>Following</Text>
           </Pressable>
           <View style={s.statDivider} />
-          <View style={s.statBox}>
+          <Pressable style={s.statBox} onPress={() => router.navigate('/(tabs)/lists' as any)}>
             <Text style={s.statValue}>{visits.length}</Text>
             <Text style={s.statLabel}>Logs</Text>
-          </View>
+          </Pressable>
         </View>
 
         {/* Edit Profile */}
@@ -219,6 +224,18 @@ export default function ProfileScreen() {
             <Text style={s.listRowLabel}>Want to Go</Text>
             <View style={s.listRowRight}>
               <Text style={s.listRowCount}>{futureCount}</Text>
+              <Ionicons name="chevron-forward" size={16} color={T.muted} />
+            </View>
+          </Pressable>
+          <View style={s.rowDivider} />
+          <Pressable
+            style={({ pressed }) => [s.listRow, pressed && { opacity: 0.75 }]}
+            onPress={() => router.push('/(tabs)/friends')}
+          >
+            <Ionicons name="people-outline" size={20} color={T.primary} />
+            <Text style={s.listRowLabel}>Friends</Text>
+            <View style={s.listRowRight}>
+              <Text style={s.listRowCount}>{friendCount ?? '—'}</Text>
               <Ionicons name="chevron-forward" size={16} color={T.muted} />
             </View>
           </Pressable>
@@ -271,19 +288,30 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  headerLeft: { flex: 1, marginRight: 8 },
+  headerLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.muted,
+    letterSpacing: 1.5,
+    marginBottom: 2,
   },
   headerName: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '400',
     color: T.primary,
     fontFamily: 'Fraunces-Regular',
-    flex: 1,
-    marginRight: 8,
+    lineHeight: 36,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  iconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#EDE7DE',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   avatarSection: { alignItems: 'center', paddingTop: 16, paddingBottom: 12 },
   avatarWrap: {

@@ -169,7 +169,7 @@ export function getStacksForVisit(visitId: string): StackSummary[] {
 
 export function updateStack(id: string, name: string): void {
   const db = getDb();
-  db.runSync(`UPDATE stacks SET name = ? WHERE id = ?`, [name, id]);
+  db.runSync(`UPDATE stacks SET name = ?, synced = 0 WHERE id = ?`, [name, id]);
   syncStackToCloud(id);
 }
 
@@ -191,6 +191,7 @@ export function addVisitToStack(stackId: string, visitId: string): void {
     [stackId, visitId, nextPos]
   );
   recomputeStackRatings();
+  db.runSync(`UPDATE stacks SET synced = 0 WHERE id = ?`, [stackId]);
   syncStackToCloud(stackId);
 }
 
@@ -209,6 +210,7 @@ export function removeVisitFromStack(stackId: string, visitId: string): void {
     deleteStackFromCloud(stackId);
   } else {
     recomputeStackRatings();
+    db.runSync(`UPDATE stacks SET synced = 0 WHERE id = ?`, [stackId]);
     syncStackToCloud(stackId);
   }
 }
