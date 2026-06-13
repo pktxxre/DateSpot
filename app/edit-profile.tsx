@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  StyleSheet, View, Text, TextInput, Pressable,
+  StyleSheet, View, Text, Pressable,
   Image, Alert, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -128,7 +129,7 @@ export default function EditProfileScreen() {
           {/* Form */}
           <View style={styles.form}>
             <Text style={styles.fieldLabel}>Username</Text>
-            <TextInput
+            <AppTextInput
               style={styles.input}
               value={username}
               onChangeText={setUsername}
@@ -142,7 +143,7 @@ export default function EditProfileScreen() {
             <Text style={styles.charCount}>{username.length}/30</Text>
 
             <Text style={[styles.fieldLabel, { marginTop: 20 }]}>Bio</Text>
-            <TextInput
+            <AppTextInput
               style={[styles.input, styles.bioInput]}
               value={bio}
               onChangeText={setBio}

@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Animated, Easing, FlatList, Modal,
-  Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  Alert, Animated, Dimensions, Easing, FlatList, KeyboardAvoidingView, Modal,
+  Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getAllVisits, Visit, ACTIVITY_TYPES, OCCASION_TYPES, PRICE_LABELS, Price,
-  formatRating, ratingColor, friendlyDate, ActivityType,
+  formatRating, friendlyDate, ActivityType,
 } from '@/lib/visits';
 import { getAllFutureSpots, FutureSpot } from '@/lib/future';
 import {
   getAllStacks, createStack, StackSummary,
 } from '@/lib/stacks';
 import { useSelectionMode } from '@/lib/useSelectionMode';
-import { consumeNewStack } from '@/lib/stackCreation';
+import { consumeNewStack, consumeStackSelection, markStackInProgress } from '@/lib/stackCreation';
 import { HeaderActions } from '@/components/HeaderActions';
+import { ScoreRing } from '@/components/ScoreRing';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
@@ -57,7 +59,8 @@ function ListsSkeleton({ tab }: { tab: ActiveTab }) {
 type ActiveTab = 'been' | 'saved' | 'stacks';
 type SortOption = 'score' | 'date';
 
-const FUTURE_BLUE = '#5856d6';
+// "Want to go" saves share the brand accent — one warm action color everywhere.
+const FUTURE_BLUE = '#E76F51';
 const TABS: { key: ActiveTab; label: string }[] = [
   { key: 'been', label: 'Been' },
   { key: 'saved', label: 'Want to Go' },
@@ -72,8 +75,9 @@ const PRICE_FILTER_OPTIONS = [
 
 // ─── Spot Row ─────────────────────────────────────────────────────────────────
 
-function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
+function SpotRow({ visit, rank, selectionMode, isSelected, onSelect, onLongPress }: {
   visit: Visit;
+  rank: number | null;
   selectionMode: boolean;
   isSelected: boolean;
   onSelect: () => void;
@@ -85,7 +89,6 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
   const occasionDisplay = visit.occasion_type === 'other' && visit.occasion_label
     ? `Other (${visit.occasion_label})` : occasionInfo?.label;
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const color = ratingColor(visit.rating);
   const metaLine = [priceLabel, info?.label, occasionDisplay].filter(Boolean).join(' · ');
 
   return (
@@ -100,15 +103,16 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
           {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
         </View>
       )}
+      {!selectionMode && rank != null && (
+        <Text style={s.rowRank}>{rank}</Text>
+      )}
       <View style={s.rowMain}>
         <Text style={s.rowName} numberOfLines={1}>{visit.venue_name}</Text>
         {metaLine ? <Text style={s.rowMeta} numberOfLines={1}>{metaLine}</Text> : null}
         <Text style={s.rowDate}>{dateStr}</Text>
       </View>
       {!selectionMode && visit.rating > 0 && (
-        <View style={[s.scorePill, { borderColor: color }]}>
-          <Text style={[s.scoreText, { color }]}>{formatRating(visit.rating)}</Text>
-        </View>
+        <ScoreRing rating={visit.rating} size={40} />
       )}
     </Pressable>
   );
@@ -142,7 +146,6 @@ function FutureSpotRow({ spot }: { spot: FutureSpot }) {
 // ─── Stack Row ────────────────────────────────────────────────────────────────
 
 function StackRow({ stack }: { stack: StackSummary }) {
-  const color = ratingColor(stack.rating);
   const dateStr = friendlyDate(stack.created_at);
 
   return (
@@ -159,11 +162,7 @@ function StackRow({ stack }: { stack: StackSummary }) {
         )}
         <Text style={s.rowDate}>{dateStr}</Text>
       </View>
-      {stack.rating > 0 && (
-        <View style={[s.scorePill, { borderColor: color }]}>
-          <Text style={[s.scoreText, { color }]}>{formatRating(stack.rating)}</Text>
-        </View>
-      )}
+      {stack.rating > 0 && <ScoreRing rating={stack.rating} size={40} />}
     </Pressable>
   );
 }
@@ -428,19 +427,21 @@ function CreateStackModal({ visitIds, onConfirm, onCancel }: {
   const [name, setName] = useState('');
 
   return (
-    <Modal visible animationType="slide" presentationStyle="formSheet" transparent>
-      <Pressable style={ns.backdrop} onPress={onCancel}>
-        <Pressable style={ns.sheet} onPress={() => {}}>
-          <View style={ns.handle} />
+    <Modal visible animationType="slide" transparent>
+      <KeyboardAvoidingView
+        style={ns.backdrop}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+        <View style={ns.sheet}>
           <Text style={ns.title}>Name this stack</Text>
           <Text style={ns.subtitle}>{visitIds.length} spots selected</Text>
-          <TextInput
+          <AppTextInput
             style={ns.input}
             value={name}
             onChangeText={setName}
             placeholder="e.g. Saturday Night Out"
             placeholderTextColor={T.placeholder}
-            autoFocus
             returnKeyType="done"
             onSubmitEditing={() => name.trim() && onConfirm(name.trim())}
           />
@@ -454,8 +455,8 @@ function CreateStackModal({ visitIds, onConfirm, onCancel }: {
           <Pressable style={ns.cancelBtn} onPress={onCancel}>
             <Text style={ns.cancelBtnText}>Cancel</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -484,39 +485,24 @@ export default function ListsScreen() {
   const [stacks, setStacks] = useState<StackSummary[]>([]);
 
   const [naming, setNaming] = useState(false);
-  const [indicatorWidth, setIndicatorWidth] = useState(0);
   const flatListRef = useRef<FlatList>(null);
-  const indicatorX = useRef(new Animated.Value(0)).current;
-  const tabLayouts = useRef<Record<string, { x: number; width: number }>>({});
-  const textWidths = useRef<Record<string, number>>({});
   const { selectionMode, selectedIds, enter, exit, toggle, canStack } = useSelectionMode();
 
-  function getTextIndicator(key: string): { x: number; width: number } | null {
-    const tabLayout = tabLayouts.current[key];
-    const textW = textWidths.current[key];
-    if (!tabLayout || !textW) return null;
-    return { x: tabLayout.x + (tabLayout.width - textW) / 2, width: textW };
-  }
+  // Mirror selection state into refs so the focus-effect cleanup (a stale closure)
+  // can tell whether the user is leaving mid-stack-creation.
+  const selectionModeRef = useRef(selectionMode);
+  const selectedIdsRef = useRef(selectedIds);
+  useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
 
   useLayoutEffect(() => {
-    const target = getTabFromParam(tabParam);
-    setActiveTab(target);
-    const ind = getTextIndicator(target);
-    if (ind) {
-      indicatorX.setValue(ind.x);
-      setIndicatorWidth(ind.width);
-    }
+    setActiveTab(getTabFromParam(tabParam));
   }, [tabParam]);
 
   useFocusEffect(
     useCallback(() => {
       const target = getTabFromParam(tabParam);
       setActiveTab(target);
-      const ind = getTextIndicator(target);
-      if (ind) {
-        indicatorX.setValue(ind.x);
-        setIndicatorWidth(ind.width);
-      }
       if (target === 'been') flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
       // Filters don't persist across visits: leaving the tab and returning starts fresh.
       setActivityFilters([]);
@@ -526,7 +512,19 @@ export default function ListsScreen() {
       setFutureSpots(getAllFutureSpots());
       setStacks(getAllStacks());
       setLoading(false);
-      if (consumeNewStack()) enter();
+      if (consumeNewStack()) enter(consumeStackSelection() ?? undefined);
+
+      return () => {
+        // Leaving the ranked tab mid-stack-creation abandons selection here. If the user
+        // had picked any spots, hand off a "stack in progress" flag so the map can offer
+        // to resume it (mirroring resume-logging).
+        if (selectionModeRef.current) {
+          if (selectedIdsRef.current.size > 0) {
+            markStackInProgress(Array.from(selectedIdsRef.current));
+          }
+          exit();
+        }
+      };
     }, [tabParam])
   );
 
@@ -555,15 +553,15 @@ export default function ListsScreen() {
 
   const activeFilterCount = activityFilters.length + priceFilters.length + occasionFilters.length;
 
+  const avgRating = useMemo(() => {
+    const rated = visits.filter(v => v.rating > 0);
+    return rated.length ? rated.reduce((sum, v) => sum + v.rating, 0) / rated.length : 0;
+  }, [visits]);
+
   function handleTabSwitch(tab: ActiveTab) {
     if (tab === activeTab) return;
     setActiveTab(tab);
     if (selectionMode) exit();
-    const ind = getTextIndicator(tab);
-    if (ind) {
-      setIndicatorWidth(ind.width);
-      Animated.spring(indicatorX, { toValue: ind.x, useNativeDriver: true, damping: 22, stiffness: 280 }).start();
-    }
   }
 
   function handleStackConfirm(name: string) {
@@ -583,51 +581,39 @@ export default function ListsScreen() {
         <View style={s.header}>
           <View style={s.occasionSelector}>
             <View>
-              <Text style={s.occasionSubtitle}> </Text>
-              <Text style={s.occasionTitle}>All Dates</Text>
+              <Text style={s.occasionSubtitle}>
+                {visits.length > 0
+                  ? `${visits.length} RANKED${avgRating > 0 ? ` · ${formatRating(avgRating)} AVG` : ''}`
+                  : ' '}
+              </Text>
+              <Text style={s.occasionTitle}>Your Spots</Text>
             </View>
           </View>
           <HeaderActions />
         </View>
 
-        {/* Tab bar */}
-        <View style={s.tabBar}>
-          {TABS.map(tab => (
-            <Pressable
-              key={tab.key}
-              style={s.tab}
-              onPress={() => handleTabSwitch(tab.key)}
-              onLayout={e => {
-                const { x, width } = e.nativeEvent.layout;
-                tabLayouts.current[tab.key] = { x, width };
-                const textW = textWidths.current[tab.key];
-                if (tab.key === activeTab && textW) {
-                  const indX = x + (width - textW) / 2;
-                  indicatorX.setValue(indX);
-                  setIndicatorWidth(textW);
-                }
-              }}
-            >
-              <Text
-                style={[s.tabLabel, activeTab === tab.key && s.tabLabelActive]}
-                onLayout={e => {
-                  const textW = e.nativeEvent.layout.width;
-                  textWidths.current[tab.key] = textW;
-                  const tabLayout = tabLayouts.current[tab.key];
-                  if (tab.key === activeTab && tabLayout) {
-                    const indX = tabLayout.x + (tabLayout.width - textW) / 2;
-                    indicatorX.setValue(indX);
-                    setIndicatorWidth(textW);
-                  }
-                }}
+        {/* Segmented control */}
+        <View style={s.segTrack}>
+          {TABS.map(tab => {
+            const active = activeTab === tab.key;
+            const count = tab.key === 'been' ? visits.length
+              : tab.key === 'saved' ? futureSpots.length
+              : stacks.length;
+            return (
+              <Pressable
+                key={tab.key}
+                style={[s.seg, active && s.segActive]}
+                onPress={() => handleTabSwitch(tab.key)}
               >
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
-          {indicatorWidth > 0 && (
-            <Animated.View style={[s.tabUnderline, { position: 'absolute', bottom: 0, width: indicatorWidth, transform: [{ translateX: indicatorX }] }]} />
-          )}
+                <Text style={[s.segLabel, active && s.segLabelActive]} numberOfLines={1}>
+                  {tab.label}
+                  {count > 0 && (
+                    <Text style={[s.segCount, active && s.segCountActive]}>{'  '}{count}</Text>
+                  )}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Filter strip */}
@@ -731,9 +717,10 @@ export default function ListsScreen() {
               ref={flatListRef}
               data={selectionMode ? visits : filteredVisits}
               keyExtractor={v => v.id}
-              renderItem={({ item }) => (
+              renderItem={({ item, index }) => (
                 <SpotRow
                   visit={item}
+                  rank={sortBy === 'score' ? index + 1 : null}
                   selectionMode={selectionMode}
                   isSelected={selectedIds.has(item.id)}
                   onSelect={() => toggle(item.id)}
@@ -880,33 +867,38 @@ const s = StyleSheet.create({
   occasionTitle: {
     fontSize: 32,
     fontFamily: 'Fraunces-Regular',
-    color: T.primary,
+    color: T.ink,
     lineHeight: 36,
+    letterSpacing: -0.5,
   },
 
-  tabBar: {
+  segTrack: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: T.border,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: T.segBg,
+    borderRadius: 13,
+    padding: 3,
   },
-  tab: {
+  seg: {
     flex: 1,
     alignItems: 'center',
-    paddingBottom: 10,
-    paddingTop: 12,
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 10,
   },
-  tabLabel: { fontSize: 15, fontWeight: '700', color: T.muted },
-  tabLabelActive: { color: T.primary },
-  tabUnderline: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: T.primary,
-    borderRadius: 1,
+  segActive: {
+    backgroundColor: T.card,
+    shadowColor: T.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
+  segLabel: { fontSize: 13.5, fontWeight: '600', color: T.muted, letterSpacing: -0.1 },
+  segLabelActive: { color: T.ink, fontWeight: '700' },
+  segCount: { fontSize: 11, fontWeight: '600', color: T.placeholder },
+  segCountActive: { color: T.accentDeep },
 
   filterStrip: {
     flexDirection: 'row',
@@ -986,21 +978,15 @@ const s = StyleSheet.create({
     flexShrink: 0,
   },
   checkboxChecked: { backgroundColor: T.accent, borderColor: T.accent },
-  rowMain: { flex: 1, marginRight: 12 },
-  rowName: { fontSize: 17, fontWeight: '700', color: T.primary, marginBottom: 4 },
-  rowMeta: { fontSize: 13, color: T.muted, marginBottom: 2 },
-  rowDate: { fontSize: 12, color: T.muted, marginTop: 4 },
-  scorePill: {
-    borderWidth: 1.5,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    backgroundColor: 'transparent',
-    minWidth: 42,
-    alignItems: 'center',
-    flexShrink: 0,
+  rowRank: {
+    width: 24, marginRight: 8, fontSize: 16,
+    fontFamily: 'Fraunces-Regular', color: T.placeholder,
+    textAlign: 'center', fontVariant: ['tabular-nums'],
   },
-  scoreText: { fontSize: 12, fontWeight: '800' },
+  rowMain: { flex: 1, marginRight: 12 },
+  rowName: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2, marginBottom: 4 },
+  rowMeta: { fontSize: 13, color: T.muted, marginBottom: 2 },
+  rowDate: { fontSize: 12, color: T.placeholder, marginTop: 4 },
   bookmarkPill: {
     borderWidth: 1.5,
     borderRadius: 10,
@@ -1190,11 +1176,13 @@ const fs = StyleSheet.create({
 
 const ns = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'transparent' },
+  // Match the "Where did you go?" sheet: tall slide-up panel, no drag handle. The
+  // KeyboardAvoidingView lifts it above the keyboard when the field is focused.
   sheet: {
     backgroundColor: T.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 24, paddingBottom: 40,
+    height: Dimensions.get('window').height * 0.6,
   },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: T.border, alignSelf: 'center', marginBottom: 20 },
   title: { fontSize: 20, fontWeight: '400', color: T.primary, fontFamily: 'Fraunces-Regular', marginBottom: 4, textAlign: 'center' },
   subtitle: { fontSize: 13, color: T.muted, textAlign: 'center', marginBottom: 20 },
   input: {

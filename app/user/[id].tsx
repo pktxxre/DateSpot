@@ -96,7 +96,8 @@ import {
   getFollowStatus, followUser, unfollowUser, removeFollower,
   PublicUserProfile,
 } from '@/lib/friends';
-import { ACTIVITY_TYPES, friendlyDate, formatRating, ratingColor } from '@/lib/visits';
+import { ACTIVITY_TYPES, friendlyDate } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import { T } from '@/lib/theme';
 
 const AVATAR_BG = '#E8C5B8';
@@ -386,7 +387,6 @@ export default function UserProfileScreen() {
             </View>
           ) : (
             recentActivity.map(visit => {
-              const color = visit.rating > 0 ? ratingColor(visit.rating) : T.muted;
               return (
                 <View key={visit.id} style={s.activityRow}>
                   <View style={s.activityInfo}>
@@ -396,9 +396,7 @@ export default function UserProfileScreen() {
                     </Text>
                   </View>
                   {visit.rating > 0 && (
-                    <View style={[s.scorePill, { borderColor: color }]}>
-                      <Text style={[s.scoreText, { color }]}>{formatRating(visit.rating)}</Text>
-                    </View>
+                    <ScoreRing rating={visit.rating} size={36} />
                   )}
                 </View>
               );
@@ -496,11 +494,6 @@ const s = StyleSheet.create({
   activityInfo: { flex: 1 },
   activityLabel: { fontSize: 14, fontWeight: '600', color: T.primary, marginBottom: 2 },
   activitySub: { fontSize: 12, color: T.muted },
-  scorePill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    minWidth: 42, alignItems: 'center', flexShrink: 0,
-  },
-  scoreText: { fontSize: 12, fontWeight: '800' },
   emptyActivity: { alignItems: 'center', paddingVertical: 20 },
   emptyText: { fontSize: 14, color: T.muted, textAlign: 'center' },
 

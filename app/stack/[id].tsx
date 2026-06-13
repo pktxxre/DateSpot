@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Alert,
-  ScrollView, TextInput, Image, ActivityIndicator,
+  ScrollView, Image, ActivityIndicator,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +13,7 @@ import {
   StackDetail, StackVisitRow,
 } from '@/lib/stacks';
 import { ratingColor, formatRating, friendlyDate, ACTIVITY_TYPES } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import { T } from '@/lib/theme';
 
 // ─── Edit Stack Modal ─────────────────────────────────────────────────────────
@@ -66,7 +68,7 @@ function EditStackModal({ stack, onClose, onSave }: {
         </View>
         <ScrollView style={em.form} keyboardShouldPersistTaps="handled">
           <Text style={em.label}>Stack name</Text>
-          <TextInput
+          <AppTextInput
             style={em.input}
             value={name}
             onChangeText={setName}
@@ -102,7 +104,6 @@ function EditStackModal({ stack, onClose, onSave }: {
 // ─── Spot Mini Card ───────────────────────────────────────────────────────────
 
 function SpotMiniCard({ visit, index }: { visit: StackVisitRow; index: number }) {
-  const color = ratingColor(visit.rating);
   const dateStr = friendlyDate(visit.visited_at);
 
   return (
@@ -110,17 +111,12 @@ function SpotMiniCard({ visit, index }: { visit: StackVisitRow; index: number })
       style={({ pressed }) => [s.spotCard, pressed && { opacity: 0.7 }]}
       onPress={() => router.push(`/spot/${visit.visit_id}`)}
     >
-      <View style={[s.accentBar, { backgroundColor: color }]} />
       <Text style={s.spotIndex}>{index + 1}</Text>
       <View style={s.spotInfo}>
         <Text style={s.spotName} numberOfLines={1}>{visit.venue_name}</Text>
         <Text style={s.spotMeta}>{ACTIVITY_TYPES.find(a => a.value === visit.activity_type)?.label ?? visit.activity_type} · {dateStr}</Text>
       </View>
-      {visit.rating > 0 && (
-        <View style={[s.scorePill, { borderColor: color }]}>
-          <Text style={[s.scorePillText, { color }]}>{formatRating(visit.rating)}</Text>
-        </View>
-      )}
+      {visit.rating > 0 && <ScoreRing rating={visit.rating} size={44} />}
     </Pressable>
   );
 }
@@ -189,16 +185,18 @@ export default function StackDetailScreen() {
 
         {/* Hero */}
         <View style={s.hero}>
+          <Text style={s.heroKicker}>STACK · {dateStr.toUpperCase()}</Text>
           <Text style={s.heroName}>{detail.name}</Text>
           <View style={s.heroMeta}>
-            <View style={s.spotCountBadge}>
-              <Text style={s.spotCountText}>{detail.visits.length} spot{detail.visits.length !== 1 ? 's' : ''}</Text>
-            </View>
             {avgRating > 0 && (
-              <View style={[s.qualityDot, { borderColor: qualityColor }]}>
+              <View style={[s.qualityDot, { backgroundColor: qualityColor + '1A' }]}>
+                <View style={[s.qualityDotMark, { backgroundColor: qualityColor }]} />
                 <Text style={[s.qualityLabel, { color: qualityColor }]}>{formatRating(avgRating)} avg</Text>
               </View>
             )}
+            <View style={s.spotCountBadge}>
+              <Text style={s.spotCountText}>{detail.visits.length} spot{detail.visits.length !== 1 ? 's' : ''}</Text>
+            </View>
           </View>
 
           {(() => {
@@ -282,41 +280,47 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: T.border,
   },
-  heroName: {
-    fontSize: 26,
-    fontWeight: '400',
-    color: T.primary,
-    fontFamily: 'Fraunces-Regular',
-    lineHeight: 32,
-    letterSpacing: -0.5,
-    marginBottom: 6,
+  heroKicker: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: T.accentDeep,
+    letterSpacing: 1.8,
+    marginBottom: 8,
   },
-  heroDate: { fontSize: 14, color: T.muted, fontWeight: '500', marginBottom: 12 },
-  heroMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' },
+  heroName: {
+    fontSize: 34,
+    fontWeight: '400',
+    color: T.ink,
+    fontFamily: 'Fraunces-Regular',
+    lineHeight: 40,
+    letterSpacing: -0.8,
+    marginBottom: 14,
+  },
+  heroMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
 
   spotCountBadge: {
     backgroundColor: T.inputBg,
-    borderRadius: 20,
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 7,
   },
-  spotCountText: { fontSize: 13, fontWeight: '600', color: T.muted },
+  spotCountText: { fontSize: 12.5, fontWeight: '600', color: T.primary },
 
   qualityDot: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 20,
+    gap: 6,
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderWidth: 1.5,
-    backgroundColor: 'transparent',
+    paddingVertical: 7,
   },
-  qualityLabel: { fontSize: 13, fontWeight: '700' },
+  qualityDotMark: { width: 7, height: 7, borderRadius: 4 },
+  qualityLabel: { fontSize: 12.5, fontWeight: '700' },
 
   categoryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   categoryPill: {
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 10, borderWidth: 1, borderColor: T.border,
+    paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: 999, borderWidth: 1, borderColor: T.border,
     backgroundColor: T.inputBg,
   },
   categoryPillText: { fontSize: 12, fontWeight: '500', color: T.muted },
@@ -347,27 +351,17 @@ const s = StyleSheet.create({
   spotCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 13,
+    paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: T.border,
   },
-  accentBar: {
-    width: 4,
-    alignSelf: 'stretch',
-    borderRadius: 2,
-    marginRight: 10,
-    minHeight: 36,
+  spotIndex: {
+    fontSize: 16, color: T.placeholder, width: 22, textAlign: 'center', marginRight: 12,
+    fontFamily: 'Fraunces-Regular', fontVariant: ['tabular-nums'],
   },
-  spotIndex: { fontSize: 13, fontWeight: '500', color: T.muted, width: 20, textAlign: 'center', marginRight: 10 },
-  spotInfo: { flex: 1, marginRight: 10 },
-  spotName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 2 },
-  spotMeta: { fontSize: 12, color: T.muted, textTransform: 'capitalize' },
-  scorePill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
-  },
-  scorePillText: { fontSize: 12, fontWeight: '800' },
-
+  spotInfo: { flex: 1, marginRight: 12 },
+  spotName: { fontSize: 16, fontWeight: '600', color: T.ink, letterSpacing: -0.2, marginBottom: 4 },
+  spotMeta: { fontSize: 13, color: T.muted, textTransform: 'capitalize' },
 });
 
 const em = StyleSheet.create({

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, Pressable, TextInput, Alert, ScrollView, Image, LayoutAnimation,
+  StyleSheet, View, Text, Pressable, Alert, ScrollView, Image, LayoutAnimation,
   Modal, KeyboardAvoidingView, Platform, Animated, ActivityIndicator, Easing,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import {
   Map as MapLibreMap,
   Camera,
@@ -44,6 +45,7 @@ let _pendingOpenLogWithLocation: { name: string; lat: number; lng: number; activ
 let _pendingSelectVisit: string | null = null;
 let _pendingSelectSeedSpot: string | null = null;
 let _pendingSelectFuture: string | null = null;
+let _pendingMapFilter: 'been' | 'want' | null = null;
 let _skipNextResumePrompt = false;
 
 export function scheduleOpenLog() {
@@ -70,15 +72,20 @@ export function scheduleSelectFutureSpot(spotId: string) {
   if (_selectFutureCallback) { _selectFutureCallback(spotId); }
   else { _pendingSelectFuture = spotId; }
 }
+// Open the map showing a specific filter (e.g. from the profile's Been / Want to Go rows).
+export function scheduleShowMapFilter(filter: 'been' | 'want') {
+  _pendingMapFilter = filter;
+}
 import * as Crypto from 'expo-crypto';
 import {
-  getAllVisits, insertVisit, ratingColor, formatRating, friendlyDate, Visit,
+  getAllVisits, insertVisit, friendlyDate, Visit,
   ActivityType, OccasionType, Price, ACTIVITY_TYPES, OCCASION_TYPES, PRICE_LABELS,
 } from '@/lib/visits';
 import {
   startComparison, advance, resolveRankOrder, resolveAtMid,
-  currentComparison, ComparisonState,
+  currentComparison, ComparisonState, provisionalRating, tierColor,
 } from '@/lib/ranking';
+import { ScoreRing, AnimatedScoreRing } from '@/components/ScoreRing';
 import type { Triage } from '@/lib/visits';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/draft';
 import { isOnline } from '@/lib/sync';
@@ -88,7 +95,7 @@ import { getProfile, saveProfile } from '@/lib/profile';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
-import { scheduleNewStack } from '@/lib/stackCreation';
+import { scheduleNewStack, hasStackInProgress, consumeStackInProgress } from '@/lib/stackCreation';
 
 // Raw feature from the MapTiler Geocoding API (GeoJSON FeatureCollection).
 interface GeocodeFeature {
@@ -453,7 +460,13 @@ export default function MapScreen() {
       const fromDetail = _mapNavigatedToDetail;
       _mapNavigatedToDetail = false;
       // Only reset filters when entering from another tab, not returning from a card or using View Map
-      if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot && !_pendingSelectFuture) {
+      const pendingFilter = _pendingMapFilter;
+      _pendingMapFilter = null;
+      if (pendingFilter) {
+        setMapFilter(pendingFilter);
+        setMapCategoryFilters([]);
+        setMapPriceFilters([]);
+      } else if (!fromDetail && !_pendingSelectVisit && !_pendingSelectSeedSpot && !_pendingSelectFuture) {
         setMapFilter('been');
         setMapCategoryFilters([]);
         setMapPriceFilters([]);
@@ -548,6 +561,23 @@ export default function MapScreen() {
       }
       if (_skipNextResumePrompt) {
         _skipNextResumePrompt = false;
+        return;
+      }
+      if (hasStackInProgress()) {
+        Alert.alert(
+          'Resume stack?',
+          'You were creating a stack — continue picking spots?',
+          [
+            { text: 'Discard', style: 'destructive', onPress: () => { consumeStackInProgress(); } },
+            {
+              text: 'Resume', onPress: () => {
+                const ids = consumeStackInProgress();
+                scheduleNewStack(ids ?? undefined);
+                router.push('/(tabs)/lists?tab=been' as any);
+              }
+            },
+          ]
+        );
         return;
       }
       loadDraft().then((saved) => {
@@ -1073,14 +1103,11 @@ export default function MapScreen() {
             const isSelected = selectedVisit?.id === v.id;
             const isTop3 = top3ids.has(v.id);
             const isAnimating = animatingVisitId === v.id;
-            const color = ratingColor(v.rating);
             const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
             const labelSide = beenLabelSides.get(v.id) ?? 'right';
             const inner = (
               <View pointerEvents="none" style={{ overflow: 'visible' }}>
-                <View style={[styles.pinBadge, { borderColor: color }, isSelected && { backgroundColor: color }]}>
-                  <Text style={[styles.pinScore, { color: isSelected ? '#fff' : color }, isTop3 && { fontWeight: '900' }]}>{formatRating(v.rating)}</Text>
-                </View>
+                <ScoreRing rating={v.rating} size={30} selected={isSelected} />
                 {showLabel && <PinLabel name={v.venue_name} side={labelSide} bold={isTop3} />}
               </View>
             );
@@ -1156,7 +1183,6 @@ export default function MapScreen() {
             }
             const s = item.spot;
             const isSelected = selectedSeedSpot?.id === s.id;
-            const pinColor = ratingColor(s.rating);
             const showLabel = region.latitudeDelta < LABEL_ZOOM_THRESHOLD;
             const labelSide = seedLabelSides.get(s.id) ?? 'right';
             return (
@@ -1175,9 +1201,7 @@ export default function MapScreen() {
                 anchor="center"
               >
                 <Animated.View pointerEvents="none" style={{ overflow: 'visible', transform: [{ scale: isSelected ? selectPopAnim : 1 }] }}>
-                  <View style={[styles.seedPinBadge, { borderColor: pinColor }, isSelected && { backgroundColor: pinColor }]}>
-                    <Text style={[styles.seedPinScore, { color: isSelected ? '#fff' : pinColor }]}>{formatRating(s.rating)}</Text>
-                  </View>
+                  <ScoreRing rating={s.rating} size={30} selected={isSelected} />
                   {showLabel && <PinLabel name={s.venue_name} side={labelSide} />}
                 </Animated.View>
               </Marker>
@@ -1369,7 +1393,7 @@ export default function MapScreen() {
               <View style={styles.modalCardCompact}>
                 <Animated.View style={{ transform: [{ translateX: stepAnim }] }}>
                   {step === 'triage' && (
-                    <TriageStep onPick={handleTriage} />
+                    <TriageStep onPick={handleTriage} onBack={() => triggerStepTransition('details', 'back')} />
                   )}
                   {step === 'compare' && !cmpState && (
                     <NoCompareStep
@@ -1384,6 +1408,8 @@ export default function MapScreen() {
                       newVenueAddress={draft.address || ''}
                       newActivityType={draft.activity_type || 'other'}
                       opponent={currentComparison(cmpState)}
+                      provisionalScore={provisionalRating(cmpState.lo, cmpState.sorted.length, currentTriage)}
+                      ringColor={tierColor(currentTriage)}
                       onBetter={() => handleCompare('better')}
                       onWorse={() => handleCompare('worse')}
                       onTooHard={handleTooHard}
@@ -1546,7 +1572,6 @@ function MapFilterSheet({ visible, currentCategory, currentPrice, onApply, onClo
 
 function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) {
   const info = ACTIVITY_TYPES.find((a) => a.value === visit.activity_type);
-  const color = ratingColor(visit.rating);
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const preview = visit.notes?.trim().slice(0, 70) ?? null;
   return (
@@ -1555,9 +1580,7 @@ function VisitDetail({ visit, onClose }: { visit: Visit; onClose: () => void }) 
         <View style={styles.visitBannerBody}>
           <View style={styles.visitBannerTop}>
             <Text style={styles.visitBannerName} numberOfLines={1}>{visit.venue_name}</Text>
-            <View style={[styles.visitBannerPill, { borderColor: color }]}>
-              <Text style={[styles.visitBannerPillText, { color }]}>{formatRating(visit.rating)}</Text>
-            </View>
+            <ScoreRing rating={visit.rating} size={30} />
           </View>
           <Text style={styles.visitBannerMeta}>
             {[info?.label, visit.price != null ? PRICE_LABELS[visit.price] : null, dateStr].filter(Boolean).join(' · ')}
@@ -1644,9 +1667,7 @@ function SeedSpotDetail({ spot, onClose, onSaved }: { spot: SeedSpot; onClose: (
           <View style={styles.visitBannerBody}>
             <View style={styles.visitBannerTop}>
               <Text style={styles.visitBannerName} numberOfLines={1}>{spot.venue_name}</Text>
-              <View style={[styles.visitBannerPill, { borderColor: ratingColor(spot.rating) }]}>
-                <Text style={[styles.visitBannerPillText, { color: ratingColor(spot.rating) }]}>{formatRating(spot.rating)}</Text>
-              </View>
+              <ScoreRing rating={spot.rating} size={30} />
             </View>
             <Text style={styles.visitBannerMeta}>
               {[info?.label ?? 'Other', spot.price != null ? PRICE_LABELS[spot.price as Price] : null].filter(Boolean).join(' · ')}
@@ -1830,7 +1851,7 @@ function LocationStep({ onDropPin, onSelect, onBack, region }: {
       <ProgressDots currentStep={1} />
       <Text style={styles.stepTitle}>Where did you go?</Text>
       <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
-      <TextInput
+      <AppTextInput
         style={[styles.input, { marginBottom: 4 }]}
         placeholder="Search for a place…"
         placeholderTextColor="#c7c7cc"
@@ -1881,7 +1902,7 @@ function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading, su
       <View style={styles.stepContainer}>
         <Text style={styles.stepTitle}>Save for later</Text>
         <Text style={styles.stepSubtitle}>{geocodeLoading && !draft.venue_name ? 'Looking up location…' : 'Where do you want to go?'}</Text>
-        <TextInput
+        <AppTextInput
           style={[styles.input, { marginBottom: 16 }]}
           value={draft.venue_name || ''}
           onChangeText={(v) => onChange('venue_name', v)}
@@ -1898,7 +1919,7 @@ function FutureDetailsStep({ draft, onChange, onSave, onBack, geocodeLoading, su
             onChange={(v) => { onChange('occasion_type', v); if (v !== 'other') onChange('occasion_label', ''); }}
           />
           {draft.occasion_type === 'other' && (
-            <TextInput
+            <AppTextInput
               style={[styles.input, { marginTop: 10, marginBottom: 0 }]}
               value={draft.occasion_label || ''}
               onChangeText={(v) => onChange('occasion_label', v)}
@@ -1958,7 +1979,7 @@ function FuturePinStep({ onDropPin, onBack, onSelect, region }: {
       </Pressable>
       <Text style={styles.stepTitle}>Where do you want to go?</Text>
       <Text style={styles.stepSubtitle}>Search by name, address, or neighborhood</Text>
-      <TextInput
+      <AppTextInput
         style={[styles.input, { marginBottom: 4 }]}
         placeholder="Search for a place…"
         placeholderTextColor="#c7c7cc"
@@ -2008,7 +2029,7 @@ function FutureNameStep({ value, onChange, onSave, onBack, suggestion, geocodeLo
           <Text style={styles.stepSubtitle}>
             {geocodeLoading && !value ? 'Looking up the spot…' : 'Give it a name to remember'}
           </Text>
-          <TextInput
+          <AppTextInput
             style={styles.input}
             placeholder="e.g. Lazy Bear"
             placeholderTextColor="#c7c7cc"
@@ -2367,7 +2388,7 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
         <Text style={styles.stepSubtitle}>Step 2 of 5</Text>
 
         <View style={{ marginBottom: 18 }}>
-          <TextInput
+          <AppTextInput
             style={[styles.input, { marginBottom: 0, paddingVertical: 8 }]}
             value={draft.venue_name || ''}
             onChangeText={(v) => onChange('venue_name', v)}
@@ -2385,7 +2406,7 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
             onChange={(v) => { onChange('occasion_type', v); if (v !== 'other') onChange('occasion_label', ''); }}
           />
           {draft.occasion_type === 'other' && (
-            <TextInput
+            <AppTextInput
               style={[styles.input, { marginTop: 10, marginBottom: 0 }]}
               value={draft.occasion_label || ''}
               onChangeText={(v) => onChange('occasion_label', v)}
@@ -2495,7 +2516,7 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
             onToggle={() => toggleRow('notes')}
             last
           >
-            <TextInput
+            <AppTextInput
               style={[styles.input, styles.inputMultiline, { marginBottom: 0 }]}
               placeholder="What made it memorable?"
               placeholderTextColor={T.placeholder}
@@ -2524,9 +2545,12 @@ function DetailsStep({ draft, onChange, onNext, onBack, suggestion, geocodeLoadi
   );
 }
 
-function TriageStep({ onPick }: { onPick: (t: Triage) => void }) {
+function TriageStep({ onPick, onBack }: { onPick: (t: Triage) => void; onBack: () => void }) {
   return (
-    <View style={styles.stepContainer}>
+    <View style={[styles.stepContainer, { position: 'relative' }]}>
+      <Pressable onPress={onBack} style={styles.cardBackBtn} hitSlop={10}>
+        <Ionicons name="chevron-back" size={24} color={T.primary} />
+      </Pressable>
       <ProgressDots currentStep={3} />
       <Text style={styles.stepTitle}>First impression?</Text>
       <Text style={styles.stepSubtitle}>Step 3 of 5 · Narrows your comparisons</Text>
@@ -2573,8 +2597,9 @@ const COMPARE_ACTIVITY_COLORS: Record<string, string> = {
   other:         '#8B7762',
 };
 
-function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent, onBetter, onWorse, onTooHard, onBack }: {
+function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent, provisionalScore, ringColor, onBetter, onWorse, onTooHard, onBack }: {
   newVenueName: string; newVenueAddress?: string; newActivityType: string; opponent: Visit;
+  provisionalScore: number; ringColor: string;
   onBetter: () => void; onWorse: () => void; onTooHard: () => void; onBack: () => void;
 }) {
   const thisScaleAnim = useRef(new Animated.Value(1)).current;
@@ -2609,7 +2634,6 @@ function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent,
     });
   }
 
-  const opponentColor = ratingColor(opponent.rating);
   const thisColor = COMPARE_ACTIVITY_COLORS[newActivityType] ?? '#8B7762';
   const thatColor = COMPARE_ACTIVITY_COLORS[opponent.activity_type] ?? '#8B7762';
   const thisLabel = ACTIVITY_TYPES.find(a => a.value === newActivityType)?.label ?? 'Spot';
@@ -2629,9 +2653,7 @@ function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent,
           >
             <View style={[styles.compareCardHeader, { backgroundColor: thisColor }]}>
               <Text style={styles.compareCardCategory} numberOfLines={1}>{thisLabel.toUpperCase()}</Text>
-              <View style={styles.compareNewPill}>
-                <Text style={styles.compareNewPillText}>?</Text>
-              </View>
+              <AnimatedScoreRing rating={provisionalScore} color={ringColor} size={34} />
             </View>
             <View style={styles.compareCardBody}>
               <Text style={styles.compareCardName} numberOfLines={2}>{newVenueName}</Text>
@@ -2651,9 +2673,7 @@ function CompareStep({ newVenueName, newVenueAddress, newActivityType, opponent,
             <View style={[styles.compareCardHeader, { backgroundColor: thatColor }]}>
               <Text style={styles.compareCardCategory} numberOfLines={1}>{thatLabel.toUpperCase()}</Text>
               {opponent.rating > 0 && (
-                <View style={[styles.compareRatingPill, { borderColor: opponentColor }]}>
-                  <Text style={[styles.compareRatingPillText, { color: opponentColor }]}>{formatRating(opponent.rating)}</Text>
-                </View>
+                <ScoreRing rating={opponent.rating} size={34} />
               )}
             </View>
             <View style={styles.compareCardBody}>
@@ -2701,15 +2721,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
 
-  pinBadge: {
-    minWidth: 40, height: 26, borderRadius: 13,
-    paddingHorizontal: 7,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#fff', borderWidth: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25, shadowRadius: 4,
-  },
-  pinScore: { fontSize: 12, fontWeight: '800' },
   // Wrapper spans the badge height (top:0/bottom:0) and centers the label
   // vertically on the pin. Fixed width gives the name room and sets where it
   // wraps to a second line; without an explicit width an absolutely-positioned
@@ -2732,10 +2743,9 @@ const styles = StyleSheet.create({
   },
 
   futurePinBadge: {
-    // Match pinBadge dimensions (minWidth 40, height 26, paddingHorizontal 7) so the venue
-    // name label sits at the same distance from the anchor as on been-to pins.
-    minWidth: 40, height: 26, borderRadius: 13,
-    paddingHorizontal: 7,
+    // Match the been-to/seed ScoreRing pin footprint (30×30 circle) so the venue
+    // name label sits at the same distance from the anchor as on those pins.
+    width: 30, height: 30, borderRadius: 15,
     backgroundColor: 'rgba(88,86,214,0.12)',
     borderWidth: 2, borderColor: '#5856d6',
     alignItems: 'center', justifyContent: 'center',
@@ -2745,15 +2755,6 @@ const styles = StyleSheet.create({
   futurePinBadgeSelected: {
     backgroundColor: '#5856d6',
   },
-
-  seedPinBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    paddingHorizontal: 7, paddingVertical: 4, borderRadius: 13,
-    backgroundColor: '#fff', borderWidth: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2, shadowRadius: 4,
-  },
-  seedPinScore: { fontSize: 11, fontWeight: '800' },
 
   clusterBadge: {
     minWidth: 34, height: 34, borderRadius: 17,
@@ -2840,8 +2841,6 @@ const styles = StyleSheet.create({
   visitBannerName: { fontSize: 15, fontWeight: '600', color: T.primary, flex: 1, marginRight: 8 },
   visitBannerMeta: { fontSize: 12, color: T.muted, marginBottom: 3 },
   visitBannerPreview: { fontSize: 12, color: '#A0927E', fontStyle: 'italic', lineHeight: 16 },
-  visitBannerPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1.5, backgroundColor: 'transparent' },
-  visitBannerPillText: { fontSize: 12, fontWeight: '800' },
   visitBannerActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   visitBannerActionGroup: { flexDirection: 'column', alignItems: 'center', gap: 6 },
   visitBannerActionBtn: {
@@ -3057,18 +3056,6 @@ const styles = StyleSheet.create({
   compareCardOld: { borderColor: T.border },
   compareCardHeader: { height: 47, paddingLeft: 8, paddingRight: 8, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   compareCardCategory: { flex: 1, fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.3 },
-  compareNewPill: {
-    flexShrink: 0, marginLeft: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-  },
-  compareNewPillText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.8)' },
-  compareRatingPill: {
-    flexShrink: 0, marginLeft: 4,
-    backgroundColor: '#fff', borderWidth: 1.5,
-    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-  },
-  compareRatingPillText: { fontSize: 12, fontWeight: '800' },
   compareCardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
   compareCardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
   compareCardAddress: { fontSize: 10, color: T.muted, fontWeight: '400', marginTop: 2, lineHeight: 13 },

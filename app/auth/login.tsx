@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, View, Text, TextInput, Pressable, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -53,29 +54,27 @@ export default function LoginScreen() {
             <View style={styles.fields}>
               <View style={styles.inputWrap}>
                 <Text style={styles.label}>Email</Text>
-                <TextInput
+                <AppTextInput
                   style={styles.input}
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="you@example.com"
+                  placeholder="Email address"
                   placeholderTextColor={T.placeholder}
                   autoCapitalize="none"
                   keyboardType="email-address"
-                  autoComplete="email"
                 />
               </View>
 
               <View style={styles.inputWrap}>
                 <Text style={styles.label}>Password</Text>
                 <View style={styles.passwordRow}>
-                  <TextInput
+                  <AppTextInput
                     style={[styles.input, { flex: 1 }]}
                     value={password}
                     onChangeText={setPassword}
                     placeholder="Your password"
                     placeholderTextColor={T.placeholder}
                     secureTextEntry={!showPassword}
-                    autoComplete="password"
                   />
                   <Pressable
                     onPress={() => setShowPassword(v => !v)}

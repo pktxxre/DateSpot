@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  StyleSheet, View, Text, TextInput, Pressable,
+  StyleSheet, View, Text, Pressable,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -162,7 +163,7 @@ export default function OnboardingScreen() {
 
             <View style={styles.form}>
               {step === 'bio' ? (
-                <TextInput
+                <AppTextInput
                   style={[styles.input, styles.textArea]}
                   value={currentValue}
                   onChangeText={setterMap[step]}
@@ -176,7 +177,7 @@ export default function OnboardingScreen() {
                 />
               ) : (
                 <View style={{ position: 'relative' }}>
-                  <TextInput
+                  <AppTextInput
                     style={[styles.input, step === 'handle' && handleTaken && styles.inputError]}
                     value={currentValue}
                     onChangeText={setterMap[step]}

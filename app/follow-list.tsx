@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  StyleSheet, View, Text, TextInput, Pressable, ScrollView, Image, Animated,
+  StyleSheet, View, Text, Pressable, ScrollView, Image, Animated,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -135,7 +136,7 @@ export default function FollowListScreen() {
       {/* Rounded pill search bar */}
       <View style={s.searchWrap}>
         <Ionicons name="search" size={15} color={T.muted} style={{ marginRight: 8 }} />
-        <TextInput
+        <AppTextInput
           style={s.searchInput}
           placeholder={activeTab === 'followers' ? 'Search Followers' : 'Search Following'}
           placeholderTextColor={T.muted}

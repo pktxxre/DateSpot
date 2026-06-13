@@ -1,22 +1,26 @@
 import { ratingColor, formatRating, friendlyDate } from '../lib/visits';
 
 describe('ratingColor', () => {
-  it('returns green for ratings >= 6.8', () => {
-    expect(ratingColor(6.8)).toBe('#34c759');
-    expect(ratingColor(8.5)).toBe('#34c759');
-    expect(ratingColor(10.0)).toBe('#34c759');
+  it('returns deep green for ratings >= 8.5', () => {
+    expect(ratingColor(8.5)).toBe('#2F8F5B');
+    expect(ratingColor(10.0)).toBe('#2F8F5B');
   });
 
-  it('returns orange for ratings >= 3.3 and < 6.8', () => {
-    expect(ratingColor(3.3)).toBe('#ff9500');
-    expect(ratingColor(5.5)).toBe('#ff9500');
-    expect(ratingColor(6.7)).toBe('#ff9500');
+  it('returns soft green for ratings >= 6.8 and < 8.5', () => {
+    expect(ratingColor(6.8)).toBe('#5FA86B');
+    expect(ratingColor(8.4)).toBe('#5FA86B');
+  });
+
+  it('returns amber for ratings >= 3.3 and < 6.8', () => {
+    expect(ratingColor(3.3)).toBe('#D99A2B');
+    expect(ratingColor(5.5)).toBe('#D99A2B');
+    expect(ratingColor(6.7)).toBe('#D99A2B');
   });
 
   it('returns red for ratings below 3.3', () => {
-    expect(ratingColor(0.1)).toBe('#ff3b30');
-    expect(ratingColor(2.0)).toBe('#ff3b30');
-    expect(ratingColor(3.2)).toBe('#ff3b30');
+    expect(ratingColor(0.1)).toBe('#C75146');
+    expect(ratingColor(2.0)).toBe('#C75146');
+    expect(ratingColor(3.2)).toBe('#C75146');
   });
 });
 

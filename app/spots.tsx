@@ -10,7 +10,8 @@ import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
 } from 'react-native-reanimated';
 import { getSeedSpotsRaw, SeedSpot } from '@/lib/seeds';
-import { PRICE_LABELS, getAllVisits, ratingColor, normalizeName, Price } from '@/lib/visits';
+import { PRICE_LABELS, getAllVisits, normalizeName, Price } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import { getAllFutureSpots } from '@/lib/future';
 import { getProfile } from '@/lib/profile';
 import { getFriendsByVenue, VenueFriend } from '@/lib/friends';
@@ -314,7 +315,6 @@ export default function SpotsScreen() {
             contentContainerStyle={s.listContent}
             ItemSeparatorComponent={() => <View style={s.separator} />}
             renderItem={({ item, index }) => {
-              const c = ratingColor(item.rating);
               const priceLabel = PRICE_LABELS[item.price as Price] ?? '';
               const key = item.venue_name.toLowerCase().trim();
               const dist = origin ? distanceMiles(origin.lat, origin.lng, item.lat, item.lng) : null;
@@ -348,9 +348,7 @@ export default function SpotsScreen() {
                       </View>
                     )}
                   </View>
-                  <View style={[s.scorePill, { borderColor: c }]}>
-                    <Text style={[s.scorePillText, { color: c }]}>{item.rating.toFixed(1)}</Text>
-                  </View>
+                  <ScoreRing rating={item.rating} size={40} />
                 </Pressable>
               );
             }}
@@ -624,12 +622,6 @@ const s = StyleSheet.create({
     height: 20, paddingHorizontal: 8, borderRadius: 10,
   },
   stateTagText: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.2 },
-
-  scorePill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', flexShrink: 0, minWidth: 42, alignItems: 'center',
-  },
-  scorePillText: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
 
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   emptyText: { fontSize: 16, color: T.muted },

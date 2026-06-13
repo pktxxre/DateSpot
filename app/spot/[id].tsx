@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Modal, Image,
-  Alert, ScrollView, Dimensions, TextInput, Share, LayoutAnimation, Animated,
+  Alert, ScrollView, Dimensions, Share, LayoutAnimation, Animated,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { Map, Camera, Marker } from '@maplibre/maplibre-react-native';
 import { MAP_STYLE_URL, latitudeDeltaToZoom } from '@/lib/mapStyle';
 import { useLocalSearchParams, router, useFocusEffect, Stack } from 'expo-router';
@@ -11,13 +12,14 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   getVisitById, deleteVisit, updateVisit, getAllVisits, updateRankOrder, recomputeRatings, Visit,
   ACTIVITY_TYPES, OCCASION_TYPES, PRICE_LABELS, Price, ActivityType, OccasionType,
-  ratingColor, formatRating, friendlyDate, normalizeName,
+  formatRating, friendlyDate, normalizeName,
 } from '@/lib/visits';
 import { getStacksForVisit, createStack, TierKey } from '@/lib/stacks';
 import {
   startComparison, advance, resolveRankOrder, resolveAtMid,
-  currentComparison, ComparisonState,
+  currentComparison, ComparisonState, provisionalRating, tierColor,
 } from '@/lib/ranking';
+import { ScoreRing, AnimatedScoreRing } from '@/components/ScoreRing';
 import { uploadPhoto } from '@/lib/storage';
 import { getSeedSpotById, SeedSpot } from '@/lib/seeds';
 import { supabase } from '@/lib/supabase';
@@ -124,8 +126,6 @@ function RankAgainModal({ visit, onClose, onDone }: {
   const thatColor = opponent ? (ACTIVITY_COLORS[opponent.activity_type] ?? T.muted) : T.muted;
   const thisLabel = ACTIVITY_TYPES.find(a => a.value === visit.activity_type)?.label ?? 'Spot';
   const thatLabel = opponent ? (ACTIVITY_TYPES.find(a => a.value === opponent.activity_type)?.label ?? 'Spot') : 'Spot';
-  const thisRatingColor = ratingColor(visit.rating);
-  const thatRatingColor = opponent ? ratingColor(opponent.rating) : T.muted;
 
   const cardContent = others.length === 0 ? (
     <>
@@ -142,10 +142,12 @@ function RankAgainModal({ visit, onClose, onDone }: {
           <Pressable style={[r.card, r.cardThis]} onPress={() => { animateTap(thisScaleAnim); handleResult('better'); }}>
             <View style={[r.cardHeader, { backgroundColor: thisColor }]}>
               <Text style={r.cardCategory} numberOfLines={1}>{thisLabel.toUpperCase()}</Text>
-              {visit.rating > 0 && (
-                <View style={[r.cardRatingPill, { borderColor: thisRatingColor }]}>
-                  <Text style={[r.cardRatingText, { color: thisRatingColor }]}>{formatRating(visit.rating)}</Text>
-                </View>
+              {cmpState && (
+                <AnimatedScoreRing
+                  rating={provisionalRating(cmpState.lo, cmpState.sorted.length, visit.triage)}
+                  color={tierColor(visit.triage)}
+                  size={32}
+                />
               )}
             </View>
             <View style={r.cardBody}>
@@ -160,9 +162,7 @@ function RankAgainModal({ visit, onClose, onDone }: {
             <View style={[r.cardHeader, { backgroundColor: thatColor }]}>
               <Text style={r.cardCategory} numberOfLines={1}>{thatLabel.toUpperCase()}</Text>
               {opponent.rating > 0 && (
-                <View style={[r.cardRatingPill, { borderColor: thatRatingColor }]}>
-                  <Text style={[r.cardRatingText, { color: thatRatingColor }]}>{formatRating(opponent.rating)}</Text>
-                </View>
+                <ScoreRing rating={opponent.rating} size={32} />
               )}
             </View>
             <View style={r.cardBody}>
@@ -210,11 +210,6 @@ const r = StyleSheet.create({
   cardThat: { borderColor: T.border },
   cardHeader: { height: 47, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardCategory: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.9)', letterSpacing: 0.8, flexShrink: 1 },
-  cardRatingPill: {
-    backgroundColor: '#fff', borderWidth: 1.5,
-    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-  },
-  cardRatingText: { fontSize: 12, fontWeight: '800' },
   cardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: T.bg, justifyContent: 'space-between' },
   cardName: { fontSize: 14, fontWeight: '700', color: T.primary, lineHeight: 18 },
   cardLabel: { fontSize: 11, color: T.muted, fontWeight: '500' },
@@ -359,7 +354,7 @@ function MakeStackModal({ visit, onClose }: { visit: Visit; onClose: () => void 
           </Pressable>
         </View>
         <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-          <TextInput
+          <AppTextInput
             style={e.input}
             placeholder="Name this stack…"
             placeholderTextColor={T.placeholder}
@@ -474,7 +469,6 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveScale = useRef(new Animated.Value(1)).current;
 
-  const color = ratingColor(fv.rating);
   const info = ACTIVITY_TYPES.find(a => a.value === fv.activity_type);
   const priceLabel = fv.price != null ? PRICE_LABELS[fv.price as Price] : null;
   const dateStr = fv.visited_at ? friendlyDate(fv.visited_at) : '';
@@ -596,9 +590,7 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
         </Map>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
         <View pointerEvents="none" style={sd.mapPinOverlay}>
-          <View style={[styles.pin, { borderColor: color }]}>
-            <Text style={[styles.pinText, { color }]}>{fv.rating.toFixed(1)}</Text>
-          </View>
+          <ScoreRing rating={fv.rating} size={38} />
         </View>
       </View>
 
@@ -646,25 +638,19 @@ function FriendVisitDetail({ fv }: { fv: FriendVisit }) {
         <Text style={sd.sectionLabel}>SCORES</Text>
         <View style={sd.scoresRow}>
           <View style={sd.scoreCard}>
-            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
-              <Text style={sd.scoreNumber}>{fv.rating.toFixed(1)}</Text>
-            </View>
+            <ScoreRing rating={fv.rating} size={56} />
             <Text style={sd.scoreCardTitle}>Their Rating</Text>
             {dateStr ? <Text style={sd.scoreCardSub}>{dateStr}</Text> : null}
           </View>
           {friendScore !== 'loading' && friendScore !== null ? (
             <View style={sd.scoreCard}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(friendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
-                <Text style={sd.scoreNumber}>{formatRating(friendScore)}</Text>
-              </View>
+              <ScoreRing rating={friendScore} size={56} />
               <Text style={sd.scoreCardTitle}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
           ) : (
             <View style={[sd.scoreCard, sd.scoreCardLocked]}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
-                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
-              </View>
+              <ScoreRing rating={0} size={56} locked />
               <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
@@ -862,7 +848,6 @@ export default function SpotDetailScreen() {
 
   const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
   const occasionInfo = OCCASION_TYPES.find(a => a.value === visit.occasion_type);
-  const color = ratingColor(visit.rating);
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
   const priceLabel = visit.price != null ? PRICE_LABELS[visit.price] : null;
   const allSorted = getAllVisits().sort((a, b) => b.rating - a.rating);
@@ -949,9 +934,7 @@ export default function SpotDetailScreen() {
         </Map>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
         <View pointerEvents="none" style={sd.mapPinOverlay}>
-          <View style={[styles.pin, { borderColor: color }]}>
-            <Text style={[styles.pinText, { color }]}>{formatRating(visit.rating)}</Text>
-          </View>
+          <ScoreRing rating={visit.rating} size={38} />
         </View>
         <Pressable
           style={sd.openInMapBtn}
@@ -1000,25 +983,19 @@ export default function SpotDetailScreen() {
         <Text style={sd.sectionLabel}>SCORES</Text>
         <View style={sd.scoresRow}>
           <View style={sd.scoreCard}>
-            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
-              <Text style={sd.scoreNumber}>{formatRating(visit.rating)}</Text>
-            </View>
+            <ScoreRing rating={visit.rating} size={56} />
             <Text style={sd.scoreCardTitle}>Your Rating</Text>
             {rank > 0 && <Text style={sd.scoreCardSub}>#{rank} on your list</Text>}
           </View>
           {friendScore !== 'loading' && friendScore !== null ? (
             <View style={sd.scoreCard}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(friendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
-                <Text style={sd.scoreNumber}>{formatRating(friendScore)}</Text>
-              </View>
+              <ScoreRing rating={friendScore} size={56} />
               <Text style={sd.scoreCardTitle}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
           ) : (
             <View style={[sd.scoreCard, sd.scoreCardLocked]}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
-                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
-              </View>
+              <ScoreRing rating={0} size={56} locked />
               <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
             </View>
@@ -1085,7 +1062,6 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveScale = useRef(new Animated.Value(1)).current;
-  const color = ratingColor(spot.rating);
   const priceLabel = PRICE_LABELS[spot.price as Price];
 
   useEffect(() => {
@@ -1211,9 +1187,7 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         </Map>
         <View pointerEvents="none" style={sd.mapSolidOverlay} />
         <View pointerEvents="none" style={sd.mapPinOverlay}>
-          <View style={[styles.pin, { borderColor: color }]}>
-            <Text style={[styles.pinText, { color }]}>{spot.rating.toFixed(1)}</Text>
-          </View>
+          <ScoreRing rating={spot.rating} size={38} />
         </View>
         <Pressable
           style={sd.openInMapBtn}
@@ -1271,25 +1245,19 @@ function SeedSpotDetail({ spot }: { spot: SeedSpot }) {
         <Text style={sd.sectionLabel}>SCORES</Text>
         <View style={sd.scoresRow}>
           <View style={sd.scoreCard}>
-            <View style={[sd.scoreNumberPill, { backgroundColor: color, borderColor: 'rgba(255,255,255,0.35)' }]}>
-              <Text style={sd.scoreNumber}>{spot.rating.toFixed(1)}</Text>
-            </View>
+            <ScoreRing rating={spot.rating} size={56} />
             <Text style={sd.scoreCardTitle}>Rec Score</Text>
             <Text style={sd.scoreCardSub}>Avg. of all logs</Text>
           </View>
           {seedFriendScore !== 'loading' && seedFriendScore !== null ? (
             <View style={sd.scoreCard}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: ratingColor(seedFriendScore), borderColor: 'rgba(255,255,255,0.35)' }]}>
-                <Text style={sd.scoreNumber}>{formatRating(seedFriendScore)}</Text>
-              </View>
+              <ScoreRing rating={seedFriendScore} size={56} />
               <Text style={sd.scoreCardTitle}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>Avg. of friends</Text>
             </View>
           ) : (
             <View style={[sd.scoreCard, sd.scoreCardLocked]}>
-              <View style={[sd.scoreNumberPill, { backgroundColor: T.border, borderColor: 'rgba(0,0,0,0.06)' }]}>
-                <Text style={[sd.scoreNumber, { color: T.muted }]}>–</Text>
-              </View>
+              <ScoreRing rating={0} size={56} locked />
               <Text style={[sd.scoreCardTitle, { color: T.muted }]}>Friend Score</Text>
               <Text style={sd.scoreCardSub}>What your{'\n'}friends think</Text>
             </View>
@@ -1635,18 +1603,6 @@ const sd = StyleSheet.create({
     lineHeight: 34,
     marginBottom: 10,
   },
-  scoreNumberPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    alignSelf: 'flex-start',
-  },
-  scoreNumber: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: '#fff',
-  },
   scoreCardTitle: {
     fontSize: 12,
     fontWeight: '700',
@@ -1813,7 +1769,7 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
         </View>
         <ScrollView style={e.form} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
-          <TextInput style={e.input} placeholder="Name your date!" placeholderTextColor={T.placeholder} value={name} onChangeText={setName} autoFocus returnKeyType="next" />
+          <AppTextInput style={e.input} placeholder="Name your date!" placeholderTextColor={T.placeholder} value={name} onChangeText={setName} autoFocus returnKeyType="next" />
 
           <Text style={e.sectionLabel}>Date</Text>
           <EditDatePicker month={month} day={day} year={year} onMonthChange={setMonth} onDayChange={setDay} onYearChange={setYear} />
@@ -1855,7 +1811,7 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
             })}
           </View>
           {occasion === 'other' && (
-            <TextInput
+            <AppTextInput
               style={[e.input, { marginTop: 10 }]}
               value={occasionLabel}
               onChangeText={setOccasionLabel}
@@ -1877,7 +1833,7 @@ function EditModal({ visit, onClose, onSave }: { visit: Visit; onClose: () => vo
             })}
           </View>
 
-          <TextInput
+          <AppTextInput
             style={[e.input, e.inputMulti]}
             placeholder="Notes — what made it memorable?"
             placeholderTextColor={T.placeholder}
@@ -1962,13 +1918,6 @@ const styles = StyleSheet.create({
   mapHintText: { fontSize: 11, fontWeight: '600', color: '#fff' },
   mapAddress: { fontSize: 12, color: T.muted, marginTop: 8, paddingHorizontal: 2 },
 
-  pin: {
-    minWidth: 34, height: 22, borderRadius: 11, paddingHorizontal: 6,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#fff', borderWidth: 2,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3,
-  },
-  pinText: { fontSize: 10, fontWeight: '800' },
 
   fullMap: { flex: 1 },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },

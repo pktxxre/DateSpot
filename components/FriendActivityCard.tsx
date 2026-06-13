@@ -4,22 +4,24 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import { Avatar } from '@/components/Avatar';
+import { ScoreRing } from '@/components/ScoreRing';
 import { FriendActivityItem } from '@/lib/friends';
-import { ratingColor, friendlyDate } from '@/lib/visits';
+import { friendlyDate } from '@/lib/visits';
 import { notifyActivity, removeNotifyActivity } from '@/lib/notifications';
 import { insertFutureSpot, deleteFutureSpotsByVenueName, getAllFutureSpots } from '@/lib/future';
 import { isActivityLiked, likeActivity, unlikeActivity } from '@/lib/friendLikes';
 import { scheduleOpenLogWithLocation } from '@/app/(tabs)/map';
 
+const INK      = '#2B2118';
 const PRIMARY  = '#4B3621';
 const MUTED    = '#8B7762';
-const PLACEHOLDER_CLR = '#B0A090';
-const BORDER   = '#EDE8E0';
-const NOTE_CLR = '#A0927E';
+const PLACEHOLDER_CLR = '#B3A48F';
+const BORDER   = '#ECE4D8';
 
-const LOG_CLR  = '#E76F51';
+const LOG_CLR  = '#C4502F';
 const SAVE_CLR = '#5856d6';
-const LIKE_CLR = '#E8637A';
+const LIKE_CLR = '#E76F51';
+const VISITED_CLR = '#5FA86B';
 
 const ACTIVITY_LABEL: Record<string, string> = {
   food: 'Food', bars: 'Drinks', cafes: 'Cafes',
@@ -33,7 +35,7 @@ function FloatingHeart({ onDone }: { onDone: () => void }) {
 
   useEffect(() => {
     RNAnimated.parallel([
-      RNAnimated.timing(translateY, { toValue: -28, duration: 500, useNativeDriver: true }),
+      RNAnimated.timing(translateY, { toValue: -18, duration: 500, useNativeDriver: true }),
       RNAnimated.sequence([
         RNAnimated.delay(180),
         RNAnimated.timing(opacity, { toValue: 0, duration: 370, useNativeDriver: true }),
@@ -44,7 +46,7 @@ function FloatingHeart({ onDone }: { onDone: () => void }) {
   return (
     <RNAnimated.View
       pointerEvents="none"
-      style={{ position: 'absolute', top: 6, left: 6, transform: [{ translateY }], opacity }}
+      style={{ position: 'absolute', top: 4, left: 2, transform: [{ translateY }], opacity }}
     >
       <Ionicons name="heart" size={18} color={LIKE_CLR} />
     </RNAnimated.View>
@@ -63,7 +65,6 @@ export function FriendActivityCard({ item, isLast, alreadyVisited, linkToDetail 
     router.push(`/spot/${item.visitId}` as any);
   }
   const showRating = item.rating > 0;
-  const rColor = showRating ? ratingColor(item.rating) : null;
 
   const [liked, setLiked] = useState(() => isActivityLiked(item.visitId));
   const [saved, setSaved] = useState(() => {
@@ -162,25 +163,21 @@ export function FriendActivityCard({ item, isLast, alreadyVisited, linkToDetail 
           />
         </Pressable>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={s.cardSentence} numberOfLines={1}>
+          <Text style={s.cardSentence} numberOfLines={2}>
             <Text style={s.cardWho} suppressHighlighting onPress={() => router.push(`/user/${item.friend.id}` as any)}>{item.friend.username}</Text>
-            <Text style={s.cardVerb}>{' logged '}</Text>
+            <Text style={s.cardVerb}>{' ranked '}</Text>
             <Text style={s.cardSpot}>{item.venueName}</Text>
           </Text>
           <View style={s.metaRow}>
             <Text style={s.metaCat}>{actLabel}</Text>
           </View>
         </View>
-        {showRating && rColor && (
-          <View style={[s.ratingPill, { borderColor: rColor }]}>
-            <Text style={[s.ratingPillText, { color: rColor }]}>{item.rating === 10 ? '10' : item.rating.toFixed(1)}</Text>
-          </View>
-        )}
+        {showRating && <ScoreRing rating={item.rating} size={42} />}
       </View>
 
       {/* Note — always reserve space so all cards are uniform height */}
       <Text style={s.noteText} numberOfLines={2}>
-        {item.notes ? `"${item.notes}"` : ''}
+        {item.notes ? <><Text style={s.noteLabel}>Notes: </Text>{item.notes}</> : ''}
       </Text>
       </Pressable>
 
@@ -189,15 +186,9 @@ export function FriendActivityCard({ item, isLast, alreadyVisited, linkToDetail 
         {/* Like + date posted — left side */}
         <View style={s.actionLeft}>
           <View>
-            <Pressable
-              style={[
-                s.actionCircleBtn,
-                liked && { backgroundColor: `${LIKE_CLR}18`, borderColor: LIKE_CLR },
-              ]}
-              onPress={handleLike}
-            >
+            <Pressable style={s.actionBtn} onPress={handleLike} hitSlop={6}>
               <RNAnimated.View style={{ transform: [{ scale: heartScale }] }}>
-                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={14} color={liked ? LIKE_CLR : MUTED} />
+                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? LIKE_CLR : PRIMARY} />
               </RNAnimated.View>
             </Pressable>
             {floatingHearts.map(id => (
@@ -218,25 +209,20 @@ export function FriendActivityCard({ item, isLast, alreadyVisited, linkToDetail 
             </RNAnimated.Text>
           )}
           <Pressable
-            style={[s.actionCircleBtn, {
-              backgroundColor: alreadyVisited ? '#34c75918' : `${LOG_CLR}18`,
-              borderColor: alreadyVisited ? '#34c759' : LOG_CLR,
-            }]}
+            style={s.actionBtn}
             onPress={alreadyVisited ? undefined : handleLog}
             disabled={alreadyVisited}
           >
-            <Ionicons name={alreadyVisited ? 'checkmark' : 'add'} size={16} color={alreadyVisited ? '#34c759' : LOG_CLR} />
+            <Ionicons
+              name={alreadyVisited ? 'checkmark-circle' : 'add-circle-outline'}
+              size={24}
+              color={alreadyVisited ? VISITED_CLR : LOG_CLR}
+            />
           </Pressable>
 
-          <Pressable
-            style={[s.actionCircleBtn, {
-              backgroundColor: saved ? SAVE_CLR : `${SAVE_CLR}18`,
-              borderColor: SAVE_CLR,
-            }]}
-            onPress={handleSave}
-          >
+          <Pressable style={s.actionBtn} onPress={handleSave} hitSlop={6}>
             <RNAnimated.View style={{ transform: [{ scale: saveScale }] }}>
-              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={14} color={saved ? '#fff' : SAVE_CLR} />
+              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={21} color={saved ? SAVE_CLR : PRIMARY} />
             </RNAnimated.View>
           </Pressable>
         </View>
@@ -246,35 +232,24 @@ export function FriendActivityCard({ item, isLast, alreadyVisited, linkToDetail 
 }
 
 const s = StyleSheet.create({
-  activityRow: { paddingVertical: 10 },
-  activityRowBorder: { borderBottomWidth: 1, borderBottomColor: BORDER },
-  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cardSentence: { fontSize: 13, lineHeight: 18, color: PRIMARY },
-  cardWho:  { fontWeight: '600' },
+  activityRow: { paddingVertical: 16 },
+  activityRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BORDER },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  cardSentence: { fontSize: 15, lineHeight: 21, color: PRIMARY, letterSpacing: -0.1 },
+  cardWho:  { fontWeight: '700', color: INK },
   cardVerb: { color: MUTED, fontWeight: '400' },
-  cardSpot: { fontWeight: '600' },
-  cardTime: { fontSize: 11, color: PLACEHOLDER_CLR },
-  metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  metaCat:  { fontSize: 11, color: MUTED },
-  ratingPill: {
-    borderWidth: 1.5, borderRadius: 999,
-    paddingHorizontal: 9, paddingVertical: 3,
-    minWidth: 42, alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  ratingPillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  cardSpot: { fontFamily: 'Fraunces-Regular', fontSize: 15.5, color: INK },
+  metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  metaCat:  { fontSize: 12.5, color: MUTED },
   noteText: {
-    fontSize: 12, fontStyle: 'italic', color: NOTE_CLR,
-    lineHeight: 16, marginTop: 5, minHeight: 22,
+    fontSize: 13, color: PRIMARY,
+    lineHeight: 19, marginTop: 8, minHeight: 22,
   },
+  noteLabel: { fontWeight: '700', color: INK },
   actionRow: { flexDirection: 'row', marginTop: 12, alignItems: 'flex-start', justifyContent: 'space-between' },
-  actionLeft: { alignItems: 'flex-start' },
-  dateText: { fontSize: 11, color: MUTED, marginTop: 6 },
-  actionRight: { flexDirection: 'row', gap: 8 },
-  actionCircleBtn: {
-    width: 30, height: 30, borderRadius: 15,
-    borderWidth: 1, borderColor: BORDER,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  actionLeft: { alignItems: 'flex-start', marginLeft: 6 },
+  dateText: { fontSize: 12, color: PLACEHOLDER_CLR, fontWeight: '500', marginTop: 8 },
+  actionRight: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  actionBtn: { paddingVertical: 2 },
   microToast: { fontSize: 11, fontWeight: '600', color: SAVE_CLR },
 });

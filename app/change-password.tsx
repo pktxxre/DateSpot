@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  StyleSheet, View, Text, TextInput, Pressable,
+  StyleSheet, View, Text, Pressable,
   ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -117,14 +118,13 @@ export default function ChangePasswordScreen() {
             <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>CURRENT PASSWORD</Text>
               <View style={styles.inputRow}>
-                <TextInput
+                <AppTextInput
                   style={styles.input}
                   value={currentPassword}
                   onChangeText={setCurrentPassword}
                   placeholder="Enter current password"
                   placeholderTextColor={T.placeholder}
                   secureTextEntry={!showCurrent}
-                  autoComplete="password"
                 />
                 <Pressable onPress={() => setShowCurrent(v => !v)} hitSlop={8} style={styles.eyeBtn}>
                   <Ionicons name={showCurrent ? 'eye-off-outline' : 'eye-outline'} size={20} color={T.muted} />
@@ -139,14 +139,13 @@ export default function ChangePasswordScreen() {
               <Text style={styles.fieldLabel}>NEW PASSWORD</Text>
               <View style={{ position: 'relative' }}>
                 <View style={[styles.inputRow, sameAsCurrentError && styles.inputRowError]}>
-                  <TextInput
+                  <AppTextInput
                     style={styles.input}
                     value={newPassword}
                     onChangeText={setNewPassword}
                     placeholder="Enter new password"
                     placeholderTextColor={T.placeholder}
                     secureTextEntry={!showNew}
-                    autoComplete="new-password"
                   />
                   <Pressable onPress={() => setShowNew(v => !v)} hitSlop={8} style={styles.eyeBtn}>
                     <Ionicons name={showNew ? 'eye-off-outline' : 'eye-outline'} size={20} color={T.muted} />
@@ -172,14 +171,13 @@ export default function ChangePasswordScreen() {
             <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>CONFIRM NEW PASSWORD</Text>
               <View style={styles.inputRow}>
-                <TextInput
+                <AppTextInput
                   style={styles.input}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   placeholder="Re-enter new password"
                   placeholderTextColor={T.placeholder}
                   secureTextEntry={!showConfirm}
-                  autoComplete="new-password"
                 />
                 <Pressable onPress={() => setShowConfirm(v => !v)} hitSlop={8} style={styles.eyeBtn}>
                   <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={20} color={T.muted} />

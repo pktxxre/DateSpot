@@ -333,9 +333,10 @@ export function updateRankOrder(id: string, rank_order: number): void {
 }
 
 export function ratingColor(rating: number): string {
-  if (rating >= 6.8) return '#34c759';
-  if (rating >= 3.3) return '#ff9500';
-  return '#ff3b30';
+  if (rating >= 8.5) return '#2F8F5B'; // great — deep green
+  if (rating >= 6.8) return '#5FA86B'; // good — soft green
+  if (rating >= 3.3) return '#D99A2B'; // mid — warm amber
+  return '#C75146';                    // low — muted red
 }
 
 export function formatRating(rating: number): string {

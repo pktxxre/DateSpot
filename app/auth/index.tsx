@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated, Dimensions, Keyboard, KeyboardAvoidingView, Platform,
-  Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  Pressable, ScrollView, StyleSheet, Text, View,
   ActivityIndicator, Alert, Image,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -122,8 +123,17 @@ export default function OnboardingFlow() {
     });
   }
 
+  // Signup and login share the email/password fields, so wipe them whenever the
+  // user leaves one of those screens — otherwise what you typed on Create Account
+  // carries over into Log In (and vice versa).
+  function clearCredentials() {
+    setEmail('');
+    setPassword('');
+    setShowPassword(false);
+  }
+
   function goBack() {
-    if (step === 'signup' || step === 'login') go('welcome', 'back');
+    if (step === 'signup' || step === 'login') { clearCredentials(); go('welcome', 'back'); }
     else if (step === 'verify-email') go('signup', 'back');
     else if (step === 'name') go('signup', 'back');
     else if (step === 'profile') go('name', 'back');
@@ -298,6 +308,7 @@ export default function OnboardingFlow() {
               contentContainerStyle={s.scrollContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+              scrollEnabled={step !== 'welcome'}
             >
               {step === 'welcome' && <WelcomeContent onSignup={() => go('signup')} onLogin={() => go('login')} />}
               {step === 'signup' && (
@@ -305,7 +316,7 @@ export default function OnboardingFlow() {
                   email={email} setEmail={setEmail}
                   password={password} setPassword={setPassword}
                   showPassword={showPassword} setShowPassword={setShowPassword}
-                  onSwitchToLogin={() => go('login')}
+                  onSwitchToLogin={() => { clearCredentials(); go('login'); }}
                 />
               )}
               {step === 'verify-email' && (
@@ -335,7 +346,7 @@ export default function OnboardingFlow() {
                   email={email} setEmail={setEmail}
                   password={password} setPassword={setPassword}
                   showPassword={showPassword} setShowPassword={setShowPassword}
-                  onSwitchToSignup={() => go('signup')}
+                  onSwitchToSignup={() => { clearCredentials(); go('signup'); }}
                 />
               )}
             </ScrollView>
@@ -400,16 +411,20 @@ function SignupContent({ email, setEmail, password, setPassword, showPassword, s
       <View style={c.fields}>
         <View style={c.fieldWrap}>
           <Text style={c.label}>EMAIL</Text>
-          <TextInput style={c.input} value={email} onChangeText={setEmail}
-            placeholder="you@example.com" placeholderTextColor={c.ph.color as string}
-            autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+          <AppTextInput style={c.input} value={email} onChangeText={setEmail}
+            placeholder="Email address" placeholderTextColor={c.ph.color as string}
+            autoCapitalize="none" keyboardType="email-address"
+            autoComplete="off" textContentType="none" importantForAutofill="no"
+            autoCorrect={false} spellCheck={false} />
         </View>
         <View style={c.fieldWrap}>
           <Text style={c.label}>PASSWORD</Text>
           <View>
-            <TextInput style={c.input} value={password} onChangeText={setPassword}
+            <AppTextInput style={c.input} value={password} onChangeText={setPassword}
               placeholder="Create a password" placeholderTextColor={c.ph.color as string}
-              secureTextEntry={!showPassword} autoComplete="new-password" />
+              secureTextEntry={!showPassword}
+              autoComplete="off" textContentType="none" importantForAutofill="no"
+              autoCorrect={false} spellCheck={false} passwordRules="" />
             <Pressable style={c.eyeBtn} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="rgba(255,255,255,0.5)" />
             </Pressable>
@@ -441,15 +456,15 @@ function NameContent({ firstName, setFirstName, lastName, setLastName, onSubmit 
       <View style={c.fields}>
         <View style={c.fieldWrap}>
           <Text style={c.label}>FIRST NAME</Text>
-          <TextInput style={c.input} value={firstName} onChangeText={setFirstName}
+          <AppTextInput style={c.input} value={firstName} onChangeText={setFirstName}
             placeholder="First name" placeholderTextColor={c.ph.color as string}
-            autoCapitalize="words" autoFocus returnKeyType="next" />
+            autoCapitalize="words" autoCorrect={false} spellCheck={false} autoFocus returnKeyType="next" />
         </View>
         <View style={c.fieldWrap}>
           <Text style={c.label}>LAST NAME</Text>
-          <TextInput style={c.input} value={lastName} onChangeText={setLastName}
+          <AppTextInput style={c.input} value={lastName} onChangeText={setLastName}
             placeholder="Last name" placeholderTextColor={c.ph.color as string}
-            autoCapitalize="words" returnKeyType="done" onSubmitEditing={onSubmit} />
+            autoCapitalize="words" autoCorrect={false} spellCheck={false} returnKeyType="done" onSubmitEditing={onSubmit} />
         </View>
       </View>
     </View>
@@ -504,7 +519,7 @@ function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio,
           <View style={{ position: 'relative' }}>
             <View style={[c.prefixWrap, handleTaken && c.prefixWrapError]}>
               <Text style={c.prefix}>@</Text>
-              <TextInput
+              <AppTextInput
                 style={[c.input, c.inputNoLeftPad]}
                 value={handle}
                 onChangeText={t => setHandle(t.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase())}
@@ -512,6 +527,7 @@ function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio,
                 placeholderTextColor={c.ph.color as string}
                 autoCapitalize="none"
                 autoCorrect={false}
+                spellCheck={false}
               />
             </View>
             {handleTaken && (
@@ -522,7 +538,7 @@ function ProfileContent({ photoUri, onPickPhoto, handle, setHandle, bio, setBio,
         <View style={c.fieldWrap}>
           <Text style={c.label}>BIO</Text>
           <View>
-            <TextInput
+            <AppTextInput
               style={[c.input, c.bioInput]}
               value={bio}
               onChangeText={t => setBio(t.slice(0, 150))}
@@ -565,7 +581,7 @@ function VerifyEmailContent({ email, otp, setOtp }: {
       <View style={c.fields}>
         <View style={c.fieldWrap}>
           <Text style={c.label}>VERIFICATION CODE</Text>
-          <TextInput
+          <AppTextInput
             style={[c.input, { letterSpacing: 6, textAlign: 'center', fontSize: 24, fontWeight: '700', paddingVertical: 16 }]}
             value={otp}
             onChangeText={t => setOtp(t.replace(/[^0-9]/g, '').slice(0, 8))}
@@ -631,16 +647,20 @@ function LoginContent({ email, setEmail, password, setPassword, showPassword, se
       <View style={c.fields}>
         <View style={c.fieldWrap}>
           <Text style={c.label}>EMAIL</Text>
-          <TextInput style={c.input} value={email} onChangeText={setEmail}
-            placeholder="you@example.com" placeholderTextColor={c.ph.color as string}
-            autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+          <AppTextInput style={c.input} value={email} onChangeText={setEmail}
+            placeholder="Email address" placeholderTextColor={c.ph.color as string}
+            autoCapitalize="none" keyboardType="email-address"
+            autoComplete="off" textContentType="none" importantForAutofill="no"
+            autoCorrect={false} spellCheck={false} />
         </View>
         <View style={c.fieldWrap}>
           <Text style={c.label}>PASSWORD</Text>
           <View>
-            <TextInput style={c.input} value={password} onChangeText={setPassword}
+            <AppTextInput style={c.input} value={password} onChangeText={setPassword}
               placeholder="Your password" placeholderTextColor={c.ph.color as string}
-              secureTextEntry={!showPassword} autoComplete="password" />
+              secureTextEntry={!showPassword}
+              autoComplete="off" textContentType="none" importantForAutofill="no"
+              autoCorrect={false} spellCheck={false} passwordRules="" />
             <Pressable style={c.eyeBtn} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="rgba(255,255,255,0.5)" />
             </Pressable>

@@ -1,16 +1,18 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import {
   StyleSheet, View, Text, Pressable, FlatList, ScrollView,
-  Modal, TextInput, Image, Alert, Animated, Dimensions, Easing,
+  Modal, Image, Alert, Animated, Dimensions, Easing,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import {
   getAllVisits, Visit, ACTIVITY_TYPES, OCCASION_TYPES, PRICE_LABELS, Price,
-  formatRating, ratingColor, friendlyDate, ActivityType,
+  friendlyDate, ActivityType,
 } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import {
   getAllStacks, createStack, StackSummary, TierKey, TIER_ORDER, TIER_CONFIG, stackTier,
 } from '@/lib/stacks';
@@ -75,7 +77,7 @@ function CreateStackModal({ visitIds, onConfirm, onCancel }: {
             <>
               <Text style={ns.title}>Name this stack</Text>
               <Text style={ns.subtitle}>{visitIds.length} spots selected</Text>
-              <TextInput
+              <AppTextInput
                 style={ns.input}
                 value={name}
                 onChangeText={setName}
@@ -146,7 +148,7 @@ function CreateStackModal({ visitIds, onConfirm, onCancel }: {
                   );
                 })}
               </View>
-              <TextInput
+              <AppTextInput
                 style={ns.noteInput}
                 value={note}
                 onChangeText={setNote}
@@ -227,7 +229,6 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
   const occasionDisplay = visit.occasion_type === 'other' && visit.occasion_label
     ? `Other (${visit.occasion_label})` : occasionInfo?.label;
   const dateStr = friendlyDate(visit.visited_at || visit.created_at);
-  const color = ratingColor(visit.rating);
   const metaLine = [priceLabel, info?.label, occasionDisplay].filter(Boolean).join(' · ');
 
   return (
@@ -249,9 +250,7 @@ function SpotRow({ visit, selectionMode, isSelected, onSelect, onLongPress }: {
         <Text style={s.rowDate}>{dateStr}</Text>
       </View>
       {!selectionMode && visit.rating > 0 && (
-        <View style={[s.scorePill, { borderColor: color }]}>
-          <Text style={[s.scoreText, { color }]}>{formatRating(visit.rating)}</Text>
-        </View>
+        <ScoreRing rating={visit.rating} size={40} />
       )}
     </Pressable>
   );
@@ -559,17 +558,6 @@ const s = StyleSheet.create({
   rowName: { fontSize: 17, fontWeight: '700', color: T.primary, marginBottom: 4 },
   rowMeta: { fontSize: 13, color: T.muted, marginBottom: 2 },
   rowDate: { fontSize: 12, color: T.muted, marginTop: 4 },
-  scorePill: {
-    borderWidth: 1.5,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    backgroundColor: 'transparent',
-    minWidth: 42,
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  scoreText: { fontSize: 12, fontWeight: '800' },
   floatingBar: { position: 'absolute', bottom: 20, left: 16, right: 16 },
   stackBtn: {
     backgroundColor: T.accent,

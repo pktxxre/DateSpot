@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, Pressable,
-  ActivityIndicator, Dimensions, TextInput, FlatList, Image,
+  ActivityIndicator, Dimensions, FlatList, Image, Share,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { useFocusEffect, useNavigation, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllVisits, Visit, PRICE_LABELS, Price, formatRating, ratingColor, normalizeName } from '@/lib/visits';
+import { getAllVisits, Visit, PRICE_LABELS, Price, ratingColor, normalizeName } from '@/lib/visits';
 import { getSeedSpotsRaw, getTopSpots, SeedSpot, TopSpot } from '@/lib/seeds';
 import { getFriendActivity, FriendActivityItem } from '@/lib/friends';
 import { getProfile } from '@/lib/profile';
 import { HeaderActions } from '@/components/HeaderActions';
 import { FriendActivityCard } from '@/components/FriendActivityCard';
+import { ScoreRing } from '@/components/ScoreRing';
 import { T } from '@/lib/theme';
 import { TabSlideWrapper } from '@/components/TabSlideWrapper';
 import { tabNav } from '@/lib/tabTransition';
@@ -226,7 +228,7 @@ export default function HomeScreen() {
         {/* Search bar */}
         <View style={s.searchWrap}>
           <Ionicons name="search-outline" size={16} color={T.muted} style={s.searchIcon} />
-          <TextInput
+          <AppTextInput
             style={s.searchInput}
             placeholder="Search spots, neighborhoods..."
             placeholderTextColor={T.muted}
@@ -243,6 +245,16 @@ export default function HomeScreen() {
             <Text style={s.sectionTitle}>Top date spots</Text>
             <Text style={s.sectionSubtitle}>Your next date spot is waiting</Text>
           </View>
+          <Pressable
+            onPress={() => router.push('/spots' as any)}
+            hitSlop={8}
+            style={({ pressed }) => [s.seeAllBtn, pressed && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityLabel="See all date spots"
+          >
+            <Text style={s.seeAllText}>See All</Text>
+            <Ionicons name="chevron-forward" size={14} color={T.accent} />
+          </Pressable>
         </View>
 
         {/* Search results OR category cards */}
@@ -280,6 +292,18 @@ export default function HomeScreen() {
                 cardW={CARD_W}
               />
             ))}
+            {/* Trailing "View All" end-cap → all date spots, no filter applied */}
+            <Pressable
+              style={({ pressed }) => [s.viewAllCard, pressed && { opacity: 0.8 }]}
+              onPress={() => router.push('/spots' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="View all date spots"
+            >
+              <View style={s.viewAllIcon}>
+                <Ionicons name="arrow-forward" size={22} color={T.accent} />
+              </View>
+              <Text style={s.viewAllText}>View All</Text>
+            </Pressable>
           </ScrollView>
         )}
 
@@ -292,7 +316,15 @@ export default function HomeScreen() {
             </View>
             {activity.length === 0 ? (
               <View style={s.feedEmpty}>
-                <Text style={s.feedEmptyText}>When friends log dates, you'll see them here.</Text>
+                <Text style={s.feedEmptyText}>No friends yet — invite someone to see what they love and compare spots.</Text>
+                <Pressable
+                  style={({ pressed }) => [s.inviteButton, pressed && { opacity: 0.85 }]}
+                  onPress={() => Share.share({ message: 'Join me on DateSpot!' }).catch(() => {})}
+                  accessibilityRole="button"
+                  accessibilityLabel="Invite a friend"
+                >
+                  <Text style={s.inviteButtonText}>Invite a friend</Text>
+                </Pressable>
               </View>
             ) : (
               <View style={s.feedList}>
@@ -380,7 +412,6 @@ function CategoryCard({ category, spots, cardW }: {
       </Pressable>
       {/* Spot rows */}
       {spots.map((spot, idx) => {
-        const color = ratingColor(spot.rating);
         const priceLabel = PRICE_LABELS[spot.price as Price] ?? '';
         return (
           <View key={spot.id}>
@@ -393,9 +424,7 @@ function CategoryCard({ category, spots, cardW }: {
                 <Text style={s.spotName}>{normalizeName(spot.venue_name)}</Text>
                 {priceLabel ? <Text style={s.spotPrice}>{priceLabel}</Text> : null}
               </View>
-              <View style={[s.ratingPill, { borderColor: color }]}>
-                <Text style={[s.ratingPillText, { color }]}>{formatRating(spot.rating)}</Text>
-              </View>
+              <ScoreRing rating={spot.rating} size={36} />
             </Pressable>
             {idx < spots.length - 1 && <View style={s.rowDivider} />}
           </View>
@@ -421,11 +450,7 @@ function SearchResultRow({ spot }: { spot: SeedSpot }) {
         <Text style={s.recentName}>{normalizeName(spot.venue_name)}</Text>
         <Text style={s.recentMeta}>{[catLabel, priceLabel].filter(Boolean).join(' · ')}</Text>
       </View>
-      {spot.rating > 0 && (
-        <View style={[s.recentScore, { borderColor: color }]}>
-          <Text style={[s.recentScoreText, { color }]}>{formatRating(spot.rating)}</Text>
-        </View>
-      )}
+      {spot.rating > 0 && <ScoreRing rating={spot.rating} size={36} />}
     </Pressable>
   );
 }
@@ -460,14 +485,18 @@ const s = StyleSheet.create({
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: T.inputBg,
-    borderRadius: 12,
+    backgroundColor: T.card,
+    borderRadius: 14,
     marginHorizontal: 16,
     marginBottom: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: T.borderStrong,
+    shadowColor: T.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
   },
   searchIcon: { marginRight: 8 },
   searchInput: {
@@ -568,7 +597,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#E76F51',
     borderRadius: 11,
-    paddingVertical: 13,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
     marginTop: 14,
   },
   inviteButtonText: {
@@ -576,6 +606,18 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
     letterSpacing: 0.2,
+  },
+
+  seeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+    marginTop: 3,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: T.accent,
   },
 
   sectionHeaderRow: {
@@ -586,10 +628,11 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '400',
-    color: T.primary,
+    color: T.ink,
     fontFamily: 'Fraunces-Regular',
+    letterSpacing: -0.3,
     marginBottom: 2,
   },
   sectionSubtitle: {
@@ -607,11 +650,26 @@ const s = StyleSheet.create({
 
   // Category card
   categoryCard: {
-    borderRadius: 16, overflow: 'hidden', backgroundColor: T.card,
+    borderRadius: 20, overflow: 'hidden', backgroundColor: T.card,
     borderWidth: 1, borderColor: T.border,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.10, shadowRadius: 10,
+    shadowColor: T.ink, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07, shadowRadius: 16,
   },
+
+  // Trailing "View All" end-cap card
+  viewAllCard: {
+    width: 132, borderRadius: 20, backgroundColor: T.card,
+    borderWidth: 1, borderColor: T.border,
+    alignItems: 'center', justifyContent: 'center', gap: 12,
+    shadowColor: T.ink, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07, shadowRadius: 16,
+  },
+  viewAllIcon: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: T.accent + '1A',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  viewAllText: { fontSize: 14, fontWeight: '600', color: T.accent },
   categoryHero: {
     height: 130, justifyContent: 'flex-end', overflow: 'hidden',
   },
@@ -625,19 +683,16 @@ const s = StyleSheet.create({
   categoryHeroSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)' },
 
   // Spot row inside category card
-  spotRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 },
-  spotRank: { width: 24, fontSize: 13, fontWeight: '300', color: T.muted, marginRight: 8 },
-  spotInfo: { flex: 1, marginRight: 10 },
-  spotName: { fontSize: 14, fontWeight: '300', color: T.primary },
-  spotPrice: { fontSize: 12, color: T.muted, marginTop: 1 },
-  rowDivider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 46 },
-
-  // Rating pill
-  ratingPill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
+  spotRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11 },
+  spotRank: {
+    width: 24, fontSize: 15, color: T.placeholder, marginRight: 8,
+    fontFamily: 'Fraunces-Regular', textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
-  ratingPillText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  spotInfo: { flex: 1, marginRight: 10 },
+  spotName: { fontSize: 15, fontWeight: '600', color: T.ink, letterSpacing: -0.2 },
+  spotPrice: { fontSize: 12, color: T.muted, marginTop: 2 },
+  rowDivider: { height: StyleSheet.hairlineWidth, backgroundColor: T.border, marginLeft: 48 },
 
   // Search results
   searchResultsList: {
@@ -717,10 +772,11 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   feedTitle: {
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '400',
-    color: T.primary,
+    color: T.ink,
     fontFamily: 'Fraunces-Regular',
+    letterSpacing: -0.3,
   },
   feedList: { paddingHorizontal: 20 },
   feedEmpty: {
@@ -802,11 +858,6 @@ const s = StyleSheet.create({
     minHeight: 36,
   },
   recentRowLeft: { flex: 1, marginRight: 12 },
-  recentName: { fontSize: 15, fontWeight: '600', color: T.primary, marginBottom: 3 },
+  recentName: { fontSize: 15, fontWeight: '600', color: T.ink, marginBottom: 3 },
   recentMeta: { fontSize: 12, color: T.muted },
-  recentScore: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center',
-  },
-  recentScoreText: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
 });

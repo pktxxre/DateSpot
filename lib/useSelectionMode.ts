@@ -3,7 +3,7 @@ import { useState } from 'react';
 export interface SelectionModeHook {
   selectionMode: boolean;
   selectedIds: Set<string>;
-  enter: () => void;
+  enter: (ids?: string[]) => void;
   exit: () => void;
   toggle: (id: string) => void;
   canStack: boolean;
@@ -13,8 +13,9 @@ export function useSelectionMode(): SelectionModeHook {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  function enter() {
+  function enter(ids?: string[]) {
     setSelectionMode(true);
+    if (ids && ids.length) setSelectedIds(new Set(ids));
   }
 
   function exit() {

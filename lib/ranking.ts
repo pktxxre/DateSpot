@@ -1,4 +1,46 @@
+import { ratingColor, type Triage } from './visits';
+
 export type { Triage } from './visits';
+
+const TIER_BANDS: Record<Triage, { min: number; max: number }> = {
+  great: { min: 7.0, max: 10.0 },
+  okay:  { min: 4.0, max: 6.7  },
+  bad:   { min: 1.0, max: 3.2  },
+};
+
+/**
+ * The locked ring color for a triage tier: the band-top rating's canonical
+ * color (great → green, okay → amber, bad → red). Held constant for the whole
+ * This-or-That flow so the live ring never crosses color mid-decision.
+ */
+export function tierColor(triage: Triage): string {
+  return ratingColor(TIER_BANDS[triage].max);
+}
+
+/**
+ * Provisional score for a spot being ranked, as if it were inserted at
+ * `insertAt` (0-based from the top/best) into a tier pool of `poolSize`
+ * already-ranked spots. Pure mirror of recomputeRatings' band interpolation
+ * (every spot its own rank, no ties) so the live ring during This-or-That reads
+ * the same value that will eventually be saved.
+ */
+export function provisionalRating(insertAt: number, poolSize: number, triage: Triage): number {
+  const { min, max } = TIER_BANDS[triage];
+  const ng = poolSize + 1;
+  const clamped = Math.min(Math.max(insertAt, 0), ng - 1);
+  const gi = ng - 1 - clamped; // recomputeRatings orders worst → best
+  let rating: number;
+  if (ng === 1) {
+    rating = max;
+  } else if (ng <= 10) {
+    const step = (max - min) * 10 / (9 * ng);
+    rating = Math.max(min, max - (ng - 1 - gi) * step);
+  } else {
+    const pct = gi / (ng - 1);
+    rating = min + pct * (max - min);
+  }
+  return Math.round(rating * 10) / 10;
+}
 
 export interface ComparisonState<T extends { rank_order: number; id: string }> {
   lo: number;

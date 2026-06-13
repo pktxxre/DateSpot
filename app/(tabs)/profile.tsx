@@ -6,18 +6,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllVisits, Visit, ACTIVITY_TYPES, friendlyDate, formatRating, ratingColor } from '@/lib/visits';
+import { getAllVisits, Visit, ACTIVITY_TYPES, friendlyDate } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import { getAllFutureSpots } from '@/lib/future';
 import { getProfile, UserProfile } from '@/lib/profile';
 import { getFollowCounts, getFriends } from '@/lib/friends';
 import { T } from '@/lib/theme';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
+import { scheduleShowMapFilter } from '@/app/(tabs)/map';
 
 const FOLLOW_CACHE_KEY = 'profile_follow_counts_v2';
+const FRIEND_CACHE_KEY = 'profile_friend_count_v1';
 
 // In-session cache so re-entering the profile shows the last known counts
 // immediately (no "—" flash / visible re-count on every focus).
 let memFollowCounts: { followers: number; following: number } | null = null;
+let memFriendCount: number | null = null;
 
 function ProfileSkeleton() {
   const { shimmer, screenW } = useShimmer();
@@ -82,18 +86,30 @@ export default function ProfileScreen() {
   const [futureCount, setFutureCount] = useState(0);
   const [followers, setFollowers] = useState<number | null>(memFollowCounts?.followers ?? null);
   const [following, setFollowing] = useState<number | null>(memFollowCounts?.following ?? null);
-  const [friendCount, setFriendCount] = useState<number | null>(null);
+  const [friendCount, setFriendCount] = useState<number | null>(memFriendCount);
 
   useEffect(() => {
-    if (memFollowCounts) return; // already have counts in memory this session
-    AsyncStorage.getItem(FOLLOW_CACHE_KEY).then(val => {
-      if (val) {
-        const cached = JSON.parse(val);
-        memFollowCounts = cached;
-        setFollowers(cached.followers);
-        setFollowing(cached.following);
-      }
-    });
+    // Hydrate last-known counts from disk on first mount this session so the
+    // numbers render right away instead of flashing "—" then loading in.
+    if (!memFollowCounts) {
+      AsyncStorage.getItem(FOLLOW_CACHE_KEY).then(val => {
+        if (val) {
+          const cached = JSON.parse(val);
+          memFollowCounts = cached;
+          setFollowers(cached.followers);
+          setFollowing(cached.following);
+        }
+      });
+    }
+    if (memFriendCount == null) {
+      AsyncStorage.getItem(FRIEND_CACHE_KEY).then(val => {
+        if (val != null) {
+          const cached = JSON.parse(val);
+          memFriendCount = cached;
+          setFriendCount(cached);
+        }
+      });
+    }
   }, []);
 
   useFocusEffect(
@@ -111,7 +127,11 @@ export default function ProfileScreen() {
         setFollowing(counts.following);
         AsyncStorage.setItem(FOLLOW_CACHE_KEY, JSON.stringify(counts));
       });
-      getFriends().then(friends => setFriendCount(friends.length));
+      getFriends().then(friends => {
+        memFriendCount = friends.length;
+        setFriendCount(friends.length);
+        AsyncStorage.setItem(FRIEND_CACHE_KEY, JSON.stringify(friends.length));
+      });
     }, [])
   );
 
@@ -206,7 +226,7 @@ export default function ProfileScreen() {
         <View style={s.listSection}>
           <Pressable
             style={({ pressed }) => [s.listRow, pressed && { opacity: 0.75 }]}
-            onPress={() => router.navigate({ pathname: '/(tabs)/lists', params: { tab: 'been' } } as any)}
+            onPress={() => { scheduleShowMapFilter('been'); router.navigate('/(tabs)/map' as any); }}
           >
             <Ionicons name="checkmark-circle-outline" size={20} color={T.primary} />
             <Text style={s.listRowLabel}>Been</Text>
@@ -218,7 +238,7 @@ export default function ProfileScreen() {
           <View style={s.rowDivider} />
           <Pressable
             style={({ pressed }) => [s.listRow, pressed && { opacity: 0.75 }]}
-            onPress={() => router.navigate({ pathname: '/(tabs)/lists', params: { tab: 'saved' } } as any)}
+            onPress={() => { scheduleShowMapFilter('want'); router.navigate('/(tabs)/map' as any); }}
           >
             <Ionicons name="bookmark-outline" size={20} color={T.primary} />
             <Text style={s.listRowLabel}>Want to Go</Text>
@@ -250,7 +270,6 @@ export default function ProfileScreen() {
             </View>
           ) : (
             recentActivity.map(visit => {
-              const color = visit.rating > 0 ? ratingColor(visit.rating) : T.muted;
               return (
                 <Pressable
                   key={visit.id}
@@ -264,9 +283,7 @@ export default function ProfileScreen() {
                     </Text>
                   </View>
                   {visit.rating > 0 && (
-                    <View style={[s.scorePill, { borderColor: color }]}>
-                      <Text style={[s.scoreText, { color }]}>{formatRating(visit.rating)}</Text>
-                    </View>
+                    <ScoreRing rating={visit.rating} size={36} />
                   )}
                 </Pressable>
               );
@@ -373,12 +390,6 @@ const s = StyleSheet.create({
   activityInfo: { flex: 1 },
   activityLabel: { fontSize: 14, fontWeight: '600', color: T.primary, marginBottom: 2 },
   activitySub: { fontSize: 12, color: T.muted },
-  scorePill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    minWidth: 42, alignItems: 'center', flexShrink: 0,
-  },
-  scoreText: { fontSize: 12, fontWeight: '800' },
-
   emptyActivity: { alignItems: 'center', paddingVertical: 40 },
   emptyText: { fontSize: 14, color: T.muted, textAlign: 'center' },
 });

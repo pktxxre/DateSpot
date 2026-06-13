@@ -9,8 +9,9 @@ import {
   getUserVisits, getUserFutureSpots, PublicVisit, PublicFutureSpot,
 } from '@/lib/friends';
 import {
-  ACTIVITY_TYPES, OCCASION_TYPES, friendlyDate, formatRating, ratingColor,
+  ACTIVITY_TYPES, OCCASION_TYPES, friendlyDate,
 } from '@/lib/visits';
+import { ScoreRing } from '@/components/ScoreRing';
 import { T } from '@/lib/theme';
 import { useShimmer, SkBox } from '@/components/SkeletonBox';
 
@@ -381,7 +382,6 @@ export default function UserSpotsScreen() {
           if (activeTab === 'been') {
             const visit = item as PublicVisit;
             const info = ACTIVITY_TYPES.find(a => a.value === visit.activity_type);
-            const color = visit.rating > 0 ? ratingColor(visit.rating) : T.muted;
             return (
               <View style={s.row}>
                 <View style={s.rowMain}>
@@ -390,9 +390,7 @@ export default function UserSpotsScreen() {
                   <Text style={s.rowDate}>{friendlyDate(visit.visited_at || visit.created_at)}</Text>
                 </View>
                 {visit.rating > 0 && (
-                  <View style={[s.scorePill, { borderColor: color }]}>
-                    <Text style={[s.scoreText, { color }]}>{formatRating(visit.rating)}</Text>
-                  </View>
+                  <ScoreRing rating={visit.rating} size={40} />
                 )}
               </View>
             );
@@ -497,11 +495,6 @@ const s = StyleSheet.create({
   rowName: { fontSize: 17, fontWeight: '700', color: T.primary, marginBottom: 4 },
   rowMeta: { fontSize: 13, color: T.muted, marginBottom: 2 },
   rowDate: { fontSize: 12, color: T.muted, marginTop: 4 },
-  scorePill: {
-    borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3,
-    backgroundColor: 'transparent', minWidth: 42, alignItems: 'center', flexShrink: 0,
-  },
-  scoreText: { fontSize: 12, fontWeight: '800' },
   bookmarkPill: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,

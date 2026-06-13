@@ -1,4 +1,5 @@
-import { startComparison, advance, resolveRankOrder, resolveAtMid, currentComparison } from '../lib/ranking';
+import { startComparison, advance, resolveRankOrder, resolveAtMid, currentComparison, provisionalRating, tierColor } from '../lib/ranking';
+import { ratingColor } from '../lib/visits';
 import type { Visit } from '../lib/visits';
 
 function makeVisit(id: string, rankOrder: number, triage: 'bad' | 'okay' | 'great' = 'okay'): Visit {
@@ -63,6 +64,48 @@ describe('startComparison', () => {
     const state = startComparison(stacks, () => true);
     expect(state).not.toBeNull();
     expect(state!.sorted[state!.mid]).toBeDefined();
+  });
+});
+
+describe('tierColor', () => {
+  it('locks each tier to its band-top color (green / amber / red)', () => {
+    expect(tierColor('great')).toBe(ratingColor(10.0));
+    expect(tierColor('okay')).toBe(ratingColor(6.7));
+    expect(tierColor('bad')).toBe(ratingColor(3.2));
+    // sanity: the three are distinct
+    expect(new Set([tierColor('great'), tierColor('okay'), tierColor('bad')]).size).toBe(3);
+  });
+});
+
+describe('provisionalRating', () => {
+  it('returns the band top when alone in the tier', () => {
+    expect(provisionalRating(0, 0, 'great')).toBe(10.0);
+    expect(provisionalRating(0, 0, 'okay')).toBe(6.7);
+    expect(provisionalRating(0, 0, 'bad')).toBe(3.2);
+  });
+
+  it('puts the top insert position at the band top for any pool size', () => {
+    expect(provisionalRating(0, 5, 'great')).toBe(10.0);
+    expect(provisionalRating(0, 9, 'okay')).toBe(6.7);
+  });
+
+  it('drops the score as the insert position falls toward the bottom', () => {
+    // great tier, 2 already ranked → ng=3, step = 3.0*10/(9*3) = 1.111…
+    expect(provisionalRating(0, 2, 'great')).toBe(10.0);
+    expect(provisionalRating(1, 2, 'great')).toBe(8.9);
+    expect(provisionalRating(2, 2, 'great')).toBe(7.8);
+  });
+
+  it('clamps an out-of-range insert position to the bottom of the pool', () => {
+    expect(provisionalRating(99, 2, 'great')).toBe(provisionalRating(2, 2, 'great'));
+  });
+
+  it('matches recomputeRatings band interpolation for a large pool (>10)', () => {
+    // ng = 12 > 10 → linear pct path: min + (gi/(ng-1)) * (max-min)
+    const insertAt = 4, poolSize = 11, ng = 12;
+    const gi = ng - 1 - insertAt;
+    const expected = Math.round((4.0 + (gi / (ng - 1)) * (6.7 - 4.0)) * 10) / 10;
+    expect(provisionalRating(insertAt, poolSize, 'okay')).toBe(expected);
   });
 });
 

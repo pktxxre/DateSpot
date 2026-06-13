@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   StyleSheet, View, Text, Pressable, Modal,
-  TextInput, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform,
+  FlatList, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
@@ -73,7 +74,7 @@ export function AddFriendModal({ visible, onClose }: { visible: boolean; onClose
           </View>
           <View style={m.searchRow}>
             <Ionicons name="search-outline" size={16} color={MUTED} />
-            <TextInput
+            <AppTextInput
               style={m.searchInput} placeholder="Search by name or @handle"
               placeholderTextColor={PLACEHOLDER_CLR} value={query} onChangeText={setQuery}
               autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search"

@@ -9,6 +9,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Fonts } from '@/lib/theme';
+import { ScoreRing } from '@/components/ScoreRing';
 
 // Walkthrough uses the design's warm-cream palette, not the app's default white.
 const WT = {
@@ -18,14 +19,6 @@ const WT = {
 } as const;
 
 const RC = { great: '#34c759', okay: '#ff9500', bad: '#ff3b30' } as const;
-
-const TIER: Record<string, { c: string; wash: string }> = {
-  S: { c: '#34C759', wash: '#E8F7EA' },
-  A: { c: '#86C457', wash: '#EFF6E4' },
-  B: { c: '#E6B843', wash: '#FAF1DA' },
-  C: { c: '#E97C3A', wash: '#FBE9DC' },
-  F: { c: '#E55B5B', wash: '#FBE2E2' },
-};
 
 const ACT: Record<string, string> = {
   food: '#C4604A', bars: '#8B7BB0', cafes: '#A07850',
@@ -41,9 +34,9 @@ const PAGES = [
     body: 'Find the place, tell us about it, give it a first impression. Each spot lands on your map — colored by how good it was.' },
   { eyebrow: '02 · The Stack',
     title: 'Stack the spots from one night.',
-    body: "A great night isn't one place — it's a journey. Tap a few spots, then slot the whole night onto your tier board: S to F." },
+    body: "A great night isn't one place — it's a journey. Pick a few spots and bundle the whole night into one stack." },
   { eyebrow: '03 · The Compare',
-    title: 'This one, or that one?',
+    title: 'This or That?',
     body: "No stars. No 1-to-10 guessing. Just pick which place you liked better and we'll rank every spot you've been." },
 ] as const;
 
@@ -322,26 +315,22 @@ function ChoiceRow({ icon, title, sub }: { icon: React.ReactNode; title: string;
 }
 
 function LogStepTell() {
-  const cats = ['Food', 'Bars', 'Cafes', 'Outdoors', 'Indoors', 'Scenic', 'Other'];
+  const cats = ['Food', 'Bars', 'Cafes', 'Outdoors', 'Indoors', 'Scenic', 'Entertainment', 'Shopping', 'Other'];
   return (
     <View style={{ gap: 2 }}>
       <Text style={[ls.stepTitle, { fontFamily: Fonts.serif }]}>Tell me about it</Text>
       <Text style={ls.stepSub}>Step 2 of 5</Text>
-      <FormLabel>Category</FormLabel>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-        {cats.map((c, i) => <CatChip key={c} label={c} selected={i === 0} />)}
-      </View>
       <FormLabel>What kind of date?</FormLabel>
-      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
-        {([['Romantic', true], ['Friend', false], ['Solo', false]] as [string, boolean][]).map(([l, sel]) => (
-          <BigPill key={l} label={l} selected={sel} />
+      <View style={ls.segmented}>
+        {(['Romantic', 'Friend', 'Solo', 'Other'] as const).map((l, i) => (
+          <View key={l} style={[ls.segmentItem, i === 0 && ls.segmentItemActive]}>
+            <Text numberOfLines={1} style={[ls.segmentText, i === 0 && ls.segmentTextActive]}>{l}</Text>
+          </View>
         ))}
       </View>
-      <FormLabel>Price range</FormLabel>
-      <View style={{ flexDirection: 'row', gap: 6 }}>
-        {([['Free', false], ['$', false], ['$$', true], ['$$$', false]] as [string, boolean][]).map(([l, sel]) => (
-          <BigPill key={l} label={l} selected={sel} />
-        ))}
+      <FormLabel>Category</FormLabel>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+        {cats.map((c, i) => <CatChip key={c} label={c} selected={i === 0} />)}
       </View>
     </View>
   );
@@ -362,21 +351,17 @@ function LogStepImpression() {
 }
 
 function FormLabel({ children }: { children: string }) {
-  return <Text style={{ fontSize: 9.5, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase', color: WT.muted, marginBottom: 4, marginTop: 1 }}>{children}</Text>;
+  return (
+    <Text style={{ fontSize: 9.5, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase', color: WT.muted, marginBottom: 4, marginTop: 1 }}>
+      {children} <Text style={{ color: WT.accent }}>*</Text>
+    </Text>
+  );
 }
 
 function CatChip({ label, selected }: { label: string; selected?: boolean }) {
   return (
     <View style={{ paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, borderWidth: 1.3, borderColor: selected ? WT.accent : WT.border, backgroundColor: selected ? WT.accent + '14' : WT.card }}>
       <Text style={{ fontSize: 11.5, fontWeight: '600', color: selected ? WT.accent : WT.primary }}>{label}</Text>
-    </View>
-  );
-}
-
-function BigPill({ label, selected }: { label: string; selected?: boolean }) {
-  return (
-    <View style={{ flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: selected ? WT.accent : WT.border, backgroundColor: selected ? WT.accent + '14' : WT.inputBg, alignItems: 'center' }}>
-      <Text style={{ fontSize: 13, fontWeight: '700', color: selected ? WT.accent : WT.primary }}>{label}</Text>
     </View>
   );
 }
@@ -421,32 +406,49 @@ const ls = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     padding: 11, borderRadius: 14, borderWidth: 1.2, borderColor: WT.border, backgroundColor: WT.card,
   },
+  // Segmented control (single capsule, selected option filled) — "What kind of date?"
+  segmented: { flexDirection: 'row', backgroundColor: WT.inputBg, borderRadius: 999, padding: 4, marginBottom: 8 },
+  segmentItem: { flex: 1, paddingVertical: 8, borderRadius: 999, alignItems: 'center' },
+  segmentItemActive: { backgroundColor: WT.accent },
+  segmentText: { fontSize: 12, fontWeight: '700', color: WT.muted },
+  segmentTextActive: { color: '#fff' },
 });
 
 // ════════════════════════════════════════════════════════════════════
 // SHOWCASE 2 — Stack your night
 // ════════════════════════════════════════════════════════════════════
-const STACK_STAGES = ['select', 'place', 'result'] as const;
-type StackStage = typeof STACK_STAGES[number];
-
 const SAMPLE_SPOTS = [
-  { name: "Sam's Tavern",     cat: 'bars',    price: '$$', rating: 10  },
-  { name: 'Saint Bread',      cat: 'cafes',   price: '$',  rating: 9.5 },
-  { name: 'Smith Tower',      cat: 'indoors', price: '$',  rating: 9.0 },
-  { name: 'Damn the Weather', cat: 'bars',    price: '$$', rating: 7.6 },
+  { name: 'South Campus Center', cat: 'indoors', price: 'Free', rating: 10  },
+  { name: 'Saint Bread',         cat: 'cafes',   price: '$',    rating: 9.5 },
+  { name: 'Smith Tower',         cat: 'indoors', price: '$',    rating: 9.0 },
+  { name: 'Damn the Weather',    cat: 'bars',    price: '$$',   rating: 7.6 },
 ];
+
+// Mirrors the real flow: open the add menu → pick spots from the All Dates list.
+// No tier board — stacks aren't placed on S–F.
+const STACK_STAGES = ['what', 'select'] as const;
 
 function StackShowcase({ active }: { active: boolean }) {
   const [stageIdx, setStageIdx] = useState(0);
-  const stageFade = useRef(new Animated.Value(1)).current;
+  // Same fade + slide transition primitives as LogShowcase, so 02 The Stack
+  // animates identically to 01 The Log.
+  const stepFade = useRef(new Animated.Value(1)).current;
+  const stepSlide = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!active) { setStageIdx(0); return; }
     const per = Math.max(2400, LOOP_MS / STACK_STAGES.length);
     const id = setInterval(() => {
-      Animated.timing(stageFade, { toValue: 0, duration: 120, useNativeDriver: true }).start(() => {
+      Animated.parallel([
+        Animated.timing(stepFade, { toValue: 0, duration: 120, useNativeDriver: true }),
+        Animated.timing(stepSlide, { toValue: -6, duration: 120, useNativeDriver: true }),
+      ]).start(() => {
         setStageIdx(x => (x + 1) % STACK_STAGES.length);
-        Animated.timing(stageFade, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+        stepSlide.setValue(6);
+        Animated.parallel([
+          Animated.timing(stepFade, { toValue: 1, duration: 220, useNativeDriver: true }),
+          Animated.spring(stepSlide, { toValue: 0, damping: 20, stiffness: 280, useNativeDriver: true }),
+        ]).start();
       });
     }, per);
     return () => clearInterval(id);
@@ -456,25 +458,96 @@ function StackShowcase({ active }: { active: boolean }) {
 
   return (
     <Card bg={WT.bg}>
-      <Animated.View style={{ flex: 1, opacity: stageFade }}>
+      <Animated.View style={{ flex: 1, opacity: stepFade, transform: [{ translateY: stepSlide }] }}>
+        {stage === 'what'   && <StackStageWhat />}
         {stage === 'select' && <StackStageSelect />}
-        {stage === 'place'  && <StackStagePlace />}
-        {stage === 'result' && <StackStageResult />}
       </Animated.View>
     </Card>
   );
 }
 
-function StackStageSelect() {
-  const sel = new Set([1, 2]);
+// "What are you logging?" entry point — same map + sheet shell as the Log showcase,
+// but the two choices shown are Want to Go and Create a Stack.
+function StackStageWhat() {
   return (
     <>
-      <View style={{ backgroundColor: WT.accent + '14', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Map background (top 23%) */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '77%' }}>
+        <MapBg />
+        <MapPin x={18} y={22} color={RC.great} />
+        <MapPin x={78} y={18} color={RC.okay} />
+        <MapPin x={40} y={42} color={RC.great} />
+        <MapPin x={88} y={36} color={RC.bad} />
+        <View style={{ position: 'absolute', left: '54%', top: '32%', alignItems: 'center', justifyContent: 'center' }}>
+          <PulseRing color={WT.accent} />
+          <MapPin x={0} y={0} color={WT.accent} large />
+        </View>
+      </View>
+
+      {/* FAB at map/sheet boundary */}
+      <View style={ls.fab}>
+        <Ionicons name="add" size={18} color="#fff" />
+      </View>
+
+      {/* Bottom sheet */}
+      <View style={ls.sheet}>
+        <View style={ls.dragHandle} />
+        <View style={ls.progressRow}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <View key={i} style={[ls.pill, {
+              width: i === 0 ? 22 : 6,
+              backgroundColor: i === 0 ? WT.accent : WT.border,
+            }]} />
+          ))}
+        </View>
+        <View style={{ paddingTop: 2 }}>
+          <Text style={[ls.stepTitle, { fontFamily: Fonts.serif }]}>What are you logging?</Text>
+          <Text style={ls.stepSub}>Choose one to get started</Text>
+          <View style={{ marginTop: 10, gap: 7 }}>
+            <ChoiceRow
+              icon={
+                <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="bookmark" size={20} color="#5C4EB2" />
+                </View>
+              }
+              title="Want to Go" sub="Save a place for later"
+            />
+            <ChoiceRow
+              icon={
+                <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="layers" size={20} color="#FF9F0A" />
+                </View>
+              }
+              title="Create a Stack" sub="Group spots into a date night story"
+            />
+          </View>
+        </View>
+      </View>
+    </>
+  );
+}
+
+function StackStageSelect() {
+  const sel = new Set([0, 1]);
+  return (
+    <>
+      {/* All Dates header */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <Text style={{ fontFamily: Fonts.serif, fontSize: 22, color: WT.primary, fontWeight: '400', letterSpacing: -0.4 }}>All Dates</Text>
+        <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
+          {(['Been', 'Want to Go', 'Stacks'] as const).map(t => (
+            <View key={t} style={{ paddingBottom: 6, borderBottomWidth: 2, borderBottomColor: t === 'Been' ? WT.primary : 'transparent' }}>
+              <Text style={{ fontSize: 13, fontWeight: t === 'Been' ? '700' : '600', color: t === 'Been' ? WT.primary : WT.muted }}>{t}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={{ backgroundColor: WT.accent + '14', paddingHorizontal: 16, paddingVertical: 9, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={{ fontSize: 13, color: WT.accent, fontWeight: '700' }}>2 selected</Text>
         <Text style={{ fontSize: 12, color: WT.muted, fontWeight: '600' }}>Cancel</Text>
       </View>
       <View style={{ paddingHorizontal: 14 }}>
-        {SAMPLE_SPOTS.map((spot, i) => <SpotListRow key={spot.name} spot={spot} selected={sel.has(i)} />)}
+        {SAMPLE_SPOTS.slice(0, 3).map((spot, i) => <SpotListRow key={spot.name} spot={spot} selected={sel.has(i)} />)}
       </View>
       {/* Floating CTA */}
       <View style={{
@@ -515,79 +588,6 @@ function SpotListRow({ spot, selected }: { spot: typeof SAMPLE_SPOTS[0]; selecte
     </View>
   );
 }
-
-function StackStagePlace() {
-  return (
-    <View style={{ flex: 1, padding: 18, justifyContent: 'center' }}>
-      <Text style={[ss.stageTitle, { fontFamily: Fonts.serif }]}>Place "Our Spot"</Text>
-      <Text style={ss.stageSub}>Tap a tier to place this date night</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginTop: 22 }}>
-        {(['S', 'A', 'B', 'C', 'F'] as const).map(letter => (
-          <TierSquare key={letter} letter={letter} highlight={letter === 'S'} />
-        ))}
-      </View>
-      <View style={{ marginTop: 20, backgroundColor: WT.inputBg, borderRadius: 14, padding: 14 }}>
-        <Text style={{ fontSize: 13, color: WT.placeholder }}>Why this tier?</Text>
-      </View>
-    </View>
-  );
-}
-
-function TierSquare({ letter, highlight }: { letter: string; highlight?: boolean }) {
-  const tier = TIER[letter];
-  return (
-    <View style={{
-      flex: 1, padding: 8, borderRadius: 14,
-      borderWidth: 1.5, borderColor: highlight ? tier.c : WT.border, backgroundColor: WT.card,
-      shadowColor: tier.c, shadowOffset: { width: 0, height: 8 }, shadowRadius: 16, shadowOpacity: highlight ? 0.45 : 0, elevation: highlight ? 4 : 0,
-      transform: [{ scale: highlight ? 1.06 : 1 }],
-    }}>
-      <View style={{ aspectRatio: 1, backgroundColor: tier.c, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 24, fontWeight: '400', letterSpacing: -0.5 }}>{letter}</Text>
-      </View>
-    </View>
-  );
-}
-
-function StackStageResult() {
-  return (
-    <View style={{ padding: 14, gap: 7 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, marginBottom: 2 }}>
-        <Text style={{ fontSize: 12.5, color: WT.primary, fontWeight: '600' }}>1 stack</Text>
-        <View style={{ borderWidth: 1.5, borderColor: WT.accent, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-          <Text style={{ fontSize: 11.5, color: WT.accent, fontWeight: '700' }}>+ New Stack</Text>
-        </View>
-      </View>
-      {(['S', 'A', 'B', 'C', 'F'] as const).map(letter => (
-        <TierResultRow key={letter} letter={letter} stacks={letter === 'S' ? 1 : 0} />
-      ))}
-    </View>
-  );
-}
-
-function TierResultRow({ letter, stacks }: { letter: string; stacks: number }) {
-  const tier = TIER[letter];
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: tier.wash, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, minHeight: 40 }}>
-      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: tier.c, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#fff', fontFamily: Fonts.serif, fontSize: 18, fontWeight: '400' }}>{letter}</Text>
-      </View>
-      <Text style={{ fontSize: 8.5, fontWeight: '700', letterSpacing: 0.9, color: WT.muted, textTransform: 'uppercase' }}>
-        {stacks} STACK{stacks !== 1 ? 'S' : ''}
-      </Text>
-      {stacks > 0 && (
-        <View style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 1.5, borderColor: WT.accent, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}>
-          <Text style={{ fontFamily: Fonts.serif, fontWeight: '400', fontSize: 12, color: WT.accent }}>O</Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const ss = StyleSheet.create({
-  stageTitle: { fontSize: 21, color: WT.primary, textAlign: 'center', letterSpacing: -0.3 },
-  stageSub: { fontSize: 12.5, color: WT.muted, textAlign: 'center', marginTop: 6 },
-});
 
 // ════════════════════════════════════════════════════════════════════
 // SHOWCASE 3 — Compare (This or That)
@@ -653,6 +653,9 @@ function CompareShowcase({ active }: { active: boolean }) {
           Which was better?
         </Text>
         <Text style={{ fontSize: 12, color: WT.muted, marginTop: 6 }}>Step 4 of 5</Text>
+        <Text style={{ fontSize: 12, color: WT.muted, fontStyle: 'italic', marginTop: 5, textAlign: 'center', paddingHorizontal: 18 }}>
+          Which would you want to take someone on a date?
+        </Text>
       </View>
 
       {/* Cards row — vs puck uses marginHorizontal: -10 to overlap both cards, matching real app */}
@@ -701,9 +704,7 @@ function CompareCardInner({ spot, isNew, label, picked }: {
         <Text style={cs.bandCat}>{spot.cat.toUpperCase()}</Text>
         {rc != null ? (
           // Opponent with known rating
-          <View style={[cs.ratingPill, { borderColor: rc }]}>
-            <Text style={[cs.ratingPillText, { color: rc }]}>{(spot.rating as number).toFixed(1)}</Text>
-          </View>
+          <ScoreRing rating={spot.rating as number} size={30} />
         ) : (
           // New spot: "?" pill
           <View style={cs.questionPill}>
@@ -738,9 +739,6 @@ const cs = StyleSheet.create({
   // "?" pill for new/unrated spot
   questionPill: { backgroundColor: 'rgba(255,255,255,0.2)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
   questionText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.8)' },
-  // Rating pill for opponent with known rating
-  ratingPill: { backgroundColor: '#fff', borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  ratingPillText: { fontSize: 12, fontWeight: '800' },
   // Card body
   cardBody: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: WT.card, justifyContent: 'space-between' },
   cardName: { fontSize: 14, fontWeight: '700', color: WT.primary, lineHeight: 18 },

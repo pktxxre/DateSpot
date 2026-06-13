@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet, View, Text, Pressable, Share,
-  TextInput, ScrollView, useWindowDimensions, AppState,
+  ScrollView, useWindowDimensions, AppState,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import Animated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
 } from 'react-native-reanimated';
@@ -20,12 +21,12 @@ const FRIENDS_CACHE_KEY = 'datespot:friends_cache_v1';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const BG       = '#FFFFFF';
-const CARD     = '#FCF9F2';
-const BORDER   = '#EDE8E0';
+const BG       = '#FBF8F3';
+const CARD     = '#FFFFFF';
+const BORDER   = '#ECE4D8';
 const PRIMARY  = '#4B3621';
 const MUTED    = '#8B7762';
-const PLACEHOLDER_CLR = '#B0A090';
+const PLACEHOLDER_CLR = '#B3A48F';
 const ACCENT   = '#E76F51';
 
 // ─── Friend row ───────────────────────────────────────────────────────────────
@@ -178,7 +179,7 @@ export default function FriendsScreen() {
       {/* Search field */}
       <View style={s.searchWrap}>
         <Ionicons name="search-outline" size={16} color={MUTED} style={{ marginRight: 8 }} />
-        <TextInput
+        <AppTextInput
           style={s.searchInput}
           placeholder="Find friends by name or @handle"
           placeholderTextColor={PLACEHOLDER_CLR}

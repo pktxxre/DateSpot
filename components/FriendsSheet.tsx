@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated, Easing, Image, Modal, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, useWindowDimensions, View,
+  StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import AppTextInput from '@/components/AppTextInput';
 import { Ionicons } from '@expo/vector-icons';
 import { getFriends, AcceptedFriend } from '@/lib/friends';
 
@@ -103,7 +104,7 @@ export function FriendsSheet({ visible, username, onClose }: Props) {
         {/* Search */}
         <View style={s.searchWrap}>
           <Ionicons name="search-outline" size={15} color={MUTED} style={{ marginRight: 8 }} />
-          <TextInput
+          <AppTextInput
             style={s.searchInput}
             placeholder="Search friends"
             placeholderTextColor={PLACEHOLDER}
